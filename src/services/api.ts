@@ -93,16 +93,28 @@ export interface PromoValidationResult {
   code: string;
   discountType?: 'PERCENTAGE' | 'FIXED';
   discountValue?: number;
+  discountCurrency?: string;
+  appliedCurrency?: string;
   maxDiscount?: number | null;
+  calculatedDiscount?: number;
   discount?: number;
+  discountAmount?: number;
   cartTotal?: number;
   finalTotal?: number;
   creditAmount?: number;
-  message: string;
+  exchangeRateUsed?: number;
+  discountLabel?: string;
+  message?: string;
+  error?: string;
 }
 
-export async function validatePromoCode(code: string, cartTotal?: number): Promise<PromoValidationResult> {
-  return api.post('/api/promo-codes/validate', { code, cartTotal });
+export async function validatePromoCode(
+  code: string, 
+  cartTotal?: number, 
+  currency?: string, 
+  purpose: 'CHECKOUT_DISCOUNT' | 'WALLET_REDEEM' = 'CHECKOUT_DISCOUNT'
+): Promise<PromoValidationResult> {
+  return api.post('/api/promo-codes/validate', { code, cartTotal, currency, purpose });
 }
 
 export async function redeemWalletCreditCode(code: string): Promise<{ success: boolean; newBalance: number; creditAmount: number; message: string }> {

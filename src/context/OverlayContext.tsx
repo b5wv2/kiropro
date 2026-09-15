@@ -59,9 +59,11 @@ export const OverlayProvider: React.FC<{ children: React.ReactNode }> = ({ child
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(11, 15, 25, 0.45)',
-            zIndex: 9999, // Backdrop z-index
+            backgroundColor: 'rgba(11, 15, 25, 0.5)',
+            zIndex: 9990, // Backdrop z-index (drawers are 10000)
             opacity: 1,
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
             transition: 'opacity 0.2s ease',
           }}
           onClick={closeOverlay}

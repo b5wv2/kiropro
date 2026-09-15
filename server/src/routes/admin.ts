@@ -734,13 +734,20 @@ router.post('/promo-codes', requireAdmin, async (req: AuthRequest, res: Response
   if (cleanCode.length < 6) {
     return res.status(400).json({ error: 'رمز الكود يجب ألا يقل عن 6 أحرف/أرقام لمنع التخمين العشوائي.' });
   }
-  const cleanCurrency = String(currency || 'USD').trim().toUpperCase() === 'SDG' ? 'SDG' : 'USD';
+  const rawCurrency = String(currency || '').trim().toUpperCase();
+  const cleanCurrency = rawCurrency === 'SDG' ? 'SDG' : 'USD';
 
   let parsedDiscountValue: number | null = null;
   let parsedMaxDiscount: number | null = null;
   let parsedCreditAmount: number | null = null;
 
   if (type === 'DISCOUNT') {
+    if (discountType === 'FIXED') {
+      if (!currency || !['USD', 'SDG'].includes(rawCurrency)) {
+        return res.status(400).json({ error: 'يرجى تحديد عملة الخصم الثابت (USD أو SDG).' });
+      }
+    }
+
     const numVal = Number(discountValue);
     if (!Number.isFinite(numVal) || numVal <= 0) {
       return res.status(400).json({ error: 'قيمة الخصم مطلوبة ويجب أن تكون رقماً أكبر من صفر.' });
@@ -758,6 +765,10 @@ router.post('/promo-codes', requireAdmin, async (req: AuthRequest, res: Response
       parsedMaxDiscount = Math.round(numMax * 100) / 100;
     }
   } else if (type === 'WALLET_CREDIT') {
+    if (!currency || !['USD', 'SDG'].includes(rawCurrency)) {
+      return res.status(400).json({ error: 'يرجى تحديد عملة رصيد الهدية (USD أو SDG).' });
+    }
+
     const numCredit = Number(creditAmount);
     if (!Number.isFinite(numCredit) || numCredit <= 0) {
       return res.status(400).json({ error: 'مبلغ الرصيد الهدية مطلوب ويجب أن يكون رقماً أكبر من صفر.' });

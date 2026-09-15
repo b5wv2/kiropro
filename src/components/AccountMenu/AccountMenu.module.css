@@ -23,7 +23,9 @@
   inset-inline-start: 0; /* Opens from left on RTL for distinct feel from main menu */
   width: min(85vw, 320px);
   height: 100dvh;
-  background: #FFFFFF;
+  background: #FFFFFF !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   z-index: 10000;
   display: flex;
   flex-direction: column;

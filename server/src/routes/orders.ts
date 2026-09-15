@@ -157,7 +157,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
 
         if (!promoRecord) throw new Error('كود الخصم غير صحيح');
         if (!promoRecord.is_active) throw new Error('هذا الكود غير متاح حالياً');
-        if (promoRecord.type !== 'DISCOUNT') throw new Error('هذا الكود مخصص لشحن المحفظة وليس كود خصم للمشتريات');
+        if (promoRecord.type !== 'DISCOUNT') throw new Error('عذرًا، هذا كود رصيد هدايا وليس كود خصم. يرجى استبداله من المكان المخصص لإضافة الرصيد.');
 
         const now = new Date();
         if (promoRecord.starts_at && now < new Date(promoRecord.starts_at)) throw new Error('هذا الكود لم يبدأ العمل به بعد');

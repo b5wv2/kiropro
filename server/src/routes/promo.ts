@@ -45,10 +45,10 @@ function getOptionalUserId(req: Request): string | null {
 /**
  * 1. VALIDATE PROMO CODE (DOES NOT CONSUME CODE)
  * POST /api/promo-codes/validate
- * Body: { code: string, cartTotal?: number }
+ * Body: { code: string, cartTotal?: number, currency?: string, purpose?: 'CHECKOUT_DISCOUNT' | 'WALLET_REDEEM' }
  */
 router.post('/validate', promoValidateLimiter, async (req: Request, res: Response) => {
-  const { code, cartTotal } = req.body;
+  const { code, cartTotal, currency, purpose = 'CHECKOUT_DISCOUNT' } = req.body;
 
   if (!code || typeof code !== 'string') {
     return res.status(400).json({ valid: false, error: 'يرجى إدخال رمز الكود.' });
@@ -104,8 +104,17 @@ router.post('/validate', promoValidateLimiter, async (req: Request, res: Respons
       }
     }
 
-    // TYPE 1: WALLET_CREDIT
+    // RULE 1: If WALLET_CREDIT is used in CHECKOUT_DISCOUNT field => Strict Rejection
     if (promo.type === 'WALLET_CREDIT') {
+      if (purpose === 'CHECKOUT_DISCOUNT') {
+        return res.status(400).json({
+          valid: false,
+          code: 'GIFT_CODE_USED_IN_DISCOUNT_FIELD',
+          error: 'عذرًا، هذا كود رصيد هدايا وليس كود خصم. يرجى استبداله من المكان المخصص لإضافة الرصيد.'
+        });
+      }
+
+      // Valid for WALLET_REDEEM
       const credit = Number(promo.credit_amount) || 0;
       const promoCurrency = (promo.currency || 'USD').toUpperCase();
       return res.json({
@@ -120,30 +129,83 @@ router.post('/validate', promoValidateLimiter, async (req: Request, res: Respons
       });
     }
 
-    // TYPE 2: DISCOUNT
+    // RULE 2: If DISCOUNT is used in WALLET_REDEEM field => Strict Rejection
+    if (promo.type === 'DISCOUNT' && purpose === 'WALLET_REDEEM') {
+      return res.status(400).json({
+        valid: false,
+        code: 'DISCOUNT_CODE_USED_IN_WALLET_FIELD',
+        error: 'هذا الكود مخصص لخصم مشتريات الباقات، وليس كود رصيد هدية. يمكنك استخدامه عند تأكيد طلب الشراء.'
+      });
+    }
+
+    // TYPE 2: DISCOUNT CALCULATION WITH CURRENCY AWARENESS
+    // Fetch Central Exchange Rate
+    const rateRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
+    const rateConfig = rateRes.rows[0]?.value || { rate: 5000 };
+    const exchangeRate = Number(rateConfig.rate) || 5000;
+
+    // Resolve customer's active currency
+    let effectiveCurrency = String(currency || '').trim().toUpperCase();
+    if (effectiveCurrency !== 'SDG' && effectiveCurrency !== 'USD') {
+      if (userId) {
+        const userRow = await pool.query('SELECT "preferred_currency" FROM "User" WHERE id = $1', [userId]);
+        effectiveCurrency = (userRow.rows[0]?.preferred_currency || 'USD').toUpperCase();
+      } else {
+        effectiveCurrency = 'USD';
+      }
+    }
+
     const total = typeof cartTotal === 'number' && Number.isFinite(cartTotal) && cartTotal > 0 ? Number(cartTotal) : 0;
     const discountVal = Number(promo.discount_value) || 0;
-    const maxDiscount = promo.max_discount ? Number(promo.max_discount) : null;
+    const promoCurrency = (promo.currency || 'USD').toUpperCase();
 
     let calculatedDiscount = 0;
     if (promo.discount_type === 'PERCENTAGE') {
       calculatedDiscount = total > 0 ? (total * discountVal) / 100 : 0;
+
+      // Cap at max_discount (converting currency if max_discount currency differs from user's currency)
+      if (promo.max_discount) {
+        let maxCap = Number(promo.max_discount);
+        if (promoCurrency !== effectiveCurrency) {
+          if (effectiveCurrency === 'SDG') {
+            maxCap = Math.round(maxCap * exchangeRate);
+          } else {
+            maxCap = Math.round((maxCap / exchangeRate) * 100) / 100;
+          }
+        }
+        calculatedDiscount = Math.min(calculatedDiscount, maxCap);
+      }
     } else {
-      calculatedDiscount = discountVal;
+      // FIXED DISCOUNT: Currency-aware conversion via central exchange rate
+      let fixedVal = discountVal;
+      if (promoCurrency !== effectiveCurrency) {
+        if (effectiveCurrency === 'SDG') {
+          fixedVal = Math.round(fixedVal * exchangeRate);
+        } else {
+          fixedVal = Math.round((fixedVal / exchangeRate) * 100) / 100;
+        }
+      }
+      calculatedDiscount = fixedVal;
     }
 
-    // Cap at max_discount
-    const cappedDiscount = maxDiscount ? Math.min(calculatedDiscount, maxDiscount) : calculatedDiscount;
-    const actualDiscount = total > 0 ? Math.min(cappedDiscount, total) : cappedDiscount;
+    // Ensure discount never exceeds total and total never drops below 0
+    const actualDiscount = total > 0 ? Math.min(calculatedDiscount, total) : calculatedDiscount;
     const finalTotal = total > 0 ? Math.max(0, total - actualDiscount) : 0;
 
-    let displayMessage = '';
+    const roundedDiscount = effectiveCurrency === 'SDG' ? Math.round(actualDiscount) : Math.round(actualDiscount * 100) / 100;
+    const roundedFinalTotal = effectiveCurrency === 'SDG' ? Math.round(finalTotal) : Math.round(finalTotal * 100) / 100;
+
+    const discountLabel = effectiveCurrency === 'SDG'
+      ? `${roundedDiscount.toLocaleString()} ج.س`
+      : `$${roundedDiscount.toFixed(2)}`;
+
+    let displayRule = '';
     if (promo.discount_type === 'PERCENTAGE') {
-      displayMessage = maxDiscount 
-        ? `خصم ${discountVal}% بحد أقصى ${maxDiscount}` 
+      displayRule = promo.max_discount 
+        ? `خصم ${discountVal}% بحد أقصى ${promoCurrency === 'SDG' ? `${Number(promo.max_discount).toLocaleString()} ج.س` : `$${promo.max_discount}`}` 
         : `خصم ${discountVal}%`;
     } else {
-      displayMessage = `خصم بقيمة ${discountVal}`;
+      displayRule = `خصم بقيمة ${promoCurrency === 'SDG' ? `${discountVal.toLocaleString()} ج.س` : `$${discountVal}`}`;
     }
 
     return res.json({
@@ -152,12 +214,17 @@ router.post('/validate', promoValidateLimiter, async (req: Request, res: Respons
       code: promo.code,
       discountType: promo.discount_type,
       discountValue: discountVal,
-      maxDiscount: maxDiscount,
-      calculatedDiscount: Math.round(actualDiscount * 100) / 100,
-      discount: Math.round(actualDiscount * 100) / 100,
+      discountCurrency: promoCurrency,
+      appliedCurrency: effectiveCurrency,
+      maxDiscount: promo.max_discount ? Number(promo.max_discount) : null,
+      calculatedDiscount: roundedDiscount,
+      discount: roundedDiscount,
+      discountAmount: roundedDiscount,
       cartTotal: total,
-      finalTotal: Math.round(finalTotal * 100) / 100,
-      message: `تم تطبيق كود الخصم ${promo.code} (${displayMessage})`
+      finalTotal: roundedFinalTotal,
+      exchangeRateUsed: exchangeRate,
+      discountLabel,
+      message: `تم تطبيق كود الخصم ${promo.code} (${displayRule})`
     });
   } catch (err) {
     console.error('Validate promo code error:', err);
@@ -211,6 +278,7 @@ router.post('/redeem-credit', promoRedeemLimiter, requireAuth, async (req: AuthR
     if (promo.type !== 'WALLET_CREDIT') {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
+        code: 'DISCOUNT_CODE_USED_IN_WALLET_FIELD',
         error: 'هذا الكود مخصص لخصم مشتريات الباقات، وليس كود رصيد هدية. يمكنك استخدامه عند تأكيد طلب الشراء.' 
       });
     }

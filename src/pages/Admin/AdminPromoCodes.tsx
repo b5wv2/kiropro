@@ -53,6 +53,7 @@ export const AdminPromoCodes: React.FC = () => {
   const [code, setCode] = useState('');
   const [type, setType] = useState<'DISCOUNT' | 'WALLET_CREDIT'>('DISCOUNT');
   const [creditCurrency, setCreditCurrency] = useState<'USD' | 'SDG'>('USD');
+  const [discountCurrency, setDiscountCurrency] = useState<'USD' | 'SDG'>('SDG');
   const [discountType, setDiscountType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
   const [discountValue, setDiscountValue] = useState<number | ''>('');
   const [maxDiscount, setMaxDiscount] = useState<number | ''>('');
@@ -106,10 +107,11 @@ export const AdminPromoCodes: React.FC = () => {
     setErrorMsg(null);
 
     try {
+      const promoCurrency = type === 'WALLET_CREDIT' ? creditCurrency : discountCurrency;
       await api.post('/api/admin/promo-codes', {
         code: code.trim().toUpperCase(),
         type,
-        currency: type === 'WALLET_CREDIT' ? creditCurrency : undefined,
+        currency: promoCurrency,
         discountType: type === 'DISCOUNT' ? discountType : undefined,
         discountValue: type === 'DISCOUNT' ? Number(discountValue) : undefined,
         maxDiscount: type === 'DISCOUNT' && maxDiscount ? Number(maxDiscount) : undefined,
@@ -304,14 +306,20 @@ export const AdminPromoCodes: React.FC = () => {
                         ) : c.discount_type === 'PERCENTAGE' ? (
                           <span>{c.discount_value}%</span>
                         ) : (
-                          <span>${Number(c.discount_value || 0).toFixed(2)}</span>
+                          <span>
+                            {c.currency === 'SDG' 
+                              ? `${Number(c.discount_value || 0).toLocaleString()} ج.س` 
+                              : `$${Number(c.discount_value || 0).toFixed(2)}`}
+                          </span>
                         )}
                       </td>
 
                       <td>
                         {c.type === 'DISCOUNT' && c.max_discount ? (
                           <span style={{ fontWeight: 700, color: '#D97706' }}>
-                            ${Number(c.max_discount).toFixed(2)}
+                            {c.currency === 'SDG'
+                              ? `${Number(c.max_discount).toLocaleString()} ج.س`
+                              : `$${Number(c.max_discount).toFixed(2)}`}
                           </span>
                         ) : (
                           <span style={{ color: '#94A3B8' }}>—</span>
@@ -486,40 +494,54 @@ export const AdminPromoCodes: React.FC = () => {
                           className="admin-select"
                         >
                           <option value="PERCENTAGE">نسبة مئوية (%)</option>
-                          <option value="FIXED">مبلغ ثابت ($)</option>
+                          <option value="FIXED">مبلغ ثابت</option>
                         </select>
                       </div>
 
                       <div>
-                        <label className="admin-label">
-                          {discountType === 'PERCENTAGE' ? 'نسبة الخصم (%) *' : 'مبلغ الخصم ($) *'}
-                        </label>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          min="0.1" 
-                          max={discountType === 'PERCENTAGE' ? 100 : undefined} 
-                          value={discountValue} 
-                          onChange={(e) => setDiscountValue(e.target.value === '' ? '' : Number(e.target.value))} 
-                          placeholder={discountType === 'PERCENTAGE' ? 'مثال: 10' : 'مثال: 5'} 
-                          className="admin-input" 
-                          required 
-                        />
+                        <label className="admin-label">عملة الخصم *</label>
+                        <select
+                          className="admin-select"
+                          value={discountCurrency}
+                          onChange={(e) => setDiscountCurrency(e.target.value as 'USD' | 'SDG')}
+                        >
+                          <option value="SDG">SDG — الجنيه السوداني (ج.س)</option>
+                          <option value="USD">USD — الدولار الأمريكي ($)</option>
+                        </select>
                       </div>
+                    </div>
+
+                    <div style={{ marginBottom: '14px' }}>
+                      <label className="admin-label">
+                        {discountType === 'PERCENTAGE' 
+                          ? 'نسبة الخصم (%) *' 
+                          : `مبلغ الخصم الثابت (${discountCurrency === 'SDG' ? 'ج.س' : '$'}) *`}
+                      </label>
+                      <input 
+                        type="number" 
+                        step={discountCurrency === 'USD' ? '0.01' : '1'} 
+                        min="0.1" 
+                        max={discountType === 'PERCENTAGE' ? 100 : undefined} 
+                        value={discountValue} 
+                        onChange={(e) => setDiscountValue(e.target.value === '' ? '' : Number(e.target.value))} 
+                        placeholder={discountType === 'PERCENTAGE' ? 'مثال: 10' : discountCurrency === 'SDG' ? 'مثال: 1000' : 'مثال: 5'} 
+                        className="admin-input" 
+                        required 
+                      />
                     </div>
 
                     {discountType === 'PERCENTAGE' && (
                       <div style={{ marginBottom: '14px' }}>
                         <label className="admin-label">
-                          الحد الأقصى للخصم بالدولار ($) (اختياري - Max Discount Cap)
+                          الحد الأقصى للخصم ({discountCurrency === 'SDG' ? 'ج.س' : '$'}) (اختياري - Max Discount Cap)
                         </label>
                         <input 
                           type="number" 
-                          step="0.01" 
+                          step={discountCurrency === 'USD' ? '0.01' : '1'} 
                           min="0.1" 
                           value={maxDiscount} 
                           onChange={(e) => setMaxDiscount(e.target.value === '' ? '' : Number(e.target.value))} 
-                          placeholder="مثال: 5 (أي لن يتجاوز الخصم $5 مهما زاد سعر الباقة)" 
+                          placeholder={discountCurrency === 'SDG' ? 'مثال: 5000' : 'مثال: 5'} 
                           className="admin-input" 
                         />
                       </div>

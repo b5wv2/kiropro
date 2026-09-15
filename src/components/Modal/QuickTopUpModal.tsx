@@ -65,15 +65,20 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   // Recalculate discount if package changes while promo is active
   useEffect(() => {
     if (appliedPromo && selectedPackage) {
-      validatePromoCode(appliedPromo.code, selectedPackage.price)
+      const orderPrice = getPackagePrice(selectedPackage);
+      validatePromoCode(appliedPromo.code, orderPrice, currency, 'CHECKOUT_DISCOUNT')
         .then(res => {
-          if (res.valid) {
+          if (res.valid && res.type === 'DISCOUNT') {
             setAppliedPromo(res);
+          } else {
+            setAppliedPromo(null);
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          setAppliedPromo(null);
+        });
     }
-  }, [selectedPackage]);
+  }, [selectedPackage, currency]);
 
   // Fetch game servers whenever package changes (STRICTLY ONLY if package requires server)
   useEffect(() => {
@@ -119,8 +124,9 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   if (!isOpen || !game || !selectedPackage) return null;
 
   const rawOrderPrice = getPackagePrice(selectedPackage);
-  const rawDiscountUsd = appliedPromo?.discount ? Number(appliedPromo.discount) : 0;
-  const discountAmount = currency === 'SDG' ? Math.round(rawDiscountUsd * exchangeRate) : rawDiscountUsd;
+  const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
+    ? (appliedPromo.discountAmount ? Number(appliedPromo.discountAmount) : (appliedPromo.discount ? Number(appliedPromo.discount) : 0))
+    : 0;
   const finalPrice = Math.max(0, rawOrderPrice - discountAmount);
 
   const isInsufficient = balance < finalPrice;
@@ -136,15 +142,19 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     setPromoLoading(true);
     setPromoError(null);
     try {
-      const res = await validatePromoCode(clean, selectedPackage.price);
-      if (res.valid) {
+      const orderPrice = getPackagePrice(selectedPackage);
+      const res = await validatePromoCode(clean, orderPrice, currency, 'CHECKOUT_DISCOUNT');
+      if (res.valid && res.type === 'DISCOUNT') {
         setAppliedPromo(res);
-        showToast('تم تطبيق كود الخصم بنجاح!', 'success');
+        showToast('تم تفعيل كود الخصم بنجاح!', 'success');
       } else {
-        setPromoError(res.message || 'كود الخصم غير صحيح');
+        setAppliedPromo(null);
+        setPromoError(res.error || res.message || 'كود الخصم غير صالح');
       }
     } catch (err: any) {
-      setPromoError(err.message || 'فشل التحقق من كود الخصم');
+      setAppliedPromo(null);
+      const errMsg = err?.response?.data?.error || err?.message || 'فشل التحقق من كود الخصم';
+      setPromoError(errMsg);
     } finally {
       setPromoLoading(false);
     }
@@ -560,8 +570,22 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                 </button>
               </div>
               {promoError && (
-                <div style={{ marginTop: 6, fontSize: '0.75rem', color: '#DC2626', fontWeight: 600 }}>
-                  {promoError}
+                <div style={{
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  background: '#FEF2F2',
+                  border: '1px solid #FCA5A5',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '0.8rem',
+                  color: '#B91C1C',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  lineHeight: 1.4
+                }}>
+                  <AlertCircle size={15} color="#DC2626" style={{ flexShrink: 0 }} />
+                  <span>{promoError}</span>
                 </div>
               )}
             </div>
@@ -573,11 +597,16 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
               background: '#ECFDF5',
               border: '1px solid #10B981',
               borderRadius: 'var(--radius-md)',
-              padding: '8px 12px'
+              padding: '10px 14px'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: '#065F46', fontWeight: 700 }}>
-                <Sparkles size={16} color="#059669" />
-                <span>تم تفعيل كود الخصم: <strong>{appliedPromo.code}</strong> (خصم {formatCurrency(discountAmount, currency)})</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: '#065F46', fontWeight: 800 }}>
+                  <Sparkles size={16} color="#059669" />
+                  <span>تم تفعيل كود الخصم بنجاح: <strong>{appliedPromo.code}</strong></span>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#047857', fontWeight: 700, paddingInlineStart: 22 }}>
+                  خصم {formatCurrency(discountAmount, currency)}
+                </div>
               </div>
               <button
                 type="button"
