@@ -12,13 +12,16 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 
 // Configure local object storage upload for admin product images
-const uploadsDir = path.join(__dirname, '../../uploads/products');
+const uploadsDir = path.resolve(__dirname, '../../uploads/products');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
@@ -42,17 +45,75 @@ const upload = multer({
 });
 
 /**
+ * Validates actual binary signature (magic bytes) to ensure file authenticity
+ */
+function isValidImageFileSignature(filePath: string, ext: string): boolean {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(16);
+    const bytesRead = fs.readSync(fd, buffer, 0, 16, 0);
+    fs.closeSync(fd);
+    if (bytesRead < 4) return false;
+
+    const cleanExt = ext.toLowerCase();
+    if (cleanExt === '.jpg' || cleanExt === '.jpeg') {
+      return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+    }
+    if (cleanExt === '.png') {
+      return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    }
+    if (cleanExt === '.webp') {
+      return buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+    }
+    if (cleanExt === '.svg') {
+      const sample = fs.readFileSync(filePath, 'utf8').slice(0, 500).toLowerCase();
+      return sample.includes('<svg') && !sample.includes('<script');
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * CUSTOMER ENDPOINT: GET /api/products
  * Reads strictly from local PostgreSQL database.
  * NEVER contacts GamesDrop during customer visits, login, or browsing.
  * Only returns products where isActive = true.
  * Completely sanitizes any upstream provider details.
  */
-const DEFAULT_PLACEHOLDER = 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80';
+export const DEFAULT_PLACEHOLDER = 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80';
 
-const resolveImageUrl = (productImg?: string | null, categoryImg?: string | null): string => {
-  if (productImg && productImg.trim()) return productImg.trim();
-  if (categoryImg && categoryImg.trim()) return categoryImg.trim();
+export function normalizeProductImageUrl(rawUrl?: string | null): string | null {
+  if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+  let url = rawUrl.trim();
+
+  const backendUrl = (process.env.BACKEND_URL || process.env.API_URL || '').trim().replace(/\/+$/, '');
+
+  // Requirement 15: If database mistakenly stores kiropro.store/uploads/
+  if (url.includes('kiropro.store/uploads/')) {
+    url = url.replace(/https?:\/\/(www\.)?kiropro\.store/i, backendUrl || '');
+  }
+
+  // Requirement 6 & 14: Relative /uploads/ path expanded to BACKEND_URL if set
+  if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+    const cleanPath = url.startsWith('/') ? url : `/${url}`;
+    if (backendUrl) {
+      return `${backendUrl}${cleanPath}`;
+    }
+    return cleanPath;
+  }
+
+  return url;
+}
+
+export const resolveImageUrl = (productImg?: string | null, categoryImg?: string | null): string => {
+  const normProduct = normalizeProductImageUrl(productImg);
+  if (normProduct) return normProduct;
+
+  const normCategory = normalizeProductImageUrl(categoryImg);
+  if (normCategory) return normCategory;
+
   return DEFAULT_PLACEHOLDER;
 };
 
@@ -96,7 +157,8 @@ router.get('/', async (req: Request, res: Response) => {
     for (const row of result.rows) {
       const groupKey = row.gameCategoryId || (row.productName.toLowerCase().includes('pubg') ? 'pubg-mobile' : 'freefire-me');
       const gameDisplayName = row.categoryArabicName || row.categoryName || (groupKey === 'pubg-mobile' ? 'PUBG Mobile' : 'Free Fire (الشرق الأوسط)');
-      const gameCover = row.categoryImageUrl || (groupKey === 'pubg-mobile' ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80' : 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=80');
+      const defaultGameCover = (groupKey === 'pubg-mobile' ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80' : 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=80');
+      const gameCover = resolveImageUrl(row.categoryImageUrl, defaultGameCover);
 
       if (!groupedMap.has(groupKey)) {
         groupedMap.set(groupKey, {
@@ -184,7 +246,7 @@ router.get('/:id', async (req: Request, res: Response) => {
         return res.status(404).json({ error: 'اللعبة غير متاحة حالياً أو لا توجد باقات مفعلة.' });
       }
 
-      const categoryImageUrl = category.imageUrl || DEFAULT_PLACEHOLDER;
+      const categoryImageUrl = resolveImageUrl(category.imageUrl, DEFAULT_PLACEHOLDER);
 
       const packages = result.rows.map((row, idx) => ({
         id: row.id,
@@ -391,7 +453,11 @@ router.get('/admin/categories', requireAdmin, async (req: AuthRequest, res: Resp
       GROUP BY c.id
       ORDER BY c."displayOrder" ASC, c.name ASC
     `);
-    res.json(result.rows);
+    const resolvedCategories = result.rows.map(cat => ({
+      ...cat,
+      imageUrl: cat.imageUrl ? resolveImageUrl(cat.imageUrl, null) : null
+    }));
+    res.json(resolvedCategories);
   } catch (err: any) {
     console.error('[Admin Categories] Failed to fetch categories:', err.message);
     res.status(500).json({ error: 'تعذر جلب قائمة الفئات والألعاب.' });
@@ -460,7 +526,15 @@ router.post('/admin/categories/:id/upload-image', requireAdmin, upload.single('i
     return res.status(400).json({ error: 'لم يتم إرفاق أي صورة.' });
   }
 
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (!isValidImageFileSignature(req.file.path, ext)) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: 'بصمة الصورة غير صالحة أو الملف تالف.' });
+  }
+
   const relativeUrl = `/uploads/products/${req.file.filename}`;
+  const backendUrl = (process.env.BACKEND_URL || process.env.API_URL || '').trim().replace(/\/+$/, '');
+  const finalUrl = backendUrl ? `${backendUrl}${relativeUrl}` : relativeUrl;
 
   try {
     const result = await pool.query(`
@@ -476,7 +550,8 @@ router.post('/admin/categories/:id/upload-image', requireAdmin, upload.single('i
 
     res.json({
       success: true,
-      imageUrl: relativeUrl,
+      imageUrl: finalUrl,
+      url: finalUrl,
       category: result.rows[0],
       message: 'تم رفع صورة الفئة بنجاح وتطبيقها على كافة باقات اللعبة.'
     });
@@ -598,7 +673,10 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
         activeCount: parseInt(globalStats.active, 10),
         inactiveCount: parseInt(globalStats.inactive, 10),
       },
-      products: itemsRes.rows
+      products: itemsRes.rows.map(p => ({
+        ...p,
+        imageUrl: p.imageUrl ? resolveImageUrl(p.imageUrl, null) : null
+      }))
     });
   } catch (err: any) {
     console.error('[Admin Catalog] Error:', err);
@@ -813,17 +891,27 @@ router.post('/admin/products/sync-prices', requireAdmin, async (req: AuthRequest
 
 /**
  * ADMIN: POST /api/admin/products/upload-image
- * Validates and stores product images safely.
+ * Validates and stores product images safely on disk.
  */
 router.post('/admin/products/upload-image', requireAdmin, upload.single('image'), (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'لم يتم إرفاق أي صورة.' });
   }
 
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (!isValidImageFileSignature(req.file.path, ext)) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: 'بصمة الصورة غير صالحة أو الملف تالف.' });
+  }
+
   const relativeUrl = `/uploads/products/${req.file.filename}`;
+  const backendUrl = (process.env.BACKEND_URL || process.env.API_URL || '').trim().replace(/\/+$/, '');
+  const finalUrl = backendUrl ? `${backendUrl}${relativeUrl}` : relativeUrl;
+
   res.json({
     success: true,
-    imageUrl: relativeUrl,
+    imageUrl: finalUrl,
+    url: finalUrl,
     message: 'تم رفع صورة المنتج بنجاح.'
   });
 });

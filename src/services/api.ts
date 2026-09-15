@@ -192,10 +192,16 @@ export async function syncProviderPrices(
 
 export async function uploadProductImage(
   file: File
-): Promise<{ success: boolean; url: string }> {
+): Promise<{ success: boolean; url: string; imageUrl?: string }> {
   const formData = new FormData();
   formData.append('image', file);
-  return api.upload('/api/products/admin/products/upload-image', formData);
+  const res = await api.upload<any>('/api/products/admin/products/upload-image', formData);
+  const finalUrl = res.url || res.imageUrl;
+  return {
+    success: res.success,
+    url: finalUrl,
+    imageUrl: finalUrl
+  };
 }
 
 export async function fetchAdminCategories(): Promise<import('../types').GameCategory[]> {

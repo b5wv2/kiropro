@@ -5,6 +5,7 @@ import { useWallet } from '../../context/WalletContext';
 import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers } from '../../services/api';
 import { formatCurrency } from '../../lib/formatters';
 import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { getProductImageUrl } from '../../utils/imageUrl';
 
 interface QuickTopUpModalProps {
   game: Game | null;
@@ -266,7 +267,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
         {/* Header */}
         <div className={styles.header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <img src={game.image} alt={game.name} className={styles.thumb} />
+            <img src={getProductImageUrl(game.image)} alt={game.name} className={styles.thumb} />
             <div>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>{game.name}</h3>
               <span style={{ fontSize: '0.775rem', color: 'var(--text-muted)', fontWeight: 600 }}>{game.type}</span>

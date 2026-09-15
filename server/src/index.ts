@@ -4,7 +4,7 @@ import dns from 'node:dns';
 // Force IPv4 first to prevent Node.js fetch from hanging/failing on unrouted IPv6 networks
 dns.setDefaultResultOrder('ipv4first');
 
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -21,6 +21,7 @@ import reviewsRoutes from './routes/reviews';
 import receiptsRoutes from './routes/receipts';
 import { orderPollingService } from './services/orderPollingService';
 import path from 'path';
+import fs from 'fs';
 
 const app = express();
 
@@ -74,14 +75,60 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-// 1. Public Uploads: Product & Category Images Only (Publicly Accessible)
-app.use('/uploads/products', express.static(path.join(__dirname, '../uploads/products'), {
-  maxAge: '1d',
-  setHeaders: (res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+// 1. Public Uploads: Dedicated, secure serving for product & category images
+const UPLOADS_PRODUCTS_DIR = path.resolve(__dirname, '../uploads/products');
+if (!fs.existsSync(UPLOADS_PRODUCTS_DIR)) {
+  fs.mkdirSync(UPLOADS_PRODUCTS_DIR, { recursive: true });
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.webp': 'image/webp',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml'
+};
+
+app.get('/uploads/products/:filename', (req: Request, res: Response) => {
+  const filename = Array.isArray(req.params.filename) ? req.params.filename[0] : String(req.params.filename || '');
+
+  // Strict Whitelist Filename Validation (Prevents Path Traversal, Null Bytes, Directory Browsing)
+  if (!filename || !/^[a-zA-Z0-9_-]+\.(webp|png|jpg|jpeg|svg)$/i.test(filename)) {
+    return res.status(400).json({ error: 'اسم الملف غير صالح.' });
   }
-}));
+
+  const safeFilePath = path.join(UPLOADS_PRODUCTS_DIR, filename);
+
+  // Strict Boundary Check: Guarantee file is strictly inside UPLOADS_PRODUCTS_DIR
+  if (!safeFilePath.startsWith(UPLOADS_PRODUCTS_DIR)) {
+    return res.status(403).json({ error: 'غير مصرح بالوصول إلى هذا المسار.' });
+  }
+
+  // Check File Existence
+  if (!fs.existsSync(safeFilePath)) {
+    // Graceful fallback to default placeholder image if present on disk
+    const defaultPlaceholder = path.join(UPLOADS_PRODUCTS_DIR, 'default.webp');
+    if (fs.existsSync(defaultPlaceholder)) {
+      res.setHeader('Content-Type', 'image/webp');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.sendFile(defaultPlaceholder);
+    }
+    return res.status(404).json({ error: 'الصورة غير موجودة.' });
+  }
+
+  // Explicit Content-Type header based on extension (never return HTML)
+  const ext = path.extname(filename).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+  return res.sendFile(safeFilePath);
+});
 
 // 2. Private Financial Documents: Bank Transfer Receipts (Authenticated & Authorized Only)
 app.use('/uploads/receipts', receiptsRoutes);

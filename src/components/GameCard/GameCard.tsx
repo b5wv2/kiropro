@@ -1,6 +1,7 @@
 import React from 'react';
 import styles from './GameCard.module.css';
 import { Game } from '../../types';
+import { getProductImageUrl } from '../../utils/imageUrl';
 
 interface GameCardProps {
   game: Game;
@@ -16,7 +17,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game, onSelect }) => {
     >
       <div className={styles.media}>
         <img
-          src={game.image}
+          src={getProductImageUrl(game.image)}
           alt={game.name}
           className={styles.image}
           loading="lazy"

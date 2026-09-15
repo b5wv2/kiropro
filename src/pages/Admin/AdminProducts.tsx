@@ -30,6 +30,7 @@ import {
   uploadAdminCategoryImage,
   removeAdminCategoryImage
 } from '../../services/api';
+import { getProductImageUrl } from '../../utils/imageUrl';
 import { AdminProduct, AdminCatalogResponse, GameCategory } from '../../types';
 
 export const AdminProducts: React.FC = () => {
@@ -569,7 +570,7 @@ export const AdminProducts: React.FC = () => {
                 }}>
                   {cat.imageUrl ? (
                     <img 
-                      src={cat.imageUrl} 
+                      src={getProductImageUrl(cat.imageUrl)} 
                       alt={cat.name}
                       style={{
                         width: '100%',
@@ -784,7 +785,7 @@ export const AdminProducts: React.FC = () => {
                         <div style={{ width: '42px', height: '42px', borderRadius: '8px', overflow: 'hidden', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           {prod.imageUrl ? (
                             <img 
-                              src={prod.imageUrl} 
+                              src={getProductImageUrl(prod.imageUrl)} 
                               alt={prod.productName} 
                               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
@@ -1125,7 +1126,7 @@ export const AdminProducts: React.FC = () => {
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                   <div style={{ width: '60px', height: '60px', borderRadius: '8px', overflow: 'hidden', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0', flexShrink: 0 }}>
                     {editForm.imageUrl ? (
-                      <img src={editForm.imageUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img src={getProductImageUrl(editForm.imageUrl)} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                       <Package size={28} color="#94a3b8" />
                     )}

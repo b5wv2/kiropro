@@ -15,8 +15,6 @@ const allowedHosts = [
   ...(process.env.RAILWAY_STATIC_URL ? [process.env.RAILWAY_STATIC_URL] : [])
 ];
 
-//j
-
 export default defineConfig({
   plugins: [react()],
   server: {
