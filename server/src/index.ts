@@ -24,6 +24,10 @@ import path from 'path';
 
 const app = express();
 
+// 1. Trust proxy: Required for Railway, Render, Cloudflare, and SSL terminating reverse proxies.
+// Enables req.secure and proper handling of Secure HttpOnly cookies behind Railway proxies.
+app.set('trust proxy', 1);
+
 // Security Headers: Protection against clickjacking, MIME sniffing, and insecure transport
 app.use(helmet({
   contentSecurityPolicy: false, // Managed at gateway level; avoids blocking legitimate game banner assets
@@ -35,15 +39,28 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }));
 
+// 2. Parse Frontend Origins strictly from FRONTEND_URL environment variable
+// Supports comma-separated list of origins and strips trailing slashes
+const envFrontendUrls = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(u => u.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+// In development, also permit local Vite dev servers
 const allowedOrigins = [
-  'http://localhost:5174',
-  'http://localhost:5173',
-  process.env.FRONTEND_URL
-].filter(Boolean) as string[];
+  ...envFrontendUrls,
+  ...(process.env.NODE_ENV !== 'production'
+    ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
+    : [])
+];
+
+if (process.env.NODE_ENV === 'production' && envFrontendUrls.length === 0) {
+  console.warn('[Railway Configuration Warning] FRONTEND_URL is not configured in process.env. CORS will reject cross-origin frontend requests.');
+}
 
 app.use(cors({
   origin: (origin, callback) => {
-    // allow requests with no origin (like mobile apps or curl)
+    // allow requests with no origin (like mobile apps, server-to-server, curl, health checks)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {

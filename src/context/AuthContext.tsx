@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, LoginCredentials, RegisterData, AuthResult } from '../types/auth';
-import { api, setToken, clearToken } from '../lib/api';
+import { api, setToken, clearToken, BASE_URL } from '../lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -93,8 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (credentials: LoginCredentials): Promise<AuthResult> => {
     setIsLoading(true);
     try {
-      const API_BASE = (((import.meta as any).env?.VITE_API_URL as string) || 'http://localhost:5000').replace(/\/$/, '');
-      const response = await fetch(`${API_BASE}/api/auth/login`, {
+      const response = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

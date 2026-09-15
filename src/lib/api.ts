@@ -1,4 +1,8 @@
-export const BASE_URL = (((import.meta as any).env?.VITE_API_URL as string) || 'http://localhost:5000').replace(/\/$/, '');
+export const BASE_URL = (
+  ((import.meta as any).env?.VITE_API_URL as string) ||
+  ((import.meta as any).env?.VITE_API_BASE_URL as string) ||
+  ((import.meta as any).env?.DEV ? 'http://localhost:5000' : '')
+).trim().replace(/\/+$/, '');
 
 export const TOKEN_STORAGE_KEY = 'token';
 

@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '../services/emailService';
-import { JWT_SECRET } from '../config';
+import { JWT_SECRET, getAuthCookieOptions } from '../config';
 
 const router = Router();
 
@@ -42,12 +42,7 @@ const generateToken = (id: string, email: string, role: string) => {
   return jwt.sign({ id, email, role }, JWT_SECRET, { expiresIn: '7d' });
 };
 
-const getCookieOptions = () => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: (process.env.NODE_ENV === 'production' ? 'strict' : 'lax') as 'strict' | 'lax',
-  path: '/'
-});
+const getCookieOptions = getAuthCookieOptions;
 
 const setTokenCookie = (res: Response, token: string) => {
   res.cookie('token', token, {
@@ -622,7 +617,7 @@ router.post('/quick-login', authLimiter, async (req: Request, res: Response) => 
     if (decoded.iat && user.passwordChangedAt) {
       const pwdChangedSec = Math.floor(new Date(user.passwordChangedAt).getTime() / 1000);
       if (decoded.iat < pwdChangedSec) {
-        res.clearCookie('token', { path: '/' });
+        res.clearCookie('token', getAuthCookieOptions());
         return res.status(401).json({
           error: 'تم تغيير كلمة المرور مؤخراً. يرجى تسجيل الدخول مجدداً بكلمة المرور الجديدة.'
         });
@@ -1097,7 +1092,7 @@ router.post('/password-reset', passwordResetLimiter, async (req: Request, res: R
     await client.query('COMMIT');
 
     // Clear any token cookies on client to ensure old sessions are invalidated
-    res.clearCookie('token', { path: '/' });
+    res.clearCookie('token', getAuthCookieOptions());
 
     return res.status(200).json({
       success: true,

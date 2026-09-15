@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import pool from '../db';
-import { JWT_SECRET } from '../config';
+import { JWT_SECRET, getAuthCookieOptions } from '../config';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -35,7 +35,7 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
       if (pwdChangedAt) {
         const pwdChangedSec = Math.floor(new Date(pwdChangedAt).getTime() / 1000);
         if (decoded.iat < pwdChangedSec) {
-          res.clearCookie('token', { path: '/' });
+          res.clearCookie('token', getAuthCookieOptions());
           return res.status(401).json({ error: 'تم تغيير كلمة المرور مؤخراً. يرجى تسجيل الدخول مجدداً.' });
         }
       }
@@ -75,7 +75,7 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
     if (user.passwordChangedAt && decoded.iat) {
       const pwdChangedSec = Math.floor(new Date(user.passwordChangedAt).getTime() / 1000);
       if (decoded.iat < pwdChangedSec) {
-        res.clearCookie('token', { path: '/' });
+        res.clearCookie('token', getAuthCookieOptions());
         return res.status(401).json({ error: 'تم تغيير كلمة المرور مؤخراً. يرجى تسجيل الدخول مجدداً.' });
       }
     }
