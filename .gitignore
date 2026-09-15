@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+*.log
+
+server/uploads/
+
+dev.db
+dev.db-shm
+dev.db-wal
+
+*.zip
+
+vite.config.ts.timestamp-*.mjs
