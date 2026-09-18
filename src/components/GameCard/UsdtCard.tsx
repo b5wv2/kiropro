@@ -51,12 +51,12 @@ export const UsdtCard: React.FC<UsdtCardProps> = ({ config, onSelect }) => {
         <div
           className={styles.badgeTag}
           style={{
-            background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-            color: '#FFFFFF',
+            background: 'var(--accent-yellow)',
+            color: '#0B0F19',
             fontWeight: 800
           }}
         >
-          Polygon / EVM
+          6 شبكات مدعومة
         </div>
       </div>
 

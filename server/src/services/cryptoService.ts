@@ -48,7 +48,7 @@ export function validateWalletAddress(networkIdentifier: string, address: string
       return { valid: false, error: 'طول عنوان المحفظة لشبكة EVM يجب أن يكون 42 حرفاً بالتحديد.' };
     }
     if (!isAddress(cleanAddress.toLowerCase())) {
-      return { valid: false, error: 'عنوان محفظة شبكة Polygon / EVM غير صالح.' };
+      return { valid: false, error: 'عنوان محفظة شبكة EVM غير صالح أو غير متطابق مع معيار العناوين.' };
     }
     return { valid: true };
   }
