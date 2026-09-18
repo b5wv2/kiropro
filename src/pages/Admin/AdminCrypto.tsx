@@ -7,18 +7,18 @@ import {
   RefreshCw, 
   Copy, 
   Check, 
-  ExternalLink, 
-  ShieldAlert, 
   ArrowUpRight, 
   Lock, 
   DollarSign, 
   Sliders, 
-  Eye, 
   Globe,
   Loader2,
-  AlertCircle
+  Image as ImageIcon,
+  Upload,
+  Trash2
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { getProductImageUrl } from '../../utils/imageUrl';
 
 interface CryptoStats {
   inventory: {
@@ -27,6 +27,7 @@ interface CryptoStats {
     sold: number;
     minOrderAmount: number;
     exchangeRate: number;
+    imageUrl?: string | null;
     updatedAt: string;
   };
   ordersSummary: {
@@ -94,7 +95,11 @@ export const AdminCrypto: React.FC = () => {
   const [newRateInput, setNewRateInput] = useState<number | string>('');
   const [isSavingRate, setIsSavingRate] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'networks'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'networks' | 'appearance'>('orders');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageSuccess, setImageSuccess] = useState<string | null>(null);
+  const imageInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const fetchData = async () => {
     try {
@@ -213,6 +218,57 @@ export const AdminCrypto: React.FC = () => {
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    setImageError(null);
+    setImageSuccess(null);
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const res = await api.upload('/api/admin/crypto/image', formData);
+      if (res?.success) {
+        setImageSuccess('تم تحديث صورة منتج USDT بنجاح!');
+        await fetchData();
+      }
+    } catch (err: any) {
+      console.error('Failed to upload USDT image:', err);
+      setImageError(err.message || 'فشل رفع الصورة.');
+    } finally {
+      setIsUploadingImage(false);
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    if (!window.confirm('هل أنت متأكد من رغبتك في حذف صورة منتج USDT المخصصة واستعادة الصورة الافتراضية؟')) {
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setImageError(null);
+    setImageSuccess(null);
+
+    try {
+      const res = await api.delete('/api/admin/crypto/image');
+      if (res?.success) {
+        setImageSuccess('تمت إزالة الصورة واستعادة الصورة الافتراضية بنجاح.');
+        await fetchData();
+      }
+    } catch (err: any) {
+      console.error('Failed to remove USDT image:', err);
+      setImageError(err.message || 'فشل حذف الصورة.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   return (
     <div className="admin-page-container">
       {/* Page Header */}
@@ -226,7 +282,7 @@ export const AdminCrypto: React.FC = () => {
               إدارة USDT والتحويل الفوري (Manual Transfer)
             </h1>
           </div>
-          <p style="margin: 6px 0 0 0; color: #94A3B8; font-size: 14px;">
+          <p style={{ margin: '6px 0 0 0', color: '#94A3B8', fontSize: 14 }}>
             متابعة طلبات تحويل USDT الفورية، إدارة المخزون الذري، وضبط أسعار الصرف والشبكات المدعومة.
           </p>
         </div>
@@ -357,6 +413,27 @@ export const AdminCrypto: React.FC = () => {
           }}
         >
           الشبكات المدعومة ({stats?.networks.length || 0})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('appearance')}
+          style={{
+            padding: '12px 20px',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'appearance' ? '2px solid #F59E0B' : '2px solid transparent',
+            color: activeTab === 'appearance' ? '#F59E0B' : '#94A3B8',
+            fontWeight: 800,
+            cursor: 'pointer',
+            fontSize: 15,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          <ImageIcon size={16} />
+          <span>مظهر المنتج والصورة (Product Appearance)</span>
         </button>
       </div>
 
@@ -594,7 +671,7 @@ export const AdminCrypto: React.FC = () => {
             )}
           </div>
         </>
-      ) : (
+      ) : activeTab === 'networks' ? (
         /* Networks Tab */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
           {stats?.networks.map(net => (
@@ -634,6 +711,129 @@ export const AdminCrypto: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      ) : (
+        /* Appearance Tab: USDT Product Card Appearance */
+        <div style={{ maxWidth: 800, background: '#0F172A', border: '1px solid #1E293B', borderRadius: 16, padding: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, borderBottom: '1px solid #1E293B', paddingBottom: 16 }}>
+            <div style={{ background: 'rgba(245, 158, 11, 0.15)', padding: 10, borderRadius: 10 }}>
+              <ImageIcon size={24} color="#F59E0B" />
+            </div>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#F8FAFC' }}>
+                مظهر بطاقة USDT في المتجر (USDT Product Appearance)
+              </h2>
+              <p style={{ margin: '4px 0 0 0', color: '#94A3B8', fontSize: 13 }}>
+                التحكم بصورة بطاقة USDT Instant Transfer المعروضة للمستخدمين في المتجر، ورفع صور جديدة، أو استعادة الصورة الافتراضية.
+              </p>
+            </div>
+          </div>
+
+          {imageSuccess && (
+            <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', color: '#10B981', padding: '12px 16px', borderRadius: 8, fontSize: 14, fontWeight: 700, marginBottom: 20 }}>
+              {imageSuccess}
+            </div>
+          )}
+
+          {imageError && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #EF4444', color: '#EF4444', padding: '12px 16px', borderRadius: 8, fontSize: 14, fontWeight: 700, marginBottom: 20 }}>
+              {imageError}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, alignItems: 'center' }}>
+            {/* Image Preview Box */}
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ display: 'block', fontSize: 13, color: '#94A3B8', fontWeight: 700, marginBottom: 10 }}>
+                معاينة الصورة الحالية (Preview)
+              </span>
+              <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#1E293B', borderRadius: 12, overflow: 'hidden', border: '2px dashed #334155', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img
+                  src={getProductImageUrl(stats?.inventory.imageUrl || '/uploads/products/usdt-card.webp')}
+                  alt="USDT Product Card"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    // Fallback to default placeholder if not found
+                    (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1622979135225-d2ba269bc1df?auto=format&fit=crop&w=800&q=80';
+                  }}
+                />
+                <div style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(11, 15, 25, 0.85)', padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 800, color: stats?.inventory.imageUrl ? '#10B981' : '#F59E0B' }}>
+                  {stats?.inventory.imageUrl ? 'صورة مخصصة' : 'الصورة الافتراضية'}
+                </div>
+              </div>
+              <span style={{ display: 'block', fontSize: 12, color: '#64748B', marginTop: 8, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {stats?.inventory.imageUrl || 'Default Fallback'}
+              </span>
+            </div>
+
+            {/* Controls */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: 15, fontWeight: 800, color: '#F8FAFC' }}>
+                  رفع أو استبدال الصورة
+                </h3>
+                <p style={{ margin: 0, fontSize: 13, color: '#94A3B8', lineHeight: 1.5 }}>
+                  الصيغ المدعومة: WEBP, PNG, JPG, SVG. الحد الأقصى للحجم 5MB. يفضل استخدام نسبة أبعاد 16:9 لعرض مثالي في البطاقة.
+                </p>
+              </div>
+
+              <input
+                type="file"
+                ref={imageInputRef}
+                accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                style={{ display: 'none' }}
+                onChange={handleImageUpload}
+              />
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  disabled={isUploadingImage}
+                  onClick={() => imageInputRef.current?.click()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#F59E0B',
+                    color: '#0B0F19',
+                    border: 'none',
+                    padding: '10px 18px',
+                    borderRadius: 8,
+                    fontWeight: 800,
+                    cursor: isUploadingImage ? 'not-allowed' : 'pointer',
+                    fontSize: 14
+                  }}
+                >
+                  {isUploadingImage ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                  <span>{stats?.inventory.imageUrl ? 'تغيير الصورة' : 'رفع صورة جديدة'}</span>
+                </button>
+
+                {stats?.inventory.imageUrl && (
+                  <button
+                    type="button"
+                    disabled={isUploadingImage}
+                    onClick={handleRemoveImage}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#EF4444',
+                      border: '1px solid #EF4444',
+                      padding: '10px 18px',
+                      borderRadius: 8,
+                      fontWeight: 800,
+                      cursor: isUploadingImage ? 'not-allowed' : 'pointer',
+                      fontSize: 14
+                    }}
+                  >
+                    <Trash2 size={16} />
+                    <span>حذف واستعادة الافتراضية</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

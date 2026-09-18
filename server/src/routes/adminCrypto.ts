@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
 import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import {
@@ -6,14 +6,131 @@ import {
   updateUsdtInventory,
   updateUsdtExchangeRate,
   updateUsdtMinAmount,
+  updateUsdtImage,
   completeUsdtOrder,
   cancelUsdtOrder
 } from '../services/cryptoService';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
+// Configure local storage upload for USDT product image matching products.ts
+const uploadsDir = path.resolve(__dirname, '../../uploads/products');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    cb(null, uploadsDir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `prod_${Date.now()}_${uuidv4().slice(0, 8)}${ext}`;
+    cb(null, safeName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+  fileFilter: (_req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('صيغة الصورة غير مدعومة. يسمح فقط بصيغ JPG, PNG, WEBP, SVG.'));
+    }
+  }
+});
+
+function isValidImageFileSignature(filePath: string, ext: string): boolean {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(16);
+    const bytesRead = fs.readSync(fd, buffer, 0, 16, 0);
+    fs.closeSync(fd);
+    if (bytesRead < 4) return false;
+
+    const cleanExt = ext.toLowerCase();
+    if (cleanExt === '.jpg' || cleanExt === '.jpeg') {
+      return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+    }
+    if (cleanExt === '.png') {
+      return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    }
+    if (cleanExt === '.webp') {
+      return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
+    }
+    if (cleanExt === '.svg') {
+      const sample = fs.readFileSync(filePath, 'utf8').slice(0, 500).toLowerCase();
+      return sample.includes('<svg') && !sample.includes('<script');
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // All routes in this file require an authenticated admin session
 router.use(requireAdmin);
+
+/**
+ * Admin: Upload or replace USDT Product Card Image
+ * POST /api/admin/crypto/image
+ */
+router.post('/image', upload.single('image'), async (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'لم يتم إرفاق أي صورة.' });
+  }
+
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (!isValidImageFileSignature(req.file.path, ext)) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: 'بصمة الصورة غير صالحة أو الملف تالف.' });
+  }
+
+  const relativeUrl = `/uploads/products/${req.file.filename}`;
+  const backendUrl = (process.env.BACKEND_URL || process.env.API_URL || '').trim().replace(/\/+$/, '');
+  const finalUrl = backendUrl ? `${backendUrl}${relativeUrl}` : relativeUrl;
+
+  try {
+    const adminUser = (req as AuthRequest).user;
+    await updateUsdtImage(finalUrl, adminUser?.id);
+    return res.json({
+      success: true,
+      imageUrl: finalUrl,
+      message: 'تم تحديث صورة منتج USDT بنجاح.'
+    });
+  } catch (err: any) {
+    console.error('[AdminCrypto] Failed to save image to database:', err);
+    return res.status(500).json({ error: 'فشل حفظ رابط الصورة في قاعدة البيانات.' });
+  }
+});
+
+/**
+ * Admin: Remove USDT Product Card Image (Reverts to fallback)
+ * DELETE /api/admin/crypto/image
+ */
+router.delete('/image', async (req: AuthRequest, res: Response) => {
+  try {
+    await updateUsdtImage(null, req.user?.id);
+    return res.json({
+      success: true,
+      imageUrl: null,
+      message: 'تم حذف صورة المنتج والعودة للصورة الافتراضية.'
+    });
+  } catch (err: any) {
+    console.error('[AdminCrypto] Failed to remove image:', err);
+    return res.status(500).json({ error: 'فشل حذف صورة المنتج.' });
+  }
+});
 
 /**
  * Admin: Get USDT Dashboard Stats & Inventory

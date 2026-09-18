@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Hero } from '../../components/Hero/Hero';
 import { GameCard } from '../../components/GameCard/GameCard';
+import { UsdtCard, UsdtCardConfig } from '../../components/GameCard/UsdtCard';
 import { DealsBanner } from '../../components/Deals/DealsBanner';
 import { HowItWorks } from '../../components/HowItWorks/HowItWorks';
 import { WhyUs } from '../../components/Features/WhyUs';
@@ -8,9 +9,12 @@ import { HomeReviewsSection } from '../../components/Reviews/HomeReviewsSection'
 import { QuickTopUpModal } from '../../components/Modal/QuickTopUpModal';
 import { Game } from '../../types';
 import { fetchGames } from '../../services/api';
+import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = [
   { id: 'all', name: 'الكل' },
+  { id: 'transfers', name: 'التحويلات الرقمية ⚡' },
   { id: 'mobile', name: 'ألعاب الجوال' },
   { id: 'pc', name: 'ألعاب البي سي' },
   { id: 'cards', name: 'بطاقات الهدايا' },
@@ -18,7 +22,9 @@ const CATEGORIES = [
 ];
 
 export const HomePage: React.FC = () => {
+  const { navigateTo } = useAuth();
   const [games, setGames] = useState<Game[]>([]);
+  const [usdtConfig, setUsdtConfig] = useState<UsdtCardConfig | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedGameForModal, setSelectedGameForModal] = useState<Game | null>(null);
@@ -28,6 +34,8 @@ export const HomePage: React.FC = () => {
 
   useEffect(() => {
     let isMounted = true;
+    
+    // Fetch games catalog
     fetchGames()
       .then(data => {
         if (isMounted) {
@@ -43,6 +51,17 @@ export const HomePage: React.FC = () => {
         }
       });
 
+    // Fetch USDT public config (for card appearance, image, and dynamic starting price)
+    api.get('/api/crypto/usdt/config')
+      .then((cfg: UsdtCardConfig) => {
+        if (isMounted && cfg) {
+          setUsdtConfig(cfg);
+        }
+      })
+      .catch((err) => {
+        console.warn('[HomePage] Failed to fetch USDT config for card:', err);
+      });
+
     return () => {
       isMounted = false;
     };
@@ -50,6 +69,7 @@ export const HomePage: React.FC = () => {
 
   const featuredGame = games[0] || null;
 
+  // Filter games based on activeCategory and search
   const filteredGames = games.filter(game => {
     const matchesCat = activeCategory === 'all' || game.category === activeCategory;
     const matchesSearch = searchQuery === '' ||
@@ -57,6 +77,17 @@ export const HomePage: React.FC = () => {
       game.type.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
   });
+
+  // Determine whether USDT card should be displayed based on filters
+  const matchesUsdtCategory = activeCategory === 'all' || activeCategory === 'transfers';
+  const matchesUsdtSearch = searchQuery === '' ||
+    'usdt'.includes(searchQuery.toLowerCase()) ||
+    'تحويل'.includes(searchQuery) ||
+    'كريبتو'.includes(searchQuery) ||
+    'دولار'.includes(searchQuery) ||
+    'polygon'.includes(searchQuery.toLowerCase());
+
+  const showUsdtCard = matchesUsdtCategory && matchesUsdtSearch;
 
   return (
     <>
@@ -132,8 +163,17 @@ export const HomePage: React.FC = () => {
                 إعادة المحاولة
               </button>
             </div>
-          ) : filteredGames.length > 0 ? (
+          ) : (filteredGames.length > 0 || showUsdtCard) ? (
             <div className="games-grid">
+              {/* USDT Instant Transfer Card */}
+              {showUsdtCard && (
+                <UsdtCard
+                  config={usdtConfig}
+                  onSelect={() => navigateTo('usdt')}
+                />
+              )}
+
+              {/* Standard Game and Product Cards */}
               {filteredGames.map(game => (
                 <GameCard
                   key={game.id}

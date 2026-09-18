@@ -75,8 +75,8 @@ export function validateWalletAddress(networkIdentifier: string, address: string
  * Public configuration for customers
  */
 export async function getUsdtPublicConfig() {
-  const invRes = await pool.query('SELECT available, min_order_amount, exchange_rate FROM usdt_inventory WHERE id = 1');
-  const inv = invRes.rows[0] || { available: '0', min_order_amount: '3', exchange_rate: '5000' };
+  const invRes = await pool.query('SELECT available, min_order_amount, exchange_rate, image_url FROM usdt_inventory WHERE id = 1');
+  const inv = invRes.rows[0] || { available: '0', min_order_amount: '3', exchange_rate: '5000', image_url: null };
 
   const netRes = await pool.query(
     'SELECT identifier, name, currency, validator_type, min_amount FROM crypto_networks WHERE enabled = true ORDER BY display_order ASC'
@@ -86,6 +86,7 @@ export async function getUsdtPublicConfig() {
     available: Number(inv.available),
     minOrderAmount: Math.max(3, Number(inv.min_order_amount || 3)),
     exchangeRate: Number(inv.exchange_rate),
+    imageUrl: inv.image_url || null,
     networks: netRes.rows.map(r => ({
       identifier: r.identifier,
       name: r.name,
@@ -101,7 +102,7 @@ export async function getUsdtPublicConfig() {
  */
 export async function getUsdtAdminStats() {
   const invRes = await pool.query('SELECT * FROM usdt_inventory WHERE id = 1');
-  const inv = invRes.rows[0] || { available: 0, reserved: 0, sold: 0, min_order_amount: 3, exchange_rate: 5000 };
+  const inv = invRes.rows[0] || { available: 0, reserved: 0, sold: 0, min_order_amount: 3, exchange_rate: 5000, image_url: null };
 
   const ordersCountRes = await pool.query(`
     SELECT 
@@ -122,6 +123,7 @@ export async function getUsdtAdminStats() {
       sold: Number(inv.sold),
       minOrderAmount: Number(inv.min_order_amount),
       exchangeRate: Number(inv.exchange_rate),
+      imageUrl: inv.image_url || null,
       updatedAt: inv.updated_at
     },
     ordersSummary: ordersCountRes.rows[0],
@@ -240,6 +242,38 @@ export async function updateUsdtMinAmount(newMin: number, adminId?: string) {
 
     await client.query('COMMIT');
     return { minOrderAmount: newMin };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Admin updates USDT product image
+ */
+export async function updateUsdtImage(imageUrl: string | null, adminId?: string) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE usdt_inventory 
+       SET image_url = $1, updated_at = NOW(), updated_by = $2 
+       WHERE id = 1`,
+      [imageUrl, adminId || null]
+    );
+
+    if (adminId) {
+      await client.query(
+        `INSERT INTO "AuditLog" ("adminId", "action", "amount", "reason")
+         VALUES ($1, 'UPDATE_USDT_IMAGE', 0, $2)`,
+        [adminId, imageUrl ? `تحديث صورة منتج USDT إلى: ${imageUrl}` : 'حذف صورة منتج USDT والعودة للصورة الافتراضية']
+      );
+    }
+
+    await client.query('COMMIT');
+    return { imageUrl };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
