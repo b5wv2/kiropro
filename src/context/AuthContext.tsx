@@ -13,8 +13,8 @@ interface AuthContextType {
   quickLogin: () => Promise<AuthResult>;
   checkAdminSession: () => Promise<{ hasValidAdminSession: boolean; email?: string }>;
   logout: () => Promise<void>;
-  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password';
-  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password') => void;
+  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt';
+  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt') => void;
   isAccountMenuOpen: boolean;
   setIsAccountMenuOpen: (open: boolean) => void;
 }
@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt'>('home');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -34,6 +34,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentView('forgot-password');
         } else if (window.location.pathname === '/reviews') {
           setCurrentView('reviews');
+        } else if (window.location.pathname === '/usdt') {
+          setCurrentView('usdt');
         }
 
         const data = await api.get('/api/auth/me');
@@ -45,6 +47,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentView('reviews');
           } else if (window.location.pathname === '/forgot-password') {
             setCurrentView('forgot-password');
+          } else if (window.location.pathname === '/usdt') {
+            setCurrentView('usdt');
           }
         } else {
           setUser(null);
@@ -60,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password') => {
+  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt') => {
     // Protected route check
     if (view === 'account' && !user) {
       setCurrentView('login');
@@ -83,6 +87,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         window.history.pushState(null, '', '/login');
       } else if (view === 'register') {
         window.history.pushState(null, '', '/register');
+      } else if (view === 'usdt') {
+        window.history.pushState(null, '', '/usdt');
       } else if (view === 'home') {
         window.history.pushState(null, '', '/');
       }

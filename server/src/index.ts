@@ -19,6 +19,9 @@ import productsRoutes from './routes/products';
 import cashbackRoutes from './routes/cashback';
 import reviewsRoutes from './routes/reviews';
 import receiptsRoutes from './routes/receipts';
+import cryptoRoutes from './routes/crypto';
+import adminCryptoRoutes from './routes/adminCrypto';
+import internalTelegramRoutes from './routes/internalTelegram';
 import { orderPollingService } from './services/orderPollingService';
 import path from 'path';
 import fs from 'fs';
@@ -166,6 +169,9 @@ app.use('/api', topupRoutes);
 app.use('/api/promo-codes', promoRoutes);
 app.use('/api/cashback', cashbackRoutes);
 app.use('/api/reviews', reviewsRoutes);
+app.use('/api/crypto/usdt', cryptoRoutes);
+app.use('/api/admin/crypto', adminCryptoRoutes);
+app.use('/api/internal/telegram', internalTelegramRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

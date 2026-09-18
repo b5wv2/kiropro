@@ -23,6 +23,7 @@ export type AdminTab =
   | 'dashboard' 
   | 'customers' 
   | 'orders' 
+  | 'crypto'
   | 'topups'
   | 'payment-methods'
   | 'wallet' 
@@ -53,6 +54,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
     { id: 'customers', label: 'العملاء', icon: Users },
     { id: 'orders', label: 'الطلبات', icon: ShoppingCart },
+    { id: 'crypto', label: 'إدارة USDT والتحويل', icon: Coins },
     { id: 'topups', label: 'طلبات الشحن البنكي', icon: ArrowDownCircle },
     { id: 'payment-methods', label: 'طرق الدفع والحسابات', icon: CreditCard },
     { id: 'wallet', label: 'إدارة المحافظ', icon: Wallet },

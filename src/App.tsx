@@ -10,10 +10,23 @@ import { ForgotPasswordPage } from './pages/Auth/ForgotPasswordPage';
 import { AccountPage } from './pages/Account/AccountPage';
 import { ReviewPage } from './pages/Review/ReviewPage';
 import { AllReviewsPage } from './pages/Review/AllReviewsPage';
+import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
 import { AdminLayout } from './layouts/AdminLayout';
 
 const AppContent: React.FC = () => {
   const { currentView, user } = useAuth();
+
+  const isUsdtPath = typeof window !== 'undefined' && (
+    window.location.pathname === '/usdt' || currentView === 'usdt'
+  );
+
+  if (isUsdtPath) {
+    return (
+      <MainLayout>
+        <UsdtTransferPage />
+      </MainLayout>
+    );
+  }
 
   const isForgotPasswordPath = typeof window !== 'undefined' && (
     window.location.pathname === '/forgot-password' || currentView === 'forgot-password'
@@ -66,6 +79,7 @@ const AppContent: React.FC = () => {
       {currentView === 'register' && <RegisterPage />}
       {currentView === 'forgot-password' && <ForgotPasswordPage />}
       {currentView === 'account' && <AccountPage />}
+      {currentView === 'usdt' && <UsdtTransferPage />}
     </MainLayout>
   );
 };

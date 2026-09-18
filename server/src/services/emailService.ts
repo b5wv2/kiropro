@@ -232,10 +232,10 @@ export function renderEmailButton(label: string, url: string, secondary = false)
  * Records event in email_events, respects idempotency, and never throws or impacts financial state.
  */
 async function recordAndSendEmail(params: {
-  userId?: string | null;
-  orderId?: string | null;
-  topupId?: string | null;
-  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED';
+  userId?: string | null | undefined;
+  orderId?: string | null | undefined;
+  topupId?: string | null | undefined;
+  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED';
   recipient: string;
   subject: string;
   html: string;
@@ -1089,6 +1089,184 @@ export async function sendPasswordResetOtpEmail(params: SendPasswordResetOtpEmai
   }
 }
 
+export interface SendUsdtOrderCompletedParams {
+  to: string;
+  name?: string;
+  userId?: string;
+  orderId: string;
+  orderNumber: string;
+  usdtAmount: number;
+  network: string;
+  walletAddress: string;
+  txHash?: string | null;
+  chargedAmount: number;
+  chargedCurrency: string;
+}
+
+export async function sendUsdtOrderCompletedEmail(params: SendUsdtOrderCompletedParams): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, name, userId, orderId, orderNumber, usdtAmount, network, walletAddress, txHash, chargedAmount, chargedCurrency } = params;
+  const greeting = name ? `مرحبًا ${name}` : 'مرحبًا بك';
+  const maskedAddress = walletAddress.length > 12 
+    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` 
+    : walletAddress;
+
+  const subject = `تم اكتمال طلب تحويل USDT بنجاح #${orderNumber} | KIROPRO`;
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="font-size: 22px; font-weight: 900; color: #166534; margin: 0 0 10px 0;">
+        تم اكتمال تحويل USDT بنجاح! ⚡
+      </h1>
+      <p style="font-size: 15px; line-height: 1.6; color: #64748B; margin: 0;">
+        ${greeting}،<br>
+        يسرنا إبلاغك بأنه تم تنفيذ تحويل رصيد USDT المطلوب إلى محفظتك بنجاح.
+      </p>
+    </div>
+
+    <!-- Crypto Details Card -->
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 14px; padding: 22px; margin-bottom: 20px; text-align: center;">
+      <tr>
+        <td align="center">
+          <span style="font-size: 12px; font-weight: 800; color: #166534; letter-spacing: 1px; display: block; margin-bottom: 4px;">المبلغ المحول</span>
+          <div style="font-size: 32px; font-weight: 900; color: #14532D; margin: 4px 0 10px;">
+            ${usdtAmount} USDT
+          </div>
+          ${renderEmailStatusBadge('COMPLETED', 'تم التحويل بنجاح ✓')}
+        </td>
+      </tr>
+    </table>
+
+    <!-- Transfer Details Table -->
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; color: #64748B; font-size: 14px;">رقم الطلب:</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; font-weight: 700; color: #1E293B; font-size: 14px; text-align: left; direction: ltr;">
+          #${orderNumber}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; color: #64748B; font-size: 14px;">الشبكة:</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; font-weight: 700; color: #1E293B; font-size: 14px; text-align: left; direction: ltr;">
+          ${network}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; color: #64748B; font-size: 14px;">عنوان المحفظة:</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; font-family: monospace; font-weight: 700; color: #1E293B; font-size: 14px; text-align: left; direction: ltr;">
+          ${maskedAddress}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; color: #64748B; font-size: 14px;">المبلغ المدفوع من الرصيد:</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; font-weight: 800; color: #1E293B; font-size: 15px; text-align: left; direction: ltr;">
+          ${formatCurrencyAmount(chargedAmount, chargedCurrency)}
+        </td>
+      </tr>
+      ${txHash ? `
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; color: #64748B; font-size: 14px;">رمز المعاملة (TxID):</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #E2E8F0; font-family: monospace; font-weight: 600; color: #0284C7; font-size: 12px; text-align: left; direction: ltr; word-break: break-all;">
+          ${txHash}
+        </td>
+      </tr>
+      ` : ''}
+    </table>
+
+    ${renderEmailButton('عرض تفاصيل الطلب في حسابك', `${FRONTEND_URL}?tab=account`, true)}
+  `;
+
+  const text = `
+KIROPRO - تم اكتمال طلب تحويل USDT
+${greeting}
+رقم الطلب: #${orderNumber}
+المبلغ المحول: ${usdtAmount} USDT
+الشبكة: ${network}
+عنوان المحفظة: ${maskedAddress}
+الحالة: تم التحويل بنجاح
+${txHash ? `معرف المعاملة: ${txHash}` : ''}
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `تم تحويل ${usdtAmount} USDT لطلبك #${orderNumber}`);
+
+  return recordAndSendEmail({
+    userId,
+    orderId,
+    eventType: 'USDT_ORDER_COMPLETED',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
+export interface SendUsdtOrderCanceledParams {
+  to: string;
+  name?: string;
+  userId?: string;
+  orderId: string;
+  orderNumber: string;
+  usdtAmount: number;
+  reason?: string;
+  refundedAmount: number;
+  refundedCurrency: string;
+}
+
+export async function sendUsdtOrderCanceledEmail(params: SendUsdtOrderCanceledParams): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, name, userId, orderId, orderNumber, usdtAmount, reason, refundedAmount, refundedCurrency } = params;
+  const greeting = name ? `مرحبًا ${name}` : 'مرحبًا بك';
+  const subject = `تحديث بخصوص طلب تحويل USDT #${orderNumber} | KIROPRO`;
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="font-size: 22px; font-weight: 900; color: #991B1B; margin: 0 0 10px 0;">
+        تم إلغاء طلب تحويل USDT
+      </h1>
+      <p style="font-size: 15px; line-height: 1.6; color: #64748B; margin: 0;">
+        ${greeting}،<br>
+        نحيطك علمًا بأنه تم إلغاء طلب تحويل USDT رقم #${orderNumber} وتمت إعادة كامل المبلغ المدفوع تلقائيًا إلى رصيد محفظتك.
+      </p>
+    </div>
+
+    <!-- Details Card -->
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 14px; padding: 20px; margin-bottom: 20px;">
+      <tr>
+        <td>
+          <p style="margin: 0 0 8px 0; font-size: 14px; color: #991B1B; font-weight: 700;">
+            سبب الإلغاء:
+          </p>
+          <p style="margin: 0; font-size: 14px; color: #1E293B;">
+            ${reason || 'تعذر استكمال العملية، وتم رد الرصيد لمحفظتك.'}
+          </p>
+          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #FCA5A5; font-size: 14px; color: #166534; font-weight: 800;">
+            المبلغ المسترجع إلى محفظتك: ${formatCurrencyAmount(refundedAmount, refundedCurrency)}
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    ${renderEmailButton('عرض رصيد محفظتك الآن', `${FRONTEND_URL}?tab=account`, true)}
+  `;
+
+  const text = `
+KIROPRO - تم إلغاء طلب تحويل USDT #${orderNumber}
+${greeting}
+السبب: ${reason || 'تعذر استكمال العملية'}
+تم استرجاع مبلغ ${formatCurrencyAmount(refundedAmount, refundedCurrency)} إلى رصيد محفظتك بالكامل.
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `تم إلغاء طلب #${orderNumber} ورد الرصيد`);
+
+  return recordAndSendEmail({
+    userId,
+    orderId,
+    eventType: 'USDT_ORDER_CANCELED',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
 export default {
   sendVerificationOtpEmail,
   sendPasswordResetOtpEmail,
@@ -1098,9 +1276,12 @@ export default {
   sendTopupRejectedEmail,
   sendOrderProcessingEmail,
   sendOrderCompletedEmail,
+  sendUsdtOrderCompletedEmail,
+  sendUsdtOrderCanceledEmail,
   renderEmailBrand,
   renderEmailLayout,
   renderEmailStatusBadge,
   renderEmailButton,
   buildVerificationOtpEmailTemplate
 };
+

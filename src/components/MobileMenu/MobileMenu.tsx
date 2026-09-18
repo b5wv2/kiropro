@@ -63,6 +63,17 @@ export const MobileMenu: React.FC = () => {
           <button
             type="button"
             className={styles.navLink}
+            onClick={() => {
+              closeOverlay();
+              navigateTo('usdt');
+            }}
+            style={{ color: '#F59E0B', fontWeight: 800 }}
+          >
+            تحويل USDT فوري ⚡
+          </button>
+          <button
+            type="button"
+            className={styles.navLink}
             onClick={() => handleNavClick('#games')}
           >
             الألعاب الأكثر طلباً

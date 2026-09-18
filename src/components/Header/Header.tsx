@@ -53,6 +53,17 @@ export const Header: React.FC = () => {
         {/* Desktop Navigation */}
         <nav className={styles.navLinks} aria-label="التنقل الرئيسي">
           <a
+            href="/usdt"
+            className={styles.navLink}
+            onClick={(e) => {
+              e.preventDefault();
+              navigateTo('usdt');
+            }}
+            style={{ color: '#F59E0B', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+          >
+            <span>تحويل USDT فوري ⚡</span>
+          </a>
+          <a
             href="#games"
             className={styles.navLink}
             onClick={() => navigateTo('home')}

@@ -4,6 +4,7 @@ import { AdminHeader } from '../components/admin/AdminHeader';
 import { AdminDashboard } from '../pages/Admin/AdminDashboard';
 import { AdminCustomers } from '../pages/Admin/AdminCustomers';
 import { AdminOrders } from '../pages/Admin/AdminOrders';
+import { AdminCrypto } from '../pages/Admin/AdminCrypto';
 import { AdminTopups } from '../pages/Admin/AdminTopups';
 import { AdminPaymentMethods } from '../pages/Admin/AdminPaymentMethods';
 import { AdminWallet } from '../pages/Admin/AdminWallet';
@@ -27,6 +28,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminCustomers />;
       case 'orders':
         return <AdminOrders />;
+      case 'crypto':
+        return <AdminCrypto />;
       case 'topups':
         return <AdminTopups />;
       case 'payment-methods':
