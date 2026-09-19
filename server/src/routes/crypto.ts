@@ -48,11 +48,11 @@ router.post('/order', usdtOrderLimiter, requireAuth, async (req: AuthRequest, re
     return res.status(400).json({ error: 'الكمية المدخلة غير صالحة.' });
   }
 
-  // Mandatory Backend Hard Floor Protection
-  if (numAmount < 3.0) {
+  // Mandatory Backend Hard Floor Protection (>= 1.0)
+  if (numAmount < 1.0) {
     return res.status(400).json({
       code: 'MINIMUM_USDT_AMOUNT_NOT_MET',
-      error: 'الحد الأدنى لشراء USDT هو 3 دولار.'
+      error: 'الحد الأدنى لشراء USDT هو 1 دولار.'
     });
   }
 
@@ -100,6 +100,7 @@ router.get('/orders/:id', requireAuth, async (req: AuthRequest, res: Response) =
         o."chargedAmount",
         o."chargedCurrency",
         o."exchangeRateUsed",
+        COALESCE(o."usdtExchangeRateUsed", o."exchangeRateUsed") as "usdtExchangeRateUsed",
         o.status,
         o."txHash",
         o."createdAt",

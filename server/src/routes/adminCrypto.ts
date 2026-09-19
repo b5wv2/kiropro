@@ -8,7 +8,10 @@ import {
   updateUsdtMinAmount,
   updateUsdtImage,
   completeUsdtOrder,
-  cancelUsdtOrder
+  cancelUsdtOrder,
+  createCryptoNetwork,
+  updateCryptoNetwork,
+  deleteCryptoNetwork
 } from '../services/cryptoService';
 import multer from 'multer';
 import path from 'path';
@@ -186,17 +189,17 @@ router.patch('/rate', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * Admin: Update Minimum Order Amount (Hard Floor >= 3.0)
+ * Admin: Update Minimum Order Amount (Hard Floor >= 1.0)
  */
 router.patch('/settings', async (req: AuthRequest, res: Response) => {
   const { minAmount } = req.body;
   const adminId = req.user?.id;
 
   const numMin = Number(minAmount);
-  if (isNaN(numMin) || numMin < 3.0) {
+  if (isNaN(numMin) || numMin < 1.0) {
     return res.status(400).json({
       code: 'MINIMUM_USDT_AMOUNT_NOT_MET',
-      error: 'لا يمكن تعيين الحد الأدنى لأقل من 3 USDT كقاعدة حماية إلزامية في النظام.'
+      error: 'لا يمكن تعيين الحد الأدنى لأقل من 1 USDT كقاعدة حماية إلزامية في النظام.'
     });
   }
 
@@ -253,6 +256,7 @@ router.get('/orders', async (req: AuthRequest, res: Response) => {
         o."chargedAmount",
         o."chargedCurrency",
         o."exchangeRateUsed",
+        COALESCE(o."usdtExchangeRateUsed", o."exchangeRateUsed") as "usdtExchangeRateUsed",
         o.status,
         o."txHash",
         o."createdAt",
@@ -331,7 +335,18 @@ router.post('/orders/:id/cancel', async (req: AuthRequest, res: Response) => {
  */
 router.get('/networks', async (_req: AuthRequest, res: Response) => {
   try {
-    const netRes = await pool.query('SELECT * FROM crypto_networks ORDER BY display_order ASC');
+    const netRes = await pool.query(`
+      SELECT 
+        n.*,
+        COALESCE((
+          SELECT COUNT(*)::int 
+          FROM "Order" o 
+          WHERE (o."cryptoNetwork" = n.identifier OR UPPER(o."cryptoNetwork") = UPPER(n.name))
+            AND o."orderType" = 'USDT_TRANSFER'
+        ), 0) as orders_count
+      FROM crypto_networks n
+      ORDER BY n.display_order ASC
+    `);
     return res.json(netRes.rows);
   } catch (err: any) {
     console.error('[AdminCrypto] Failed to list networks:', err);
@@ -339,52 +354,62 @@ router.get('/networks', async (_req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * Admin: Add New Crypto Network
+ */
+router.post('/networks', async (req: AuthRequest, res: Response) => {
+  const { identifier, name, validatorType, minAmount, enabled, displayOrder } = req.body;
+  try {
+    const network = await createCryptoNetwork({
+      identifier,
+      name,
+      validatorType,
+      minAmount,
+      enabled,
+      displayOrder
+    });
+    return res.status(201).json({ success: true, network, message: 'تمت إضافة الشبكة بنجاح.' });
+  } catch (err: any) {
+    console.error('[AdminCrypto] Failed to create network:', err);
+    return res.status(400).json({ error: err.message || 'فشل إضافة الشبكة.' });
+  }
+});
+
+/**
+ * Admin: Update Crypto Network
+ */
 router.patch('/networks/:id', async (req: AuthRequest, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : String(req.params.id || '');
-  const { enabled, min_amount, display_order, name } = req.body;
+  const id: string = String(req.params.id || '');
+  const { enabled, min_amount, minAmount, display_order, displayOrder, name, identifier, validator_type, validatorType } = req.body;
 
   try {
-    const fields: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
+    const network = await updateCryptoNetwork(id, {
+      name,
+      identifier,
+      validatorType: validatorType || validator_type,
+      minAmount: minAmount !== undefined ? minAmount : min_amount,
+      enabled,
+      displayOrder: displayOrder !== undefined ? displayOrder : display_order
+    });
 
-    if (enabled !== undefined) {
-      fields.push(`enabled = $${idx++}`);
-      values.push(Boolean(enabled));
-    }
-    if (min_amount !== undefined) {
-      const numMin = Number(min_amount);
-      if (numMin < 3.0) {
-        return res.status(400).json({ error: 'الحد الأدنى للشبكة لا يمكن أن يقل عن 3 USDT.' });
-      }
-      fields.push(`min_amount = $${idx++}`);
-      values.push(numMin);
-    }
-    if (display_order !== undefined) {
-      fields.push(`display_order = $${idx++}`);
-      values.push(Number(display_order));
-    }
-    if (name !== undefined) {
-      fields.push(`name = $${idx++}`);
-      values.push(String(name).trim());
-    }
-
-    if (fields.length === 0) {
-      return res.status(400).json({ error: 'لا توجد حقول للتعديل.' });
-    }
-
-    fields.push(`updated_at = NOW()`);
-    values.push(id);
-
-    const updateRes = await pool.query(
-      `UPDATE crypto_networks SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
-      values
-    );
-
-    return res.json({ success: true, network: updateRes.rows[0] });
+    return res.json({ success: true, network, message: 'تم تحديث الشبكة بنجاح.' });
   } catch (err: any) {
     console.error('[AdminCrypto] Failed to update network:', err);
     return res.status(400).json({ error: err.message || 'فشل تحديث الشبكة.' });
+  }
+});
+
+/**
+ * Admin: Delete Crypto Network (Guarded against historical orders)
+ */
+router.delete('/networks/:id', async (req: AuthRequest, res: Response) => {
+  const id: string = String(req.params.id || '');
+  try {
+    const result = await deleteCryptoNetwork(id);
+    return res.json({ message: 'تم حذف الشبكة بنجاح.', ...result });
+  } catch (err: any) {
+    console.error('[AdminCrypto] Failed to delete network:', err);
+    return res.status(err.statusCode || 400).json({ error: err.message || 'فشل حذف الشبكة.', code: err.code });
   }
 });
 

@@ -28,19 +28,33 @@ export interface UsdtInventoryRow {
 }
 
 /**
- * Validates a cryptocurrency destination address according to the network's protocol.
+ * Validates a cryptocurrency destination address according to the network's protocol or validator type.
  */
-export function validateWalletAddress(networkIdentifier: string, address: string): { valid: boolean; error?: string } {
+export function validateWalletAddress(
+  validatorTypeOrIdentifier: string,
+  address: string
+): { valid: boolean; error?: string } {
   if (!address || typeof address !== 'string') {
     return { valid: false, error: 'عنوان المحفظة مطلوب.' };
   }
 
   const cleanAddress = address.trim();
+  const type = (validatorTypeOrIdentifier || '').toUpperCase();
 
-  const net = networkIdentifier.toUpperCase();
+  // TRON (TRC20) validation
+  if (type === 'TRON' || type === 'TRC20') {
+    if (cleanAddress.startsWith('0x')) {
+      return { valid: false, error: 'عنوان محفظة TRON لا يمكن أن يبدأ بـ 0x. عنوان TRON يبدأ دائماً بحرف T.' };
+    }
+    const tronRegex = /^T[a-km-zA-HJ-NP-Z1-9]{33}$/;
+    if (!tronRegex.test(cleanAddress)) {
+      return { valid: false, error: 'عنوان محفظة TRON غير صالح. يجب أن يبدأ بحرف T ويتكون من 34 حرفاً (Base58).' };
+    }
+    return { valid: true };
+  }
 
-  // EVM networks (Polygon, BSC, Ethereum, Arbitrum, etc.)
-  if (['POLYGON', 'BSC', 'ETHEREUM', 'ETH', 'ARBITRUM', 'AVAX'].includes(net)) {
+  // EVM networks (Polygon, BSC, Ethereum, Arbitrum, Avalanche, or validator_type === 'EVM')
+  if (type === 'EVM' || ['POLYGON', 'BSC', 'ETHEREUM', 'ETH', 'ARBITRUM', 'AVAX'].includes(type)) {
     if (!cleanAddress.startsWith('0x')) {
       return { valid: false, error: 'عنوان محفظة شبكة EVM يجب أن يبدأ بـ 0x.' };
     }
@@ -48,17 +62,7 @@ export function validateWalletAddress(networkIdentifier: string, address: string
       return { valid: false, error: 'طول عنوان المحفظة لشبكة EVM يجب أن يكون 42 حرفاً بالتحديد.' };
     }
     if (!isAddress(cleanAddress.toLowerCase())) {
-      return { valid: false, error: 'عنوان محفظة شبكة EVM غير صالح أو غير متطابق مع معيار العناوين.' };
-    }
-    return { valid: true };
-  }
-
-  // TRON (TRC20)
-  if (net === 'TRON' || net === 'TRC20') {
-    // Standard TRON base58 addresses start with 'T' and are 34 characters
-    const tronRegex = /^T[a-km-zA-HJ-NP-Z1-9]{33}$/;
-    if (!tronRegex.test(cleanAddress)) {
-      return { valid: false, error: 'عنوان محفظة TRON (TRC20) غير صالح. يجب أن يبدأ بحرف T ويتكون من 34 حرفاً.' };
+      return { valid: false, error: 'عنوان محفظة EVM غير صالح (Checksum/Format غير متطابق).' };
     }
     return { valid: true };
   }
@@ -76,7 +80,7 @@ export function validateWalletAddress(networkIdentifier: string, address: string
  */
 export async function getUsdtPublicConfig() {
   const invRes = await pool.query('SELECT available, min_order_amount, exchange_rate, image_url FROM usdt_inventory WHERE id = 1');
-  const inv = invRes.rows[0] || { available: '0', min_order_amount: '3', exchange_rate: '5000', image_url: null };
+  const inv = invRes.rows[0] || { available: '0', min_order_amount: '1', exchange_rate: '5000', image_url: null };
 
   const netRes = await pool.query(
     'SELECT identifier, name, currency, validator_type, min_amount FROM crypto_networks WHERE enabled = true ORDER BY display_order ASC'
@@ -84,7 +88,7 @@ export async function getUsdtPublicConfig() {
 
   return {
     available: Number(inv.available),
-    minOrderAmount: Math.max(3, Number(inv.min_order_amount || 3)),
+    minOrderAmount: Math.max(1, Number(inv.min_order_amount || 1)),
     exchangeRate: Number(inv.exchange_rate),
     imageUrl: inv.image_url || null,
     networks: netRes.rows.map(r => ({
@@ -92,7 +96,7 @@ export async function getUsdtPublicConfig() {
       name: r.name,
       currency: r.currency,
       validatorType: r.validator_type,
-      minAmount: Math.max(3, Number(r.min_amount || 3))
+      minAmount: Math.max(1, Number(r.min_amount || 1))
     }))
   };
 }
@@ -102,7 +106,7 @@ export async function getUsdtPublicConfig() {
  */
 export async function getUsdtAdminStats() {
   const invRes = await pool.query('SELECT * FROM usdt_inventory WHERE id = 1');
-  const inv = invRes.rows[0] || { available: 0, reserved: 0, sold: 0, min_order_amount: 3, exchange_rate: 5000, image_url: null };
+  const inv = invRes.rows[0] || { available: 0, reserved: 0, sold: 0, min_order_amount: 1, exchange_rate: 5000, image_url: null };
 
   const ordersCountRes = await pool.query(`
     SELECT 
@@ -114,7 +118,18 @@ export async function getUsdtAdminStats() {
     WHERE "orderType" = 'USDT_TRANSFER'
   `);
 
-  const networksRes = await pool.query('SELECT * FROM crypto_networks ORDER BY display_order ASC');
+  const networksRes = await pool.query(`
+    SELECT 
+      n.*,
+      COALESCE((
+        SELECT COUNT(*)::int 
+        FROM "Order" o 
+        WHERE (o."cryptoNetwork" = n.identifier OR UPPER(o."cryptoNetwork") = UPPER(n.name))
+          AND o."orderType" = 'USDT_TRANSFER'
+      ), 0) as orders_count
+    FROM crypto_networks n
+    ORDER BY n.display_order ASC
+  `);
 
   return {
     inventory: {
@@ -144,9 +159,13 @@ export async function updateUsdtInventory(newAvailable: number, adminId?: string
     await client.query('BEGIN');
     const curRes = await client.query('SELECT * FROM usdt_inventory WHERE id = 1 FOR UPDATE');
     const current = curRes.rows[0];
+    if (!current) throw new Error('بيانات المخزون غير موجودة.');
 
-    const reserved = Number(current?.reserved || 0);
-    // Integrity check: do not allow setting a value that conflicts with reserved or breaks system integrity
+    const reserved = Number(current.reserved || 0);
+    if (newAvailable < reserved) {
+      throw new Error(`لا يمكن جعل المخزون المتاح (${newAvailable} USDT) أقل من المخزون المحجوز حالياً (${reserved} USDT).`);
+    }
+
     await client.query(
       `UPDATE usdt_inventory 
        SET available = $1, updated_at = NOW(), updated_by = $2 
@@ -180,74 +199,49 @@ export async function updateUsdtExchangeRate(newRate: number, adminId?: string) 
     throw new Error('سعر الصرف يجب أن يكون رقماً موجباً أكبر من الصفر.');
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const curRes = await client.query('SELECT * FROM usdt_inventory WHERE id = 1 FOR UPDATE');
-    const oldRate = Number(curRes.rows[0]?.exchange_rate || 5000);
+  const res = await pool.query(
+    `UPDATE usdt_inventory 
+     SET exchange_rate = $1, updated_at = NOW(), updated_by = $2 
+     WHERE id = 1 
+     RETURNING exchange_rate`,
+    [newRate, adminId || null]
+  );
 
-    await client.query(
-      `UPDATE usdt_inventory 
-       SET exchange_rate = $1, updated_at = NOW(), updated_by = $2 
-       WHERE id = 1`,
-      [newRate, adminId || null]
+  if (adminId) {
+    await pool.query(
+      `INSERT INTO "AuditLog" ("adminId", "action", "amount", "reason")
+       VALUES ($1, 'UPDATE_USDT_RATE', $2, $3)`,
+      [adminId, newRate, `تعديل سعر صرف USDT إلى ${newRate} SDG`]
     );
-
-    if (adminId) {
-      await client.query(
-        `INSERT INTO "AuditLog" ("adminId", "action", "amount", "reason")
-         VALUES ($1, 'UPDATE_USDT_EXCHANGE_RATE', $2, $3)`,
-        [adminId, newRate, `تعديل سعر صرف USDT من ${oldRate} إلى ${newRate} SDG`]
-      );
-    }
-
-    await client.query('COMMIT');
-    return { exchangeRate: newRate, oldRate };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
   }
+
+  return { exchangeRate: Number(res.rows[0].exchange_rate) };
 }
 
-/**
- * Admin updates minimum order amount (Hard Floor >= 3.0)
- */
 export async function updateUsdtMinAmount(newMin: number, adminId?: string) {
-  if (typeof newMin !== 'number' || isNaN(newMin) || newMin < 3.0) {
-    const error: any = new Error('الحد الأدنى لشراء USDT لا يمكن أن يقل عن 3 دولار.');
-    error.statusCode = 400;
-    error.code = 'MINIMUM_USDT_AMOUNT_NOT_MET';
-    throw error;
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      `UPDATE usdt_inventory 
-       SET min_order_amount = $1, updated_at = NOW(), updated_by = $2 
-       WHERE id = 1`,
-      [newMin, adminId || null]
-    );
-
-    if (adminId) {
-      await client.query(
-        `INSERT INTO "AuditLog" ("adminId", "action", "amount", "reason")
-         VALUES ($1, 'UPDATE_USDT_MIN_AMOUNT', $2, $3)`,
-        [adminId, newMin, `تعديل الحد الأدنى لشراء USDT إلى ${newMin}`]
-      );
-    }
-
-    await client.query('COMMIT');
-    return { minOrderAmount: newMin };
-  } catch (err) {
-    await client.query('ROLLBACK');
+  if (typeof newMin !== 'number' || isNaN(newMin) || newMin < 1.0) {
+    const err: any = new Error('الحد الأدنى للطلب يجب أن يكون رقماً أكبر من أو يساوي 1 USDT.');
+    err.statusCode = 400;
     throw err;
-  } finally {
-    client.release();
   }
+
+  const res = await pool.query(
+    `UPDATE usdt_inventory 
+     SET min_order_amount = $1, updated_at = NOW(), updated_by = $2 
+     WHERE id = 1 
+     RETURNING min_order_amount`,
+    [newMin, adminId || null]
+  );
+
+  if (adminId) {
+    await pool.query(
+      `INSERT INTO "AuditLog" ("adminId", "action", "amount", "reason")
+       VALUES ($1, 'UPDATE_USDT_MIN_AMOUNT', $2, $3)`,
+      [adminId, newMin, `تعديل الحد الأدنى للطلب إلى ${newMin} USDT`]
+    );
+  }
+
+  return { minOrderAmount: Number(res.rows[0].min_order_amount) };
 }
 
 /**
@@ -301,9 +295,9 @@ export async function createUsdtOrder(params: {
     throw error;
   }
 
-  // Mandatory Hard Floor Check (Backend Enforcement)
-  if (numAmount < 3.0) {
-    const error: any = new Error('الحد الأدنى لشراء USDT هو 3 دولار.');
+  // Mandatory Hard Floor Check (Backend Enforcement >= 1.0)
+  if (numAmount < 1.0) {
+    const error: any = new Error('الحد الأدنى لشراء USDT هو 1 دولار.');
     error.statusCode = 400;
     error.code = 'MINIMUM_USDT_AMOUNT_NOT_MET';
     throw error;
@@ -316,12 +310,12 @@ export async function createUsdtOrder(params: {
   );
   const network = netRes.rows[0];
   if (!network) {
-    const error: any = new Error('شبكة التحويل المختارة غير مدعومة حالياً.');
+    const error: any = new Error('شبكة التحويل المختارة غير مدعومة حالياً أو تم تعطيلها.');
     error.statusCode = 400;
     throw error;
   }
 
-  const netMinAmount = Number(network.min_amount || 3.0);
+  const netMinAmount = Math.max(1, Number(network.min_amount || 1.0));
   if (numAmount < netMinAmount) {
     const error: any = new Error(`الحد الأدنى للتحويل على شبكة ${network.name} هو ${netMinAmount} USDT.`);
     error.statusCode = 400;
@@ -329,8 +323,8 @@ export async function createUsdtOrder(params: {
     throw error;
   }
 
-  // 3. Validate Destination Wallet Address
-  const addrCheck = validateWalletAddress(network.identifier, walletAddress);
+  // 3. Validate Destination Wallet Address with network's validator_type
+  const addrCheck = validateWalletAddress(network.validator_type || network.identifier, walletAddress);
   if (!addrCheck.valid) {
     const error: any = new Error(addrCheck.error || 'عنوان المحفظة غير صالح للشبكة المحددة.');
     error.statusCode = 400;
@@ -364,9 +358,18 @@ export async function createUsdtOrder(params: {
       throw new Error('بيانات مخزون USDT غير مهيأة.');
     }
 
+    // Check dynamic min_order_amount configured by admin in DB
+    const configuredMinAmount = Math.max(1, Number(inventory.min_order_amount || 1.0));
+    if (numAmount < configuredMinAmount) {
+      const error: any = new Error(`الحد الأدنى لشراء USDT حالياً هو ${configuredMinAmount} USDT.`);
+      error.statusCode = 400;
+      error.code = 'MINIMUM_USDT_AMOUNT_NOT_MET';
+      throw error;
+    }
+
     const available = Number(inventory.available);
     if (numAmount > available) {
-      const error: any = new Error(`الكمية المطلوبة (${numAmount} USDT) أكبر من المخزون المتاح حالياً (${available} USDT).`);
+      const error: any = new Error('الكمية المطلوبة أكبر من الكمية المتاحة.');
       error.statusCode = 400;
       error.code = 'INSUFFICIENT_INVENTORY';
       throw error;
@@ -443,14 +446,14 @@ export async function createUsdtOrder(params: {
         id, "userId", "gameId", "packageId", "packageName", "playerId",
         amount, "originalAmount", "discountAmount", status, provider,
         "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount",
-        "chargedCurrency", "exchangeRateUsed", "cashbackAmount",
+        "chargedCurrency", "exchangeRateUsed", "usdtExchangeRateUsed", "cashbackAmount",
         "orderType", "cryptoNetwork", "walletAddress", "usdtAmount"
       ) VALUES (
         $1, $2, 'CRYPTO', 'USDT_INSTANT', $3, $4,
         $5, $5, 0.0, 'AWAITING_TRANSFER', 'MANUAL_ADMIN',
         $6, $6, $7, $8,
-        $9, $10, 0.0,
-        'USDT_TRANSFER', $11, $12, $13
+        $9, $10, $11, 0.0,
+        'USDT_TRANSFER', $12, $13, $14
       )`,
       [
         orderId,
@@ -462,6 +465,7 @@ export async function createUsdtOrder(params: {
         numAmount,
         customerChargedAmount,
         userCurrency,
+        exchangeRate,
         exchangeRate,
         network.identifier,
         walletAddress.trim(),
@@ -489,6 +493,7 @@ export async function createUsdtOrder(params: {
       chargedAmount: customerChargedAmount,
       chargedCurrency: userCurrency,
       exchangeRate,
+      usdtExchangeRateUsed: exchangeRate,
       remainingBalance: balanceAfter,
       message: 'تم استلام طلبك وجاري إرسال المبلغ من قبل الإدارة...'
     };
@@ -794,3 +799,136 @@ export async function ackTelegramOrder(orderId: string) {
   );
   return { success: true };
 }
+
+/**
+ * Admin: Create a new crypto network
+ */
+export async function createCryptoNetwork(data: {
+  identifier: string;
+  name: string;
+  validatorType?: string;
+  minAmount?: number;
+  enabled?: boolean;
+  displayOrder?: number;
+}) {
+  const identifier = (data.identifier || '').trim().toUpperCase();
+  const name = (data.name || '').trim();
+  const validatorType = (data.validatorType || 'EVM').trim().toUpperCase();
+  const minAmount = Math.max(1, Number(data.minAmount || 1.0));
+  const enabled = data.enabled !== undefined ? Boolean(data.enabled) : true;
+  const displayOrder = Number(data.displayOrder) || 1;
+
+  if (!identifier) throw new Error('معرف الشبكة (Network Code) مطلوب.');
+  if (!name) throw new Error('اسم الشبكة مطلوب.');
+  if (!['EVM', 'TRON'].includes(validatorType)) {
+    throw new Error('نوع التحقق من العنوان يجب أن يكون EVM أو TRON.');
+  }
+
+  const res = await pool.query(
+    `INSERT INTO crypto_networks (identifier, name, currency, validator_type, min_amount, enabled, display_order)
+     VALUES ($1, $2, 'USDT', $3, $4, $5, $6)
+     RETURNING *`,
+    [identifier, name, validatorType, minAmount, enabled, displayOrder]
+  );
+  return res.rows[0];
+}
+
+/**
+ * Admin: Update an existing crypto network
+ */
+export async function updateCryptoNetwork(
+  id: string,
+  data: {
+    name?: string;
+    identifier?: string;
+    validatorType?: string;
+    minAmount?: number;
+    enabled?: boolean;
+    displayOrder?: number;
+  }
+) {
+  const fields: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  if (data.name !== undefined) {
+    fields.push(`name = $${idx++}`);
+    values.push(String(data.name).trim());
+  }
+  if (data.identifier !== undefined) {
+    fields.push(`identifier = $${idx++}`);
+    values.push(String(data.identifier).trim().toUpperCase());
+  }
+  if (data.validatorType !== undefined) {
+    const vType = String(data.validatorType).trim().toUpperCase();
+    if (!['EVM', 'TRON'].includes(vType)) {
+      throw new Error('نوع التحقق يجب أن يكون EVM أو TRON.');
+    }
+    fields.push(`validator_type = $${idx++}`);
+    values.push(vType);
+  }
+  if (data.minAmount !== undefined) {
+    const numMin = Number(data.minAmount);
+    if (isNaN(numMin) || numMin < 1.0) {
+      throw new Error('الحد الأدنى للشبكة لا يمكن أن يقل عن 1 USDT.');
+    }
+    fields.push(`min_amount = $${idx++}`);
+    values.push(numMin);
+  }
+  if (data.enabled !== undefined) {
+    fields.push(`enabled = $${idx++}`);
+    values.push(Boolean(data.enabled));
+  }
+  if (data.displayOrder !== undefined) {
+    fields.push(`display_order = $${idx++}`);
+    values.push(Number(data.displayOrder));
+  }
+
+  if (fields.length === 0) {
+    throw new Error('لا توجد حقول للتحديث.');
+  }
+
+  fields.push('updated_at = NOW()');
+  values.push(id);
+
+  const res = await pool.query(
+    `UPDATE crypto_networks SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+    values
+  );
+  if (res.rows.length === 0) {
+    throw new Error('الشبكة غير موجودة.');
+  }
+  return res.rows[0];
+}
+
+/**
+ * Admin: Delete a crypto network (blocked if linked to historical orders)
+ */
+export async function deleteCryptoNetwork(id: string) {
+  const netRes = await pool.query('SELECT * FROM crypto_networks WHERE id = $1', [id]);
+  const network = netRes.rows[0];
+  if (!network) {
+    throw new Error('الشبكة غير موجودة.');
+  }
+
+  // Check if any order is linked to this network
+  const ordersCheck = await pool.query(
+    `SELECT COUNT(*)::int as count 
+     FROM "Order" 
+     WHERE ("cryptoNetwork" = $1 OR UPPER("cryptoNetwork") = UPPER($2)) 
+       AND "orderType" = 'USDT_TRANSFER'`,
+    [network.identifier, network.name]
+  );
+  const count = Number(ordersCheck.rows[0]?.count || 0);
+
+  if (count > 0) {
+    const err: any = new Error('لا يمكن حذف هذه الشبكة لأنها مرتبطة بطلبات سابقة. يمكنك تعطيلها.');
+    err.statusCode = 400;
+    err.code = 'NETWORK_HAS_LINKED_ORDERS';
+    throw err;
+  }
+
+  await pool.query('DELETE FROM crypto_networks WHERE id = $1', [id]);
+  return { success: true, deletedNetwork: network };
+}
+

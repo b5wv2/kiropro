@@ -6,7 +6,6 @@ import {
   Copy, 
   Check, 
   Loader2, 
-  Wallet, 
   Clock, 
   XCircle,
   ShieldCheck,
@@ -45,15 +44,7 @@ interface PlacedOrderState {
   createdAt: string;
 }
 
-// Network badge labels
-const NETWORK_BADGES: Record<string, string> = {
-  TRON: 'TRC20',
-  POLYGON: 'Polygon Bor',
-  BSC: 'BEP20',
-  ETHEREUM: 'ERC20',
-  ARBITRUM: 'Layer 2',
-  AVAX: 'C-Chain'
-};
+const QUICK_AMOUNTS = [1, 2, 5, 10, 20, 50];
 
 export const UsdtTransferPage: React.FC = () => {
   const { isAuthenticated, navigateTo } = useAuth();
@@ -62,7 +53,7 @@ export const UsdtTransferPage: React.FC = () => {
   const [config, setConfig] = useState<CryptoConfig | null>(null);
 
   // Form State
-  const [amount, setAmount] = useState<number | string>(20);
+  const [amount, setAmount] = useState<number | string>(10);
   const [selectedNetwork, setSelectedNetwork] = useState<string>('POLYGON');
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -80,10 +71,17 @@ export const UsdtTransferPage: React.FC = () => {
         if (isMounted && data) {
           setConfig(data);
           if (data.networks && data.networks.length > 0) {
-            // Keep polygon or fallback to first active network
-            const hasPolygon = data.networks.some(n => n.identifier === 'POLYGON');
-            setSelectedNetwork(hasPolygon ? 'POLYGON' : data.networks[0].identifier);
+            const hasCurrent = data.networks.some(n => n.identifier === selectedNetwork);
+            if (!hasCurrent) {
+              setSelectedNetwork(data.networks[0].identifier);
+            }
           }
+          // Adjust initial amount to match minOrderAmount if lower
+          const minVal = data.minOrderAmount || 1;
+          setAmount(prev => {
+            const numPrev = Number(prev);
+            return numPrev < minVal ? minVal : prev;
+          });
         }
       })
       .catch((err) => {
@@ -122,12 +120,14 @@ export const UsdtTransferPage: React.FC = () => {
   }, [activeOrder?.orderId, activeOrder?.status]);
 
   const numAmount = Number(amount) || 0;
-  const exchangeRate = config?.exchangeRate || 5000;
-  const minRequired = config?.minOrderAmount || 3;
+  const exchangeRate = config?.exchangeRate || 6200;
+  const minRequired = config?.minOrderAmount || 1;
+  const availableInventory = config ? config.available : 0;
+  const isAvailable = availableInventory > 0;
 
   // Selected Network Object
   const currentNetworkObj = useMemo(() => {
-    return config?.networks.find(n => n.identifier === selectedNetwork);
+    return config?.networks.find(n => n.identifier === selectedNetwork) || config?.networks?.[0];
   }, [config?.networks, selectedNetwork]);
 
   // Network-specific Address Validation
@@ -136,9 +136,10 @@ export const UsdtTransferPage: React.FC = () => {
     if (!raw) return { valid: null, message: '' };
 
     const net = selectedNetwork.toUpperCase();
+    const validatorType = (currentNetworkObj?.validatorType || '').toUpperCase();
 
     // TRON (TRC20) validation
-    if (net === 'TRON' || net === 'TRC20') {
+    if (net === 'TRON' || net === 'TRC20' || validatorType === 'TRON') {
       if (raw.startsWith('0x')) {
         return { valid: false, message: 'عنوان TRON لا يمكن أن يبدأ بـ 0x. عنوان TRON يبدأ دائماً بحرف T.' };
       }
@@ -149,8 +150,8 @@ export const UsdtTransferPage: React.FC = () => {
       return { valid: true, message: 'عنوان TRON (TRC20) صالح ومعتمد.' };
     }
 
-    // EVM networks (Polygon, BSC, Ethereum, Arbitrum, Avalanche)
-    if (['POLYGON', 'BSC', 'ETHEREUM', 'ETH', 'ARBITRUM', 'AVAX'].includes(net)) {
+    // EVM networks (Polygon, BSC, Ethereum, Arbitrum, Avalanche, or validatorType === 'EVM')
+    if (validatorType === 'EVM' || ['POLYGON', 'BSC', 'ETHEREUM', 'ETH', 'ARBITRUM', 'AVAX'].includes(net)) {
       if (!raw.startsWith('0x')) {
         return { valid: false, message: 'عنوان شبكة EVM يجب أن يبدأ بـ 0x.' };
       }
@@ -158,7 +159,7 @@ export const UsdtTransferPage: React.FC = () => {
         return { valid: false, message: 'طول عنوان المحفظة لشبكة EVM يجب أن يكون 42 حرفاً بالتحديد.' };
       }
       if (!isAddress(raw.toLowerCase())) {
-        return { valid: false, message: 'عنوان محفظة EVM غير صالح.' };
+        return { valid: false, message: 'عنوان محفظة EVM غير صالح أو تالف.' };
       }
       return { valid: true, message: `عنوان ${currentNetworkObj?.name || 'EVM'} صالح ومعتمد.` };
     }
@@ -179,6 +180,7 @@ export const UsdtTransferPage: React.FC = () => {
   const hasEnoughBalance = (balance || 0) >= calculatedPrice;
 
   const handlePresetClick = (val: number) => {
+    if (val > availableInventory) return;
     setAmount(val);
     setFormError(null);
   };
@@ -204,13 +206,18 @@ export const UsdtTransferPage: React.FC = () => {
       return;
     }
 
+    if (!isAvailable) {
+      setFormError('الخدمة غير متوفرة حالياً لعدم وجود مخزون كافٍ.');
+      return;
+    }
+
     if (numAmount < minRequired) {
       setFormError(`الحد الأدنى لشراء USDT هو ${minRequired} دولار.`);
       return;
     }
 
-    if (config && numAmount > config.available) {
-      setFormError('الكمية المطلوبة غير متوفرة حالياً في المخزون.');
+    if (numAmount > availableInventory) {
+      setFormError('الكمية المطلوبة أكبر من الكمية المتاحة.');
       return;
     }
 
@@ -247,7 +254,8 @@ export const UsdtTransferPage: React.FC = () => {
       refreshBalance();
     } catch (err: any) {
       console.error('Order creation failed:', err);
-      setFormError(err?.data?.error || err.message || 'فشل إرسال الطلب. يرجى المحاولة لاحقاً.');
+      const rawMsg = err?.data?.error || err?.response?.data?.error || err?.message || 'فشل إرسال الطلب. يرجى المحاولة لاحقاً.';
+      setFormError(typeof rawMsg === 'string' ? rawMsg : (rawMsg?.message || JSON.stringify(rawMsg)));
     } finally {
       setIsSubmitting(false);
     }
@@ -255,7 +263,7 @@ export const UsdtTransferPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '80vh', padding: '36px 16px', background: 'var(--bg-primary)' }} dir="rtl">
-      <div style={{ maxWidth: 620, margin: '0 auto' }}>
+      <div style={{ maxWidth: 580, margin: '0 auto' }}>
         
         {/* Top Breadcrumb & Return Button */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -281,10 +289,15 @@ export const UsdtTransferPage: React.FC = () => {
             <span>العودة للمتجر</span>
           </button>
 
-          {config && (
+          {isAvailable ? (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#ECFDF5', border: '1px solid #A7F3D0', padding: '6px 14px', borderRadius: 'var(--radius-pill)', color: '#047857', fontSize: 12, fontWeight: 800 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981' }} />
               <span>الخدمة متوفرة ⚡</span>
+            </div>
+          ) : (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#FEF2F2', border: '1px solid #FECACA', padding: '6px 14px', borderRadius: 'var(--radius-pill)', color: '#DC2626', fontSize: 12, fontWeight: 800 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
+              <span>غير متوفر حالياً</span>
             </div>
           )}
         </div>
@@ -398,7 +411,7 @@ export const UsdtTransferPage: React.FC = () => {
                     onClick={() => {
                       setActiveOrder(null);
                       setWalletAddress('');
-                      setAmount(20);
+                      setAmount(10);
                     }}
                     className="btn btn-primary"
                   >
@@ -444,17 +457,48 @@ export const UsdtTransferPage: React.FC = () => {
           <div style={{ background: '#FFFFFF', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '28px 24px', boxShadow: 'var(--shadow-sm)' }}>
             
             {/* Header / Intro */}
-            <div style={{ textAlign: 'center', marginBottom: 24, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 20 }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-yellow-light)', border: '1px solid var(--accent-yellow)', padding: '4px 14px', borderRadius: 'var(--radius-pill)', color: '#0B0F19', fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
-                <Zap size={14} />
-                <span>تحويل USDT فوري ⚡</span>
-              </div>
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <h1 style={{ fontSize: 24, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 6px 0' }}>
                 شراء USDT
               </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
-                أرسل USDT إلى محفظتك بسرعة وسهولة.
+                اختر الكمية والشبكة وأرسل USDT إلى محفظتك بسرعة.
               </p>
+            </div>
+
+            {/* Availability and USDT Exchange Rate Box */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr', 
+              gap: 12, 
+              marginBottom: 24, 
+              padding: '14px 18px', 
+              background: '#F8FAFC', 
+              borderRadius: 'var(--radius-md)', 
+              border: '1px solid var(--border-subtle)' 
+            }}>
+              <div>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                  المتوفر حالياً:
+                </span>
+                {isAvailable ? (
+                  <span style={{ fontSize: 18, fontWeight: 900, color: '#047857' }}>
+                    {availableInventory.toLocaleString()} USDT
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 14, fontWeight: 800, color: '#DC2626' }}>
+                    غير متوفر حالياً
+                  </span>
+                )}
+              </div>
+              <div style={{ textAlign: 'left', direction: 'ltr' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4, textAlign: 'right', direction: 'rtl' }}>
+                  سعر USDT:
+                </span>
+                <span style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)' }}>
+                  1 USDT = {exchangeRate.toLocaleString()} ج.س
+                </span>
+              </div>
             </div>
 
             <form onSubmit={handleSubmit}>
@@ -462,7 +506,7 @@ export const UsdtTransferPage: React.FC = () => {
               <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <label style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>
-                    المبلغ (USDT):
+                    المبلغ:
                   </label>
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     الحد الأدنى: {minRequired} USDT
@@ -473,16 +517,18 @@ export const UsdtTransferPage: React.FC = () => {
                   <input
                     type="number"
                     min={minRequired}
+                    max={availableInventory > 0 ? availableInventory : undefined}
                     step="any"
                     value={amount}
+                    disabled={!isAvailable}
                     onChange={(e) => {
                       setAmount(e.target.value);
                       setFormError(null);
                     }}
-                    placeholder="20"
+                    placeholder="10"
                     style={{
                       width: '100%',
-                      background: 'var(--bg-primary)',
+                      background: isAvailable ? 'var(--bg-primary)' : '#F1F5F9',
                       border: '1.5px solid var(--border-subtle)',
                       borderRadius: 'var(--radius-md)',
                       padding: '12px 16px 12px 75px',
@@ -501,39 +547,44 @@ export const UsdtTransferPage: React.FC = () => {
 
                 {/* Quick Presets */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginTop: 10 }}>
-                  {[3, 5, 10, 20, 50, 100].map(val => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => handlePresetClick(val)}
-                      style={{
-                        background: numAmount === val ? 'var(--accent-yellow)' : 'var(--bg-primary)',
-                        border: numAmount === val ? '1.5px solid #0B0F19' : '1px solid var(--border-subtle)',
-                        color: numAmount === val ? '#0B0F19' : 'var(--text-primary)',
-                        padding: '6px 0',
-                        borderRadius: 8,
-                        fontSize: 13,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      {val}$
-                    </button>
-                  ))}
+                  {QUICK_AMOUNTS.map(val => {
+                    const isDisabled = !isAvailable || val > availableInventory || val < minRequired;
+                    const isSelected = numAmount === val;
+                    return (
+                      <button
+                        key={val}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => handlePresetClick(val)}
+                        style={{
+                          background: isSelected ? 'var(--accent-yellow)' : isDisabled ? '#F1F5F9' : 'var(--bg-primary)',
+                          border: isSelected ? '1.5px solid #0B0F19' : '1px solid var(--border-subtle)',
+                          color: isSelected ? '#0B0F19' : isDisabled ? '#94A3B8' : 'var(--text-primary)',
+                          padding: '6px 0',
+                          borderRadius: 8,
+                          fontSize: 13,
+                          fontWeight: 800,
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
+                          opacity: isDisabled ? 0.5 : 1,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {val}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Field 2: 6 Networks Selection Cards */}
+              {/* Field 2: Networks Selection Cards */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: 'block', fontSize: 14, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>
-                  الشبكة (Network):
+                  الشبكة:
                 </label>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
                   {config?.networks?.map(net => {
                     const isSelected = selectedNetwork === net.identifier;
-                    const badge = NETWORK_BADGES[net.identifier] || net.validatorType;
 
                     return (
                       <div
@@ -568,7 +619,7 @@ export const UsdtTransferPage: React.FC = () => {
 
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
                           <span style={{ fontSize: 11, color: isSelected ? '#0B0F19' : 'var(--text-muted)', fontWeight: 700 }}>
-                            {badge}
+                            {net.validatorType}
                           </span>
                           <span style={{ fontSize: 10, color: '#047857', fontWeight: 800, background: '#ECFDF5', padding: '1px 6px', borderRadius: 4 }}>
                             نشطة
@@ -584,14 +635,14 @@ export const UsdtTransferPage: React.FC = () => {
               <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <label style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>
-                    عنوان المحفظة ({selectedNetwork}):
+                    عنوان محفظة {currentNetworkObj?.name || selectedNetwork}:
                   </label>
                   <button
                     type="button"
                     onClick={handlePasteAddress}
                     style={{ background: 'transparent', border: 'none', color: '#0284C7', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
                   >
-                    لصق من الحافظة
+                    لصق العنوان
                   </button>
                 </div>
 
@@ -637,7 +688,7 @@ export const UsdtTransferPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Security Badge */}
+              {/* Security Shield */}
               <div style={{ background: '#F8FAFC', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <ShieldCheck size={18} color="#047857" style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -645,77 +696,82 @@ export const UsdtTransferPage: React.FC = () => {
                 </span>
               </div>
 
-              {/* Price Calculation Box */}
-              <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16, marginBottom: 20 }}>
+              {/* Order Summary Box */}
+              <div style={{ background: '#F8FAFC', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 16, marginBottom: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>سعر الصرف الحالي:</span>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>1 USD = {exchangeRate.toLocaleString()} SDG</span>
+                  <span style={{ color: 'var(--text-muted)' }}>USDT:</span>
+                  <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{numAmount}</span>
                 </div>
-
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>رصيدك المتاح:</span>
-                  <span style={{ color: hasEnoughBalance ? '#047857' : '#EF4444', fontWeight: 800 }}>
-                    {(balance || 0).toLocaleString()} {currency}
-                  </span>
+                  <span style={{ color: 'var(--text-muted)' }}>Network:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{currentNetworkObj?.name || selectedNetwork}</span>
                 </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px dashed var(--border-subtle)', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: 15 }}>السعر الإجمالي:</span>
-                  <span style={{ fontWeight: 900, color: '#0B0F19', fontSize: 18 }}>
-                    {calculatedPrice.toLocaleString()} {currency}
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>سعر USDT:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{exchangeRate.toLocaleString()} SDG</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px dashed var(--border-subtle)', fontSize: 15, fontWeight: 900 }}>
+                  <span style={{ color: 'var(--text-primary)' }}>الإجمالي:</span>
+                  <span style={{ color: '#047857' }}>{calculatedPrice.toLocaleString()} SDG</span>
+                </div>
+                <div style={{ textAlign: 'left', marginTop: 6, fontSize: 13, fontWeight: 700, color: '#0F172A', direction: 'ltr' }}>
+                  {numAmount} USDT = {calculatedPrice.toLocaleString()} ج.س
                 </div>
               </div>
 
-              {/* Form Error Notice */}
+              {/* Error Message */}
               {formError && (
-                <div style={{ background: '#FEF2F2', border: '1px solid #F87171', borderRadius: 8, padding: 12, color: '#B91C1C', fontSize: 13, fontWeight: 700, marginBottom: 16, textAlign: 'center' }}>
-                  {formError}
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', padding: '12px 14px', borderRadius: 'var(--radius-md)', marginBottom: 20, fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <AlertCircle size={16} />
+                  <span>{formError}</span>
                 </div>
               )}
 
-              {/* Main Call to Action Button */}
-              {!isAuthenticated ? (
-                <button
-                  type="button"
-                  onClick={() => navigateTo('login')}
-                  className="btn btn-primary"
-                  style={{ width: '100%', padding: '14px 20px' }}
-                >
-                  تسجيل الدخول لإتمام الشراء
-                </button>
-              ) : !hasEnoughBalance ? (
-                <button
-                  type="button"
-                  onClick={openDepositModal}
-                  className="btn btn-secondary"
-                  style={{ width: '100%', padding: '14px 20px', borderColor: '#EF4444', color: '#EF4444' }}
-                >
-                  <Wallet size={16} />
-                  <span>رصيدك غير كافٍ — اضغط هنا لشحن محفظتك</span>
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="btn btn-primary"
-                  style={{
-                    width: '100%',
-                    padding: '14px 20px',
-                    fontWeight: 900,
-                    fontSize: 16
-                  }}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      <span>جاري معالجة الطلب...</span>
-                    </>
-                  ) : (
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={
+                  isSubmitting || 
+                  !isAvailable || 
+                  numAmount < minRequired || 
+                  numAmount > availableInventory || 
+                  !walletAddress.trim() || 
+                  addressValidation.valid === false
+                }
+                style={{
+                  width: '100%',
+                  background: !isAvailable || numAmount > availableInventory ? '#E2E8F0' : 'var(--accent-yellow)',
+                  color: !isAvailable || numAmount > availableInventory ? '#94A3B8' : '#0B0F19',
+                  border: 'none',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '14px 20px',
+                  fontSize: 16,
+                  fontWeight: 900,
+                  cursor: isSubmitting || !isAvailable || numAmount > availableInventory ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  boxShadow: isAvailable && numAmount <= availableInventory ? '0 4px 14px rgba(255, 230, 0, 0.4)' : 'none',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>جاري معالجة الطلب...</span>
+                  </>
+                ) : !isAvailable ? (
+                  <span>غير متوفر حالياً</span>
+                ) : numAmount > availableInventory ? (
+                  <span>الكمية المطلوبة أكبر من الكمية المتاحة</span>
+                ) : (
+                  <>
+                    <Zap size={18} />
                     <span>شراء USDT الآن</span>
-                  )}
-                </button>
-              )}
+                  </>
+                )}
+              </button>
             </form>
           </div>
         )}
@@ -723,5 +779,3 @@ export const UsdtTransferPage: React.FC = () => {
     </div>
   );
 };
-
-export default UsdtTransferPage;

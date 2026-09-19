@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import pool from '../src/db';
 import {
   createUsdtOrder,
@@ -30,6 +31,7 @@ async function runTestSuite() {
   const testEmailB = `test_usdt_b_${Date.now()}@kiropro.test`;
   const validEvmAddress1 = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
   const validEvmAddress2 = '0x2b5AD5c4795c026514f8317c7a215E218DcCD6cF';
+  const validEvmAddress2b = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
   const validEvmAddress3 = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45';
   const validEvmAddress4 = '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD';
   const validEvmAddress5 = '0x1111111254EEB25477B68fb85Ed929f73A960582';
@@ -60,43 +62,70 @@ async function runTestSuite() {
     [uuidv4(), userBId]
   );
 
-  // Reset Inventory to Available = 50, Reserved = 0, Rate = 5000, Min = 3
+  // Reset Inventory to Available = 50, Reserved = 0, Rate = 5000, Min = 1
   await pool.query(
     `UPDATE usdt_inventory 
-     SET available = 50.0000, reserved = 0.0000, sold = 0.0000, exchange_rate = 5000.0000, min_order_amount = 3.0000 
+     SET available = 50.0000, reserved = 0.0000, sold = 0.0000, exchange_rate = 5000.0000, min_order_amount = 1.0000 
      WHERE id = 1`
   );
 
   // ----------------------------------------------------
-  // Test 1: شراء 3 USDT ✅
+  // Test 1: شراء 1 USDT عندما الحد الأدنى = 1 ✅
   // ----------------------------------------------------
   const order1 = await createUsdtOrder({
     userId: userAId,
-    amount: 3,
+    amount: 1,
     networkIdentifier: 'POLYGON',
     walletAddress: validEvmAddress1
   });
-  assert(order1.status === 'AWAITING_TRANSFER' && order1.usdtAmount === 3, 'Test 1: شراء 3 USDT ✅');
+  assert(order1.status === 'AWAITING_TRANSFER' && order1.usdtAmount === 1, 'Test 1: شراء 1 USDT (Minimum = 1) ✅');
 
   // Reset inventory back to 50 for next tests
   await pool.query(`UPDATE usdt_inventory SET available = 50.0000, reserved = 0.0000 WHERE id = 1`);
 
   // ----------------------------------------------------
-  // Test 2: شراء 2.99 USDT ❌
+  // Test 2: شراء 0.99 USDT عندما الحد الأدنى = 1 ❌
   // ----------------------------------------------------
   let test2Failed = false;
   try {
     await createUsdtOrder({
       userId: userAId,
-      amount: 2.99,
+      amount: 0.99,
       networkIdentifier: 'POLYGON',
       walletAddress: validEvmAddress2
     });
   } catch (err: any) {
     test2Failed = true;
-    assert(err.code === 'MINIMUM_USDT_AMOUNT_NOT_MET', 'Test 2: شراء 2.99 USDT ❌ (Refused with code)');
+    assert(err.code === 'MINIMUM_USDT_AMOUNT_NOT_MET', 'Test 2: شراء 0.99 USDT ❌ (Refused with code)');
   }
-  assert(test2Failed, 'Test 2: شراء 2.99 USDT يجب أن يرفض');
+  assert(test2Failed, 'Test 2: شراء 0.99 USDT يجب أن يرفض عندما الحد الأدنى 1');
+
+  // ----------------------------------------------------
+  // Test 2b: تعديل الحد الأدنى إلى 2، ورفض 1.99 وقبول 2 ✅
+  // ----------------------------------------------------
+  await updateUsdtMinAmount(2.0);
+  let under2Failed = false;
+  try {
+    await createUsdtOrder({
+      userId: userAId,
+      amount: 1.99,
+      networkIdentifier: 'POLYGON',
+      walletAddress: validEvmAddress2
+    });
+  } catch (err: any) {
+    under2Failed = true;
+    assert(err.code === 'MINIMUM_USDT_AMOUNT_NOT_MET', 'Test 2b: شراء 1.99 USDT ❌ (Refused when Min=2)');
+  }
+  assert(under2Failed, 'Test 2b: شراء 1.99 USDT يرفض عند تعيين Min=2');
+
+  const order2 = await createUsdtOrder({
+    userId: userAId,
+    amount: 2,
+    networkIdentifier: 'POLYGON',
+    walletAddress: validEvmAddress2b
+  });
+  assert(order2.status === 'AWAITING_TRANSFER' && order2.usdtAmount === 2, 'Test 2b: شراء 2 USDT (Minimum = 2) ✅');
+  await pool.query(`UPDATE usdt_inventory SET available = 50.0000, reserved = 0.0000, min_order_amount = 1.0000 WHERE id = 1`);
 
   // ----------------------------------------------------
   // Test 3: شراء 0 USDT ❌
@@ -268,16 +297,16 @@ async function runTestSuite() {
   assert(Number(emailEvents.rows[0].count) <= 1, 'Test 12: Completed email يرسل مرة واحدة فقط بحماية Idempotency ✅');
 
   // ----------------------------------------------------
-  // Test 13: Admin لا يستطيع جعل minimum < 3
+  // Test 13: Admin لا يستطيع جعل minimum < 1 (Hard floor >= 1 enforced)
   // ----------------------------------------------------
   let test13Failed = false;
   try {
-    await updateUsdtMinAmount(2.5);
+    await updateUsdtMinAmount(0.5);
   } catch (err: any) {
     test13Failed = true;
-    assert(err.code === 'MINIMUM_USDT_AMOUNT_NOT_MET', 'Test 13: Admin لا يستطيع جعل minimum < 3 (Hard floor enforced) ✅');
+    assert(err.message.includes('1 USDT'), 'Test 13: Admin لا يستطيع جعل minimum < 1 (Hard floor enforced) ✅');
   }
-  assert(test13Failed, 'Test 13: رفض تعيين حد أدنى أقل من 3');
+  assert(test13Failed, 'Test 13: رفض تعيين حد أدنى أقل من 1 USDT');
 
   // ----------------------------------------------------
   // Test 14: Frontend لا يستطيع التلاعب بالسعر
