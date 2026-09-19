@@ -23,6 +23,7 @@ import cryptoRoutes from './routes/crypto';
 import adminCryptoRoutes from './routes/adminCrypto';
 import internalTelegramRoutes from './routes/internalTelegram';
 import { orderPollingService } from './services/orderPollingService';
+import { telegramBotService } from './services/telegramBotService';
 import path from 'path';
 import fs from 'fs';
 
@@ -191,18 +192,44 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   // Start background order polling service (7-second interval)
   orderPollingService.start();
+
+  // Start embedded Telegram Bot service with error isolation
+  try {
+    await telegramBotService.start();
+  } catch (botErr: any) {
+    console.error('[TelegramBot] Failed to start bot service on server startup:', botErr.message);
+  }
 });
 
-process.on('SIGTERM', () => {
-  orderPollingService.stop();
-  process.exit(0);
-});
+function gracefulShutdown(signal: string) {
+  console.log(`[Server] Received ${signal}. Starting graceful shutdown...`);
+  try {
+    orderPollingService.stop();
+  } catch (err: any) {
+    console.warn('[Server] Error stopping orderPollingService:', err.message);
+  }
 
-process.on('SIGINT', () => {
-  orderPollingService.stop();
-  process.exit(0);
-});
+  try {
+    telegramBotService.stop();
+  } catch (err: any) {
+    console.warn('[Server] Error stopping telegramBotService:', err.message);
+  }
+
+  server.close(() => {
+    console.log('[Server] HTTP server closed.');
+    process.exit(0);
+  });
+
+  // Force shutdown after 10 seconds if hanging
+  setTimeout(() => {
+    console.error('[Server] Forced shutdown after timeout.');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
