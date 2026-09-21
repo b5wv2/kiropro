@@ -88,7 +88,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
 
     // Section 3: User Preferred Currency & Central Exchange Rate
     const userRowRes = await pool.query('SELECT "preferred_currency" FROM "User" WHERE id = $1', [user.id]);
-    const userCurrency = (userRowRes.rows[0]?.preferred_currency || 'USD').toUpperCase();
+    const userCurrency = (userRowRes.rows[0]?.preferred_currency || 'SDG').toUpperCase();
 
     const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
     const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
@@ -642,7 +642,7 @@ router.put('/:id/status', requireAdmin, async (req: AuthRequest, res: Response) 
               refundAmount, 
               'REFUND', 
               `استرجاع يدوي من الإدارة للطلب: ${order.packageName}`,
-              wallet.currency || 'USD',
+              wallet.currency || 'SDG',
               balanceBefore,
               newBalance,
               'ORDER',

@@ -32,9 +32,9 @@ const BRAND_TEXT_MAIN = '#1E293B';
 const BRAND_TEXT_MUTED = '#64748B';
 
 // Safe Currency Formatter
-export function formatCurrencyAmount(amount: number | string, currency: string = 'USD'): string {
+export function formatCurrencyAmount(amount: number | string, currency: string = 'SDG'): string {
   const num = Number(amount) || 0;
-  const curr = (currency || 'USD').toUpperCase();
+  const curr = (currency || 'SDG').toUpperCase();
   if (curr === 'SDG') {
     return `${Math.round(num).toLocaleString('en-US')} ج.س`;
   }

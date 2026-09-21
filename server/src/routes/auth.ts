@@ -76,15 +76,8 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 6 أحرف.' });
   }
 
-  // Strictly validate preferred_currency: only 'USD' or 'SDG' allowed
-  let userCurrency = 'USD';
-  if (preferred_currency) {
-    const cleanCur = String(preferred_currency).trim().toUpperCase();
-    if (cleanCur !== 'USD' && cleanCur !== 'SDG') {
-      return res.status(400).json({ error: 'العملة المحددة غير مدعومة. الخيارات المتاحة هي USD أو SDG فقط.' });
-    }
-    userCurrency = cleanCur;
-  }
+  // Strictly enforce SDG: all customer accounts and wallets are exclusively SDG
+  const userCurrency = 'SDG';
 
   const client = await pool.connect();
   try {
@@ -303,7 +296,7 @@ router.post('/verify-email', authLimiter, async (req: Request, res: Response) =>
     // Fetch user wallet
     const walletRes = await client.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'USD';
+    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
 
     await client.query('COMMIT');
 
@@ -493,7 +486,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'USD';
+    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
 
     const token = generateToken(user.id, user.email, user.role);
     setTokenCookie(res, token);
@@ -637,7 +630,7 @@ router.post('/quick-login', authLimiter, async (req: Request, res: Response) => 
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'USD';
+    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
 
     // Issue refreshed token
     const freshToken = generateToken(user.id, user.email, user.role);
@@ -686,7 +679,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'USD';
+    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
     
     res.json({ user: { ...user, balance, currency, preferred_currency: user.preferred_currency || currency } });
   } catch (err) {
@@ -696,7 +689,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
 });
 
 // ==========================================
-// 8. UPDATE PREFERRED CURRENCY (CUSTOMER ONLY IF 0 BALANCE & 0 TRANSACTIONS)
+// 8. UPDATE PREFERRED CURRENCY (FIXED TO SDG ONLY)
 // ==========================================
 router.patch('/currency', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -704,53 +697,14 @@ router.patch('/currency', requireAuth, async (req: AuthRequest, res: Response) =
     const { currency } = req.body;
 
     const cleanCur = String(currency || '').trim().toUpperCase();
-    if (cleanCur !== 'USD' && cleanCur !== 'SDG') {
-      return res.status(400).json({ error: 'العملة المحددة غير صحيحة. العملات المدعومة هي USD أو SDG فقط.' });
+    if (cleanCur && cleanCur !== 'SDG') {
+      return res.status(400).json({ error: 'العملة التشغيلية المعتمدة لجميع حسابات العملاء هي الجنيه السوداني (SDG) فقط.' });
     }
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const walletRes = await client.query('SELECT id, balance FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [req.user.id]);
-      const wallet = walletRes.rows[0];
-
-      if (!wallet) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'المحفظة غير موجودة' });
-      }
-
-      // Check if user has balance
-      if (Number(wallet.balance) > 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          error: 'لا يمكن تغيير عملة الحساب أثناء وجود رصيد في المحفظة لتجنب التعقيد المحاسبي. يرجى التواصل مع الإدارة.' 
-        });
-      }
-
-      // Check if user has any financial transactions
-      const txRes = await client.query('SELECT id FROM "WalletTransaction" WHERE "walletId" = $1 LIMIT 1', [wallet.id]);
-      if (txRes.rows.length > 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          error: 'لا يمكن تغيير عملة الحساب بعد إجراء معاملات مالية سابقة. يرجى مراجعة إدارة المنصة.' 
-        });
-      }
-
-      await client.query('UPDATE "User" SET "preferred_currency" = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2', [cleanCur, req.user.id]);
-      await client.query('UPDATE "Wallet" SET currency = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2', [cleanCur, wallet.id]);
-
-      await client.query('COMMIT');
-      res.json({ success: true, message: `تم تغيير عملة الحساب إلى ${cleanCur} بنجاح.`, currency: cleanCur });
-    } catch (dbErr) {
-      await client.query('ROLLBACK');
-      throw dbErr;
-    } finally {
-      client.release();
-    }
+    res.json({ success: true, message: 'عملة الحساب هي الجنيه السوداني (SDG).', currency: 'SDG' });
   } catch (err: any) {
     console.error('Error updating preferred currency:', err);
-    res.status(500).json({ error: 'فشل تغيير عملة الحساب.' });
+    res.status(500).json({ error: 'فشل معالجة الطلب.' });
   }
 });
 

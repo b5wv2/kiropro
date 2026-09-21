@@ -45,7 +45,7 @@ export const AdminCustomers: React.FC = () => {
     currency: string;
   } | null>(null);
   const [amount, setAmount] = useState<number | ''>('');
-  const [walletCurrency, setWalletCurrency] = useState<'USD' | 'SDG'>('USD');
+  const [walletCurrency, setWalletCurrency] = useState<'USD' | 'SDG'>('SDG');
   const [reason, setReason] = useState('');
   const [confirmStep, setConfirmStep] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -84,7 +84,7 @@ export const AdminCustomers: React.FC = () => {
     type: 'CREDIT' | 'DEBIT',
     cust: { id: string; name: string; email: string; balance: number; currency?: string }
   ) => {
-    const custCurrency = cust.currency === 'SDG' ? 'SDG' : 'USD';
+    const custCurrency = 'SDG';
     setTargetCustomer({
       id: cust.id,
       name: cust.name || 'عميل',
@@ -537,15 +537,11 @@ export const AdminCustomers: React.FC = () => {
                     </label>
                     <select
                       className="admin-input"
-                      value={walletCurrency}
-                      onChange={(e) => {
-                        setWalletCurrency(e.target.value as 'USD' | 'SDG');
-                        setErrorMsg(null);
-                      }}
-                      style={{ fontWeight: 600 }}
+                      value="SDG"
+                      disabled
+                      style={{ fontWeight: 600, background: '#f8fafc', color: '#059669', cursor: 'not-allowed' }}
                     >
                       <option value="SDG">الجنيه السوداني (SDG)</option>
-                      <option value="USD">الدولار الأمريكي (USD)</option>
                     </select>
                   </div>
 

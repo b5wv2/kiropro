@@ -382,15 +382,9 @@ export async function createUsdtOrder(params: {
       throw new Error('المستخدم غير موجود.');
     }
 
-    const userCurrency = (user.preferred_currency || 'USD').toUpperCase();
+    const userCurrency = 'SDG';
     const exchangeRate = Number(inventory.exchange_rate) || 5000;
-
-    let customerChargedAmount = numAmount;
-    if (userCurrency === 'SDG') {
-      customerChargedAmount = Math.round(numAmount * exchangeRate);
-    } else {
-      customerChargedAmount = Math.round(numAmount * 100) / 100;
-    }
+    const customerChargedAmount = Math.round(numAmount * exchangeRate);
 
     // 7. Row lock User Wallet & Check Balance
     const walletRes = await client.query('SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [userId]);

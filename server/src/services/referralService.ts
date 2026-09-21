@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS: FullReferralSettings = {
   enabled: true,
   referrer_reward: 1000,
   referee_reward: 1000,
-  currency: 'جنيه',
+  currency: 'SDG',
   min_order_amount: 5000,
   max_referrer_earnings: 10000,
   allow_existing_users_binding: true,
@@ -124,7 +124,7 @@ export async function updateReferralSettings(
     enabled: newSettings.enabled !== undefined ? Boolean(newSettings.enabled) : current.enabled,
     referrer_reward,
     referee_reward,
-    currency: String(newSettings.currency || current.currency).trim() || 'جنيه',
+    currency: 'SDG',
     min_order_amount: newSettings.min_order_amount !== undefined ? Number(newSettings.min_order_amount) : current.min_order_amount,
     max_referrer_earnings: newSettings.max_referrer_earnings !== undefined ? Number(newSettings.max_referrer_earnings) : current.max_referrer_earnings,
     allow_existing_users_binding: newSettings.allow_existing_users_binding !== undefined ? Boolean(newSettings.allow_existing_users_binding) : current.allow_existing_users_binding,
@@ -360,7 +360,7 @@ export async function bindReferralCode(
 
     const refereeReward = settings.referee_reward;
     const referrerReward = settings.referrer_reward;
-    const rewardCurrency = settings.currency || 'جنيه';
+    const rewardCurrency = 'SDG';
     const referralId = uuidv4();
     const shouldPayRefereeNow = refereeReward > 0;
 
@@ -408,7 +408,7 @@ export async function bindReferralCode(
           refereeReward,
           'REFERRAL_BONUS',
           `مكافأة الترحيب بربط كود الصداقة (${cleanCode})`,
-          wallet.currency || 'USD',
+          'SDG',
           balBefore,
           balAfter,
           'REFERRAL',
@@ -543,13 +543,13 @@ export async function processReferralRewardOnOrder(
       return { awarded: false, reason: 'ORDER_AMOUNT_BELOW_MINIMUM' };
     }
 
-    // Check first_order_only restriction
-    if (settings.first_order_only) {
+    // Check first_order_only restriction: only prior orders that met the qualifying threshold count
+    if (settings.first_order_only && settings.min_order_amount > 0) {
       const prevOrdersRes = await client.query(`
         SELECT id FROM "Order"
-        WHERE "userId" = $1 AND status = 'COMPLETED' AND id != $2 AND "createdAt" < $3
+        WHERE "userId" = $1 AND status = 'COMPLETED' AND id != $2 AND "createdAt" < $3 AND amount >= $4
         LIMIT 1
-      `, [order.userId, order.id, order.createdAt]);
+      `, [order.userId, order.id, order.createdAt, settings.min_order_amount]);
 
       if (prevOrdersRes.rows.length > 0) {
         if (isInternalTx) await client.query('ROLLBACK');
@@ -619,7 +619,7 @@ export async function processReferralRewardOnOrder(
           payableReward,
           'REFERRAL_BONUS',
           `مكافأة دعوة صديق - إتمام طلب مؤهل (#${order.id.slice(0, 8)})`,
-          referrerWallet.currency || 'USD',
+          'SDG',
           balBefore,
           balAfter,
           'REFERRAL',

@@ -201,7 +201,7 @@ export async function executeOrderWithProvider(params: {
               productName: orderUser.packageName,
               orderNumber: orderId.slice(0, 8).toUpperCase(),
               amount: Number(orderUser.chargedAmount || orderUser.amount || 0),
-              currency: orderUser.chargedCurrency || 'USD',
+              currency: orderUser.chargedCurrency || 'SDG',
               fulfillmentKey: fulfillmentKey || orderUser.fulfillmentKey,
               reviewToken: rt.token
             });
@@ -214,7 +214,7 @@ export async function executeOrderWithProvider(params: {
               productName: orderUser.packageName,
               orderNumber: orderId.slice(0, 8).toUpperCase(),
               amount: Number(orderUser.chargedAmount || orderUser.amount || 0),
-              currency: orderUser.chargedCurrency || 'USD'
+              currency: orderUser.chargedCurrency || 'SDG'
             });
           }
         }

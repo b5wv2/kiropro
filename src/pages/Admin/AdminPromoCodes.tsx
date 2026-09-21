@@ -52,7 +52,7 @@ export const AdminPromoCodes: React.FC = () => {
   // Form State
   const [code, setCode] = useState('');
   const [type, setType] = useState<'DISCOUNT' | 'WALLET_CREDIT'>('DISCOUNT');
-  const [creditCurrency, setCreditCurrency] = useState<'USD' | 'SDG'>('USD');
+  const [creditCurrency, setCreditCurrency] = useState<'USD' | 'SDG'>('SDG');
   const [discountCurrency, setDiscountCurrency] = useState<'USD' | 'SDG'>('SDG');
   const [discountType, setDiscountType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
   const [discountValue, setDiscountValue] = useState<number | ''>('');
@@ -168,7 +168,7 @@ export const AdminPromoCodes: React.FC = () => {
     setIsCreateModalOpen(false);
     setCode('');
     setType('DISCOUNT');
-    setCreditCurrency('USD');
+    setCreditCurrency('SDG');
     setDiscountType('PERCENTAGE');
     setDiscountValue('');
     setMaxDiscount('');
@@ -554,10 +554,10 @@ export const AdminPromoCodes: React.FC = () => {
                       <label className="admin-label">عملة الرصيد الهدية *</label>
                       <select
                         className="admin-input"
-                        value={creditCurrency}
-                        onChange={(e) => setCreditCurrency(e.target.value as 'USD' | 'SDG')}
+                        value="SDG"
+                        disabled
+                        style={{ background: '#f8fafc', color: '#059669', fontWeight: 700, cursor: 'not-allowed' }}
                       >
-                        <option value="USD">USD — الدولار ($)</option>
                         <option value="SDG">SDG — الجنيه السوداني (ج.س)</option>
                       </select>
                     </div>

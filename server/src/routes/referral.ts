@@ -159,7 +159,7 @@ router.patch('/admin/settings', requireAdmin, async (req: AuthRequest, res: Resp
       enabled: enabled !== undefined ? Boolean(enabled) : undefined,
       referrer_reward: referrer_reward !== undefined ? Number(referrer_reward) : undefined,
       referee_reward: referee_reward !== undefined ? Number(referee_reward) : undefined,
-      currency: currency !== undefined ? String(currency) : undefined,
+      currency: 'SDG',
       min_order_amount: min_order_amount !== undefined ? Number(min_order_amount) : undefined,
       max_referrer_earnings: max_referrer_earnings !== undefined ? Number(max_referrer_earnings) : undefined,
       allow_existing_users_binding: allow_existing_users_binding !== undefined ? Boolean(allow_existing_users_binding) : undefined,

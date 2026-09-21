@@ -12,7 +12,6 @@ export const RegisterPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [preferredCurrency, setPreferredCurrency] = useState<'USD' | 'SDG'>('USD');
   const [referralCode, setReferralCode] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -56,7 +55,7 @@ export const RegisterPage: React.FC = () => {
       name: name.trim(),
       email: email.trim(),
       password,
-      preferred_currency: preferredCurrency,
+      preferred_currency: 'SDG',
       referral_code: referralCode.trim() ? referralCode.trim().toUpperCase() : undefined
     });
 
@@ -169,27 +168,7 @@ export const RegisterPage: React.FC = () => {
             />
           </div>
 
-          <div className={styles.inputGroup}>
-            <label className={styles.label}>اختر عملة حسابك ومحفظتك*</label>
-            <div className={styles.currencySelectorGrid}>
-              <button
-                type="button"
-                className={`${styles.currencyCard} ${preferredCurrency === 'USD' ? styles.currencyCardActive : ''}`}
-                onClick={() => setPreferredCurrency('USD')}
-              >
-                <span className={styles.currencyCode}>USD ($)</span>
-                <span className={styles.currencyLabel}>الدولار الأمريكي</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.currencyCard} ${preferredCurrency === 'SDG' ? styles.currencyCardActive : ''}`}
-                onClick={() => setPreferredCurrency('SDG')}
-              >
-                <span className={styles.currencyCode}>SDG (ج.س)</span>
-                <span className={styles.currencyLabel}>الجنيه السوداني</span>
-              </button>
-            </div>
-          </div>
+
 
           {/* Referral / Invite Code Input Field */}
           <div className={styles.inputGroup}>

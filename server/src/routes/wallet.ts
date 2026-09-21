@@ -25,7 +25,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [req.user.id]);
     const wallet = walletRes.rows[0];
     const balance = wallet ? Number(wallet.balance) : 0;
-    const currency = wallet?.currency || 'USD';
+    const currency = wallet?.currency || 'SDG';
     
     const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
     const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };

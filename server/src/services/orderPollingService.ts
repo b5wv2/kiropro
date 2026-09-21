@@ -159,7 +159,7 @@ class OrderPollingService {
               productName: orderUser.packageName,
               orderNumber: order.id.slice(0, 8).toUpperCase(),
               amount: Number(orderUser.chargedAmount || orderUser.amount || 0),
-              currency: orderUser.chargedCurrency || 'USD',
+              currency: orderUser.chargedCurrency || 'SDG',
               fulfillmentKey: key || orderUser.fulfillmentKey,
               reviewToken: rt.token
             });
@@ -195,7 +195,7 @@ class OrderPollingService {
 
           if (wallet) {
             const refundAmount = Number(order.chargedAmount || order.amount || 0);
-            const userCurrency = wallet.currency || 'USD';
+            const userCurrency = wallet.currency || 'SDG';
             const balanceBefore = Number(wallet.balance);
             const newBalance = Math.round((balanceBefore + refundAmount) * 100) / 100;
 

@@ -140,7 +140,7 @@ export async function createOrder(payload: {
     packageName: payload.packageName,
     playerId: payload.playerId,
     amount: data.chargedAmount,
-    currency: data.chargedCurrency || 'USD',
+    currency: data.chargedCurrency || 'SDG',
     status: data.status,
     fulfillmentKey: data.key,
     key: data.key,

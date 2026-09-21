@@ -92,7 +92,7 @@ export async function awardOrderCashback(orderId: string, externalClient?: PoolC
     // Net USD purchase price (accounting for discount in USD if any)
     const discountAmount = Number(order.discountAmount) || 0;
     const exchangeRate = Number(order.exchangeRateUsed) || 5000;
-    const userCurrency = (order.chargedCurrency || 'USD').toUpperCase();
+    const userCurrency = (order.chargedCurrency || 'SDG').toUpperCase();
 
     // If discount was in SDG, convert discount to USD; if in USD, use directly
     const discountInUsd = userCurrency === 'SDG' && exchangeRate > 0 
@@ -176,13 +176,8 @@ export async function awardOrderCashback(orderId: string, externalClient?: PoolC
       return { awarded: false, reason: 'NO_MATCHING_ELIGIBLE_RULE' };
     }
 
-    // 5. Convert Cashback to User's Preferred Currency
-    let creditedAmount = finalBaseCashbackUsd;
-    if (userCurrency === 'SDG') {
-      creditedAmount = Math.round(finalBaseCashbackUsd * exchangeRate);
-    } else {
-      creditedAmount = Math.round(finalBaseCashbackUsd * 100) / 100;
-    }
+    // 5. Convert Cashback to SDG (operational customer currency)
+    const creditedAmount = Math.round(finalBaseCashbackUsd * exchangeRate);
 
     // 6. Lock User's Wallet and Credit Balance
     const walletRes = await client.query(
@@ -198,7 +193,7 @@ export async function awardOrderCashback(orderId: string, externalClient?: PoolC
       walletId = uuidv4();
       await client.query(
         'INSERT INTO "Wallet" (id, "userId", balance, currency) VALUES ($1, $2, $3, $4)',
-        [walletId, order.userId, balanceAfter, userCurrency]
+        [walletId, order.userId, balanceAfter, 'SDG']
       );
     } else {
       balanceBefore = Number(wallet.balance);
@@ -222,13 +217,13 @@ export async function awardOrderCashback(orderId: string, externalClient?: PoolC
       order.id,
       finalBaseCashbackUsd,
       creditedAmount,
-      userCurrency,
+      'SDG',
       exchangeRate
     ]);
 
     // 8. Create WalletTransaction with type = 'CASHBACK'
     const txId = uuidv4();
-    const currencyLabel = userCurrency === 'SDG' ? 'ج.س' : '$';
+    const currencyLabel = 'ج.س';
     const txDescription = `كاش باك ${matchedRule.percentage}% (${creditedAmount} ${currencyLabel}) عن الطلب المكتمل #${order.id.slice(0, 8)}`;
 
     await client.query(`

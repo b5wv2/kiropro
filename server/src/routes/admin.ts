@@ -69,7 +69,7 @@ router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
       SELECT 
         u.id, u.email, u.name, u."createdAt",
         COALESCE(w.balance, 0) as balance,
-        COALESCE(w.currency, u.preferred_currency, 'USD') as currency,
+        COALESCE(w.currency, u.preferred_currency, 'SDG') as currency,
         (SELECT COUNT(*) FROM "Order" o WHERE o."userId" = u.id) as "ordersCount"
       FROM "User" u
       LEFT JOIN "Wallet" w ON u.id = w."userId"
@@ -95,8 +95,8 @@ router.post('/users/:id/wallet/credit', requireAdmin, async (req: AuthRequest, r
   }
 
   const cleanCurrency = currency.trim().toUpperCase();
-  if (!['USD', 'SDG'].includes(cleanCurrency)) {
-    return res.status(400).json({ error: 'العملة غير صحيحة. العملات المدعومة هي USD أو SDG فقط.' });
+  if (cleanCurrency !== 'SDG') {
+    return res.status(400).json({ error: 'العملة غير صحيحة. حسابات العملاء تدعم الجنيه السوداني (SDG) فقط.' });
   }
 
   const numAmount = Number(amount);
@@ -123,7 +123,7 @@ router.post('/users/:id/wallet/credit', requireAdmin, async (req: AuthRequest, r
 
       let walletRes = await client.query('SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [id]);
       let wallet = walletRes.rows[0];
-      const userWalletCurrency = (wallet?.currency || user.preferred_currency || 'USD').toUpperCase();
+      const userWalletCurrency = (wallet?.currency || user.preferred_currency || 'SDG').toUpperCase();
 
       // STRICT CHECK: Reject currency mismatch
       if (cleanCurrency !== userWalletCurrency) {
@@ -138,28 +138,20 @@ router.post('/users/:id/wallet/credit', requireAdmin, async (req: AuthRequest, r
       const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
       const exchangeRate = Number(rateConfig.rate) || 5000;
 
-      const minAmount = cleanCurrency === 'USD' 
-        ? (Number(rateConfig.min_admin_usd) || 0.1) 
-        : (Number(rateConfig.min_admin_sdg) || Math.round(0.1 * exchangeRate));
-      const maxAmount = cleanCurrency === 'USD' 
-        ? (Number(rateConfig.max_admin_usd) || 10000) 
-        : (Number(rateConfig.max_admin_sdg) || Math.round(10000 * exchangeRate));
+      const minAmount = Number(rateConfig.min_admin_sdg) || Math.round(0.1 * exchangeRate);
+      const maxAmount = Number(rateConfig.max_admin_sdg) || Math.round(10000 * exchangeRate);
 
       if (roundedAmount < minAmount) {
         await client.query('ROLLBACK');
-        const minLabel = cleanCurrency === 'USD' ? `$${minAmount}` : `${minAmount.toLocaleString()} ج.س`;
-        return res.status(400).json({ error: `الحد الأدنى للإيداع هو ${minLabel}.` });
+        return res.status(400).json({ error: `الحد الأدنى للإيداع هو ${minAmount.toLocaleString()} ج.س.` });
       }
 
       if (roundedAmount > maxAmount) {
         await client.query('ROLLBACK');
-        const maxLabel = cleanCurrency === 'USD' ? `$${maxAmount}` : `${maxAmount.toLocaleString()} ج.س`;
-        return res.status(400).json({ error: `الحد الأقصى للإيداع في المرة الواحدة هو ${maxLabel}.` });
+        return res.status(400).json({ error: `الحد الأقصى للإيداع في المرة الواحدة هو ${maxAmount.toLocaleString()} ج.س.` });
       }
 
-      const sourceAmountUsd = cleanCurrency === 'USD' 
-        ? roundedAmount 
-        : (exchangeRate > 0 ? Math.round((roundedAmount / exchangeRate) * 100) / 100 : roundedAmount);
+      const sourceAmountUsd = exchangeRate > 0 ? Math.round((roundedAmount / exchangeRate) * 100) / 100 : roundedAmount;
 
       const balanceBefore = wallet ? Number(wallet.balance) : 0;
       const newBalance = Math.round((balanceBefore + roundedAmount) * 100) / 100;
@@ -238,8 +230,8 @@ router.post('/users/:id/wallet/debit', requireAdmin, async (req: AuthRequest, re
   }
 
   const cleanCurrency = currency.trim().toUpperCase();
-  if (!['USD', 'SDG'].includes(cleanCurrency)) {
-    return res.status(400).json({ error: 'العملة غير صحيحة. العملات المدعومة هي USD أو SDG فقط.' });
+  if (cleanCurrency !== 'SDG') {
+    return res.status(400).json({ error: 'العملة غير صحيحة. حسابات العملاء تدعم الجنيه السوداني (SDG) فقط.' });
   }
 
   const numAmount = Number(amount);
@@ -272,7 +264,7 @@ router.post('/users/:id/wallet/debit', requireAdmin, async (req: AuthRequest, re
         return res.status(404).json({ error: 'محفظة العميل غير موجودة.' });
       }
 
-      const userWalletCurrency = (wallet.currency || user.preferred_currency || 'USD').toUpperCase();
+      const userWalletCurrency = (wallet.currency || user.preferred_currency || 'SDG').toUpperCase();
 
       // STRICT CHECK: Reject currency mismatch
       if (cleanCurrency !== userWalletCurrency) {
@@ -295,9 +287,7 @@ router.post('/users/:id/wallet/debit', requireAdmin, async (req: AuthRequest, re
       const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
       const exchangeRate = Number(rateConfig.rate) || 5000;
 
-      const sourceAmountUsd = cleanCurrency === 'USD' 
-        ? roundedAmount 
-        : (exchangeRate > 0 ? Math.round((roundedAmount / exchangeRate) * 100) / 100 : roundedAmount);
+      const sourceAmountUsd = exchangeRate > 0 ? Math.round((roundedAmount / exchangeRate) * 100) / 100 : roundedAmount;
 
       const newBalance = Math.round((balanceBefore - roundedAmount) * 100) / 100;
       await client.query(
@@ -772,8 +762,8 @@ router.post('/promo-codes', requireAdmin, async (req: AuthRequest, res: Response
       parsedMaxDiscount = Math.round(numMax * 100) / 100;
     }
   } else if (type === 'WALLET_CREDIT') {
-    if (!currency || !['USD', 'SDG'].includes(rawCurrency)) {
-      return res.status(400).json({ error: 'يرجى تحديد عملة رصيد الهدية (USD أو SDG).' });
+    if (rawCurrency !== 'SDG') {
+      return res.status(400).json({ error: 'أكواد شحن المحفظة (Wallet Credit) تدعم الجنيه السوداني (SDG) فقط.' });
     }
 
     const numCredit = Number(creditAmount);

@@ -1,0 +1,242 @@
+[
+  {
+    "id": "bd2e89b3-313a-4e04-b4d0-e8790fa90751",
+    "email": "test_usdt_b_1789783977090@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "22b6d29d-d0e2-4146-a940-9c71cfd114b5",
+    "email": "test_usdt_b_1789784010069@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "79070b10-b437-4bc1-8b61-f1f40e93ed1a",
+    "email": "sectest_1789366886170@kiropro.test",
+    "name": "Security Auditor",
+    "role": "CUSTOMER",
+    "currency": "USD",
+    "balance": 1000
+  },
+  {
+    "id": "f40ad18b-4692-41b1-9226-c83225ea5648",
+    "email": "test_usd_wallet@kiropro.com",
+    "name": "Test USD Customer",
+    "role": "CUSTOMER",
+    "currency": "USD",
+    "balance": 25
+  },
+  {
+    "id": "556085ef-1aee-4a1b-9ec9-4030551151e4",
+    "email": "test_sdg_wallet@kiropro.com",
+    "name": "Test SDG Customer",
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 20000
+  },
+  {
+    "id": "38e0f933-9e06-474c-8736-43504794003b",
+    "email": "test_usdt_a_1789721235410@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "2e26955e-23c9-49f5-8f3d-03d4128b91ea",
+    "email": "test_usdt_b_1789721235410@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "704e1fe0-100d-47d8-b5fc-37f19b1272f0",
+    "email": "test_usdt_b_1789721350353@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "5db8753b-1e33-4edd-8a32-57b340176edc",
+    "email": "test_usdt_b_1789721490091@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "f529f503-c1f1-4dbb-bb0b-4512acddb11b",
+    "email": "test_user_1789350923269@example.com",
+    "name": "Test Gamer",
+    "role": "CUSTOMER",
+    "currency": "USD",
+    "balance": 599980
+  },
+  {
+    "id": "0b6e430d-fad3-4d90-b4a9-481976b86029",
+    "email": "test_usdt_a_1789783977090@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "7e1bfa1e-76f1-4c07-864d-346bade797f5",
+    "email": "usdt_test_1789783400581@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 49961000
+  },
+  {
+    "id": "d0a7fa6e-5cd0-45d3-a69e-ca158686f420",
+    "email": "usdt_test_1789782187545@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 49961000
+  },
+  {
+    "id": "6a565bca-fa5d-44ab-8977-417b27ac320b",
+    "email": "usdt_test_1789784064766@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 49961000
+  },
+  {
+    "id": "2cace37a-dc7e-45e7-8c33-12b9ae2e2610",
+    "email": "test_usdt_a_1789783947494@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "fdffdc32-730f-4a57-b166-f5e4ed79fe0a",
+    "email": "test_usdt_b_1789783947494@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "4d74a8bf-1883-4b7a-88b2-bb711c5997a3",
+    "email": "test_usdt_a_1789784010069@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 9900000
+  },
+  {
+    "id": "a3b5c4af-3313-40af-a727-44c552e3e814",
+    "email": "usdt_test_1789782158404@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 50000000
+  },
+  {
+    "id": "aa03090f-b0e6-4623-8709-4520468db906",
+    "email": "usdt_test_1789782138558@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 50000000
+  },
+  {
+    "id": "151cd068-2028-41b9-85b8-a4a7983967b4",
+    "email": "usdt_test_1789782094840@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 50000000
+  },
+  {
+    "id": "b7c3bed6-36ed-4edc-a7ca-38afb54de260",
+    "email": "test_usdt_a_1789721350353@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "a5fac51a-fb84-4e3e-97e6-a8b2ffa8f7bd",
+    "email": "test_usdt_a_1789721490091@kiropro.test",
+    "name": null,
+    "role": "CUSTOMER",
+    "currency": "SDG",
+    "balance": 10000000
+  },
+  {
+    "id": "7d14a923-f9cf-4ad2-b89e-4a15bb46c8e5",
+    "email": "test_reset_customer@kiropro.com",
+    "name": "Reset Customer",
+    "role": "CUSTOMER",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "daa1706f-4a9c-46de-ad80-f73d8e85c8d1",
+    "email": "admin_1789783401476@kiropro.test",
+    "name": null,
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "5751d3fb-0b7b-4e3e-a2c0-37baf33f1150",
+    "email": "admin_1789782159287@kiropro.test",
+    "name": null,
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "2bea5c06-796a-4abb-9854-9ff228c0e828",
+    "email": "admin_1789784065632@kiropro.test",
+    "name": null,
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "cc7ea025-c90f-4b50-b5cf-df2213aa660a",
+    "email": "admin_1789782188528@kiropro.test",
+    "name": null,
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "552d763a-183e-42b3-8dcf-bbe27bf90869",
+    "email": "admin_1789782139354@kiropro.test",
+    "name": null,
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "9d65cd01-a09d-4b04-8657-00e9ba17349a",
+    "email": "test_reset_admin@kiropro.com",
+    "name": "Reset Admin",
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  },
+  {
+    "id": "1ca6e97f-50e2-4219-bbc1-ed57b29e1b21",
+    "email": "admin_1789782095871@kiropro.test",
+    "name": null,
+    "role": "ADMIN",
+    "currency": null,
+    "balance": null
+  }
+]

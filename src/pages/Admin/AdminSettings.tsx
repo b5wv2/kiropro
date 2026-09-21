@@ -528,16 +528,16 @@ export const AdminSettings: React.FC = () => {
             </div>
 
             <div className="admin-input-group">
-              <label className="admin-label">مسمى العملة الظاهر في النصوص:</label>
+              <label className="admin-label">عملة برنامج الإحالة:</label>
               <input
                 type="text"
                 className="admin-input"
-                value={referralSettings.currency}
-                onChange={(e) => setReferralSettings({ ...referralSettings, currency: e.target.value })}
-                placeholder="مثال: جنيه أو SDG"
-                style={{ fontWeight: 700 }}
+                value="SDG (الجنيه السوداني)"
+                readOnly
+                disabled
+                style={{ fontWeight: 800, background: '#f8fafc', color: '#059669', cursor: 'not-allowed' }}
               />
-              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>العملة التي ستعرض في العنوان الرئيسي والشرح</span>
+              <span style={{ fontSize: '0.725rem', color: '#059669', marginTop: 4, fontWeight: 600 }}>نظام الإحالة موحد بالكامل بالجنيه السوداني فقط (SDG)</span>
             </div>
 
             <div className="admin-input-group">

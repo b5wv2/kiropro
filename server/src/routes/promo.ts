@@ -144,20 +144,12 @@ router.post('/validate', promoValidateLimiter, async (req: Request, res: Respons
     const rateConfig = rateRes.rows[0]?.value || { rate: 5000 };
     const exchangeRate = Number(rateConfig.rate) || 5000;
 
-    // Resolve customer's active currency
-    let effectiveCurrency = String(currency || '').trim().toUpperCase();
-    if (effectiveCurrency !== 'SDG' && effectiveCurrency !== 'USD') {
-      if (userId) {
-        const userRow = await pool.query('SELECT "preferred_currency" FROM "User" WHERE id = $1', [userId]);
-        effectiveCurrency = (userRow.rows[0]?.preferred_currency || 'USD').toUpperCase();
-      } else {
-        effectiveCurrency = 'USD';
-      }
-    }
+    // Resolve customer's active currency (strictly SDG)
+    let effectiveCurrency = 'SDG';
 
     const total = typeof cartTotal === 'number' && Number.isFinite(cartTotal) && cartTotal > 0 ? Number(cartTotal) : 0;
     const discountVal = Number(promo.discount_value) || 0;
-    const promoCurrency = (promo.currency || 'USD').toUpperCase();
+    const promoCurrency = (promo.currency || 'SDG').toUpperCase();
 
     let calculatedDiscount = 0;
     if (promo.discount_type === 'PERCENTAGE') {
@@ -328,8 +320,8 @@ router.post('/redeem-credit', promoRedeemLimiter, requireAuth, async (req: AuthR
       return res.status(404).json({ error: 'المحفظة غير موجودة.' });
     }
 
-    const promoCurrency = (promo.currency || 'USD').toUpperCase();
-    const walletCurrency = (wallet.currency || 'USD').toUpperCase();
+    const promoCurrency = (promo.currency || 'SDG').toUpperCase();
+    const walletCurrency = (wallet.currency || 'SDG').toUpperCase();
 
     // 4. Multi-Currency Conversion with Central Exchange Rate
     const rateRes = await client.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
