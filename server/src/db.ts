@@ -1,6 +1,10 @@
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import dns from 'node:dns';
 dotenv.config();
+
+// Ensure IPv4 first on Node.js to prevent connection stalls with Neon AWS Postgres
+dns.setDefaultResultOrder('ipv4first');
 
 // Create a new pool using the connection string from environment variables
 // It expects DATABASE_URL to be formatted like: postgresql://postgres:password@localhost:5432/kiropro

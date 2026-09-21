@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import styles from './Auth.module.css';
 import { useAuth } from '../../context/AuthContext';
 import { OtpVerificationView } from '../../components/Auth/OtpVerificationView';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Gift } from 'lucide-react';
+import { api } from '../../lib/api';
+import { ReferralConfig, generateReferralCopy } from '../../utils/referralText';
 
 export const RegisterPage: React.FC = () => {
   const { register, isLoading, navigateTo } = useAuth();
@@ -11,11 +13,25 @@ export const RegisterPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [preferredCurrency, setPreferredCurrency] = useState<'USD' | 'SDG'>('USD');
-  
+  const [referralCode, setReferralCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return (params.get('ref') || '').toUpperCase();
+    }
+    return '';
+  });
+  const [referralConfig, setReferralConfig] = useState<ReferralConfig | null>(null);
+
   // Verification step state
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(60);
   const [error, setError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    api.get<ReferralConfig>('/api/referral/config')
+      .then(cfg => { if (cfg) setReferralConfig(cfg); })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +56,8 @@ export const RegisterPage: React.FC = () => {
       name: name.trim(),
       email: email.trim(),
       password,
-      preferred_currency: preferredCurrency
+      preferred_currency: preferredCurrency,
+      referral_code: referralCode.trim() ? referralCode.trim().toUpperCase() : undefined
     });
 
     if (res.requiresVerification) {
@@ -172,6 +189,41 @@ export const RegisterPage: React.FC = () => {
                 <span className={styles.currencyLabel}>الجنيه السوداني</span>
               </button>
             </div>
+          </div>
+
+          {/* Referral / Invite Code Input Field */}
+          <div className={styles.inputGroup}>
+            <label className={styles.label} htmlFor="reg-ref">
+              كود الدعوة أو الإحالة (اختياري)
+            </label>
+            <input
+              id="reg-ref"
+              type="text"
+              className={styles.input}
+              placeholder="مثال: KP123456"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              style={{ fontFamily: 'monospace', letterSpacing: '1px' }}
+            />
+            {referralCode.trim() && (
+              <div style={{
+                marginTop: 6,
+                fontSize: '0.8rem',
+                color: '#15803d',
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                padding: '6px 10px',
+                borderRadius: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}>
+                <Gift size={14} color="#16a34a" />
+                <span>
+                  هدية الصداقة: ستحصل على {generateReferralCopy(referralConfig).formattedReferee} {generateReferralCopy(referralConfig).currency} فور إكمال أول طلب مؤهل!
+                </span>
+              </div>
+            )}
           </div>
 
           <button

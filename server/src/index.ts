@@ -22,6 +22,7 @@ import receiptsRoutes from './routes/receipts';
 import cryptoRoutes from './routes/crypto';
 import adminCryptoRoutes from './routes/adminCrypto';
 import internalTelegramRoutes from './routes/internalTelegram';
+import referralRoutes from './routes/referral';
 import { orderPollingService } from './services/orderPollingService';
 import { telegramBotService } from './services/telegramBotService';
 import path from 'path';
@@ -173,6 +174,7 @@ app.use('/api/reviews', reviewsRoutes);
 app.use('/api/crypto/usdt', cryptoRoutes);
 app.use('/api/admin/crypto', adminCryptoRoutes);
 app.use('/api/internal/telegram', internalTelegramRoutes);
+app.use('/api/referral', referralRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

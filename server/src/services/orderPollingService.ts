@@ -2,6 +2,7 @@ import pool from '../db';
 import { gamesDropProvider, mapGamesDropStatus } from '../providers/gamesdrop';
 import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from './cashbackService';
+import { processReferralRewardOnOrder } from './referralService';
 import { sendOrderCompletedEmail } from './emailService';
 import { getOrCreateOrderReviewToken } from './reviewTokenService';
 
@@ -127,6 +128,13 @@ class OrderPollingService {
           await awardOrderCashback(order.id);
         } catch (cbErr) {
           console.error(`[OrderPollingService] Cashback award error for order ${order.id}:`, cbErr);
+        }
+
+        // Trigger Referral Reward Awarding (Idempotent & Safe)
+        try {
+          await processReferralRewardOnOrder(order.id);
+        } catch (refErr) {
+          console.error(`[OrderPollingService] Referral reward error for order ${order.id}:`, refErr);
         }
 
         // Trigger Order Completed Email Safely (Non-blocking & Idempotent)

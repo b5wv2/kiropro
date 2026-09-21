@@ -3,6 +3,7 @@ import { Hero } from '../../components/Hero/Hero';
 import { GameCard } from '../../components/GameCard/GameCard';
 import { UsdtCard, UsdtCardConfig } from '../../components/GameCard/UsdtCard';
 import { DealsBanner } from '../../components/Deals/DealsBanner';
+import { ReferralPromoBanner } from '../../components/Referral/ReferralPromoBanner';
 import { HowItWorks } from '../../components/HowItWorks/HowItWorks';
 import { WhyUs } from '../../components/Features/WhyUs';
 import { HomeReviewsSection } from '../../components/Reviews/HomeReviewsSection';
@@ -196,6 +197,9 @@ export const HomePage: React.FC = () => {
 
       {/* Featured Deals Section */}
       <DealsBanner />
+
+      {/* Referral & Invite Friends Dynamic Promo Banner */}
+      <ReferralPromoBanner />
 
       {/* Why KIROPRO Section */}
       <WhyUs />

@@ -5,9 +5,13 @@ import {
   Database, 
   CheckCircle2, 
   Phone,
-  DollarSign
+  DollarSign,
+  Gift,
+  Flame,
+  Users
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { generateReferralCopy } from '../../utils/referralText';
 
 export const AdminSettings: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -29,6 +33,22 @@ export const AdminSettings: React.FC = () => {
     updated_at: ''
   });
 
+  const [referralSettings, setReferralSettings] = useState({
+    enabled: true,
+    referrer_reward: 1000,
+    referee_reward: 1000,
+    currency: 'جنيه',
+    min_order_amount: 0,
+    updated_at: ''
+  });
+
+  const [referralStats, setReferralStats] = useState({
+    totalInvitations: 0,
+    completedReferrals: 0,
+    pendingReferrals: 0,
+    totalPayoutCombined: 0
+  });
+
   const [system, setSystem] = useState({
     dbStatus: 'CONNECTED (PostgreSQL)',
     serverUptime: 0,
@@ -43,12 +63,16 @@ export const AdminSettings: React.FC = () => {
   const [savingRate, setSavingRate] = useState(false);
   const [rateSaveSuccess, setRateSaveSuccess] = useState(false);
 
+  const [savingReferral, setSavingReferral] = useState(false);
+  const [referralSaveSuccess, setReferralSaveSuccess] = useState(false);
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const [data, rateData] = await Promise.all([
+        const [data, rateData, refData] = await Promise.all([
           api.get('/api/admin/settings').catch(() => ({})),
-          api.get('/api/settings/exchange-rate').catch(() => ({}))
+          api.get('/api/settings/exchange-rate').catch(() => ({})),
+          api.get('/api/referral/admin/settings').catch(() => ({}))
         ]);
         if (data.settings) setSettings(data.settings);
         if (data.system) setSystem(data.system);
@@ -61,6 +85,19 @@ export const AdminSettings: React.FC = () => {
             max_topup: rateData.max_topup || 500,
             updated_at: rateData.updated_at || ''
           });
+        }
+        if (refData && refData.settings) {
+          setReferralSettings({
+            enabled: Boolean(refData.settings.enabled),
+            referrer_reward: Number(refData.settings.referrer_reward ?? 1000),
+            referee_reward: Number(refData.settings.referee_reward ?? 1000),
+            currency: String(refData.settings.currency || 'جنيه'),
+            min_order_amount: Number(refData.settings.min_order_amount ?? 0),
+            updated_at: refData.settings.updated_at || ''
+          });
+        }
+        if (refData && refData.stats) {
+          setReferralStats(refData.stats);
         }
       } catch (err) {
         console.error('Failed to load settings', err);
@@ -88,6 +125,26 @@ export const AdminSettings: React.FC = () => {
       setSavingRate(false);
     }
   };
+
+  const handleSaveReferral = async () => {
+    setSavingReferral(true);
+    setReferralSaveSuccess(false);
+    try {
+      const res = await api.patch('/api/referral/admin/settings', referralSettings);
+      setReferralSaveSuccess(true);
+      if (res.settings) {
+        setReferralSettings(prev => ({ ...prev, ...res.settings, updated_at: new Date().toISOString() }));
+      }
+      setTimeout(() => setReferralSaveSuccess(false), 3500);
+    } catch (err: any) {
+      console.error('Failed to update referral settings', err);
+      alert(err?.data?.error || err.message || 'فشل تحديث إعدادات برنامج الإحالة.');
+    } finally {
+      setSavingReferral(false);
+    }
+  };
+
+  const referralCopyPreview = generateReferralCopy(referralSettings);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -382,6 +439,184 @@ export const AdminSettings: React.FC = () => {
             >
               <Save size={15} />
               <span>{savingRate ? 'جاري الحفظ...' : 'تحديث سعر الصرف وحدود الشحن'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Referral & Invite Friends Management Card */}
+      <div className="admin-card">
+        <div className="admin-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <h3 className="admin-card-title">
+            <Gift size={18} color="#f59e0b" />
+            <span>برنامج الإحالة ومكافآت الأصدقاء (Referral & Invite Program)</span>
+          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '0.8rem', color: referralSettings.enabled ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+              {referralSettings.enabled ? '● البرنامج نشط ويعمل' : '○ البرنامج متوقف مؤقتاً'}
+            </span>
+          </div>
+        </div>
+
+        <div className="admin-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.6 }}>
+            تحكم في قيم المكافآت المالية الممنوحة للداعي والصديق عند التسجيل وإكمال أول طلب. يتم توليد جميع العناوين والنصوص التسويقية <strong>ديناميكياً وتلقائياً</strong> في الواجهة بناءً على هذه الإعدادات بدون أي قيم ثابتة.
+          </p>
+
+          {/* Toggle status */}
+          <div style={{
+            padding: '14px 18px',
+            background: '#f8fafc',
+            borderRadius: '10px',
+            border: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div>
+              <div style={{ fontWeight: 800, color: '#0f172a' }}>تفعيل برنامج الإحالة للمستخدمين</div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>إظهار بطاقات الدعوة وكود الإحالة للعملاء ومنح المكافآت</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={referralSettings.enabled}
+              onChange={(e) => setReferralSettings({ ...referralSettings, enabled: e.target.checked })}
+              style={{ width: '22px', height: '22px', accentColor: '#f59e0b', cursor: 'pointer' }}
+            />
+          </div>
+
+          {/* Inputs Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+            <div className="admin-input-group">
+              <label className="admin-label">مكافأة صاحب الدعوة (الداعي):</label>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                className="admin-input"
+                value={referralSettings.referrer_reward}
+                onChange={(e) => setReferralSettings({ ...referralSettings, referrer_reward: parseFloat(e.target.value) || 0 })}
+                style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem' }}
+              />
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>المبلغ الذي يضاف لمحفظة الداعي فور أول طلب</span>
+            </div>
+
+            <div className="admin-input-group">
+              <label className="admin-label">مكافأة الصديق المدعو:</label>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                className="admin-input"
+                value={referralSettings.referee_reward}
+                onChange={(e) => setReferralSettings({ ...referralSettings, referee_reward: parseFloat(e.target.value) || 0 })}
+                style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem' }}
+              />
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>المبلغ الذي يضاف لمحفظة الصديق ترحيباً به</span>
+            </div>
+
+            <div className="admin-input-group">
+              <label className="admin-label">مسمى العملة الظاهر في النصوص:</label>
+              <input
+                type="text"
+                className="admin-input"
+                value={referralSettings.currency}
+                onChange={(e) => setReferralSettings({ ...referralSettings, currency: e.target.value })}
+                placeholder="مثال: جنيه أو SDG"
+                style={{ fontWeight: 700 }}
+              />
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>العملة التي ستعرض في العنوان الرئيسي والشرح</span>
+            </div>
+
+            <div className="admin-input-group">
+              <label className="admin-label">الحد الأدنى للطلب المؤهل (اختياري):</label>
+              <input
+                type="number"
+                min="0"
+                className="admin-input"
+                value={referralSettings.min_order_amount}
+                onChange={(e) => setReferralSettings({ ...referralSettings, min_order_amount: parseFloat(e.target.value) || 0 })}
+              />
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>0 تعني أي طلب مكتمل يُكسب المكافأة</span>
+            </div>
+          </div>
+
+          {/* Dynamic Real-time Live Preview Box */}
+          <div style={{
+            background: 'linear-gradient(145deg, #0B0F19 0%, #1e1b4b 100%)',
+            border: '1.5px solid rgba(250, 204, 21, 0.4)',
+            borderRadius: '12px',
+            padding: '20px 22px',
+            color: '#FFFFFF'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#FACC15', fontSize: '0.8rem', fontWeight: 800, marginBottom: 12 }}>
+              <Flame size={15} color="#f97316" />
+              <span>معاينة حية ومباشرة للواجهة التسويقية المعروضة للعميل (Live Dynamic Preview):</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#FFFFFF' }}>
+                {referralCopyPreview.mainTitle}
+              </div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#FACC15' }}>
+                {referralCopyPreview.subtitle}
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#CBD5E1', lineHeight: 1.6, maxWidth: 680 }}>
+                {referralCopyPreview.description}
+              </div>
+            </div>
+          </div>
+
+          {/* Platform Performance Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 16px' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                <Users size={14} color="#3b82f6" />
+                إجمالي الدعوات المسجلة:
+              </span>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0f172a', marginTop: 4 }}>
+                {referralStats.totalInvitations}
+              </div>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 16px' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                <CheckCircle2 size={14} color="#10b981" />
+                الإحالات المكتملة والمكافأة:
+              </span>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#10b981', marginTop: 4 }}>
+                {referralStats.completedReferrals}
+              </div>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 16px' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                <Gift size={14} color="#f59e0b" />
+                إجمالي المكافآت الممنوحة:
+              </span>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#f59e0b', marginTop: 4 }}>
+                {referralStats.totalPayoutCombined.toLocaleString()} {referralSettings.currency}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Row */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', alignItems: 'center' }}>
+            {referralSaveSuccess && (
+              <span style={{ color: '#065f46', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={16} color="#10b981" />
+                <span>تم حفظ وتحديث إعدادات برنامج الإحالة بنجاح</span>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveReferral}
+              disabled={savingReferral}
+              className="admin-btn admin-btn-primary admin-btn-sm"
+              style={{ background: '#f59e0b', borderColor: '#f59e0b', color: '#0b0f19', fontWeight: 800 }}
+            >
+              <Save size={15} />
+              <span>{savingReferral ? 'جاري الحفظ...' : 'حفظ إعدادات برنامج الإحالة'}</span>
             </button>
           </div>
         </div>

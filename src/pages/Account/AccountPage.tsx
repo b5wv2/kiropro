@@ -18,6 +18,7 @@ import {
   Star
 } from 'lucide-react';
 import { PromoRedemptionCard } from '../../components/Promo/PromoRedemptionCard';
+import { ReferralCard } from '../../components/Referral/ReferralCard';
 import { ReviewModal } from '../../components/Modal/ReviewModal';
 import { fetchMyOrders, fetchOrderById } from '../../services/api';
 import { Order, WalletTransaction } from '../../types';
@@ -370,6 +371,9 @@ export const AccountPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Referral Program Dynamic Reward Card */}
+        <ReferralCard />
 
         {/* Promo & Gift Code Redemption Card */}
         <PromoRedemptionCard />

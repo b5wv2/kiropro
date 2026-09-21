@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { gamesDropProvider } from '../providers/gamesdrop';
 import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
+import { processReferralRewardOnOrder } from '../services/referralService';
 import { sendOrderProcessingEmail, sendOrderCompletedEmail } from '../services/emailService';
 import { getOrCreateOrderReviewToken } from '../services/reviewTokenService';
 
@@ -437,6 +438,12 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
           console.error('[Orders] Immediate cashback error:', cbErr);
         }
 
+        try {
+          await processReferralRewardOnOrder(orderId);
+        } catch (refErr) {
+          console.error('[Orders] Immediate referral reward error:', refErr);
+        }
+
         // Trigger Order Completed Email with One-Click Review Token
         getOrCreateOrderReviewToken(orderId, localProduct.id, effectivePackageName, user.id)
           .then(rt => {
@@ -600,6 +607,12 @@ router.put('/:id/status', requireAdmin, async (req: AuthRequest, res: Response) 
           await awardOrderCashback(orderId, client);
         } catch (cbErr) {
           console.error('[Orders] Manual execution cashback error:', cbErr);
+        }
+
+        try {
+          await processReferralRewardOnOrder(orderId, client);
+        } catch (refErr) {
+          console.error('[Orders] Manual execution referral reward error:', refErr);
         }
       }
 

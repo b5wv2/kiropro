@@ -8,6 +8,7 @@ import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '../services/emailService';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';
+import { generateReferralCode } from '../services/referralService';
 
 const router = Router();
 
@@ -60,7 +61,7 @@ function generateSecureOtp(): string {
 // 1. REGISTER (ISSUES 6-DIGIT EMAIL OTP)
 // ==========================================
 router.post('/register', authLimiter, async (req: Request, res: Response) => {
-  const { name, email, password, preferred_currency } = req.body;
+  const { name, email, password, preferred_currency, referral_code } = req.body;
   
   if (!email || !password) {
     return res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور حقول مطلوبة.' });
@@ -117,16 +118,35 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
       userId = uuidv4();
       const walletId = uuidv4();
       const passwordHash = await bcrypt.hash(password, 10);
+      const userRefCode = generateReferralCode();
 
       await client.query(
-        'INSERT INTO "User" (id, email, name, "passwordHash", role, "emailVerified", "preferred_currency") VALUES ($1, $2, $3, $4, $5, false, $6)',
-        [userId, normalizedEmail, name ? name.trim() : 'مستخدم جديد', passwordHash, 'CUSTOMER', userCurrency]
+        'INSERT INTO "User" (id, email, name, "passwordHash", role, "emailVerified", "preferred_currency", "referral_code") VALUES ($1, $2, $3, $4, $5, false, $6, $7)',
+        [userId, normalizedEmail, name ? name.trim() : 'مستخدم جديد', passwordHash, 'CUSTOMER', userCurrency, userRefCode]
       );
 
       await client.query(
         'INSERT INTO "Wallet" (id, "userId", balance, currency) VALUES ($1, $2, $3, $4)',
         [walletId, userId, 0, userCurrency]
       );
+
+      // Link referral if provided
+      if (referral_code && typeof referral_code === 'string' && referral_code.trim()) {
+        const cleanRefCode = referral_code.trim().toUpperCase();
+        const referrerRes = await client.query(
+          'SELECT id FROM "User" WHERE UPPER("referral_code") = $1 AND id != $2',
+          [cleanRefCode, userId]
+        );
+        if (referrerRes.rows.length > 0) {
+          const referrerId = referrerRes.rows[0].id;
+          await client.query('UPDATE "User" SET "referred_by_id" = $1 WHERE id = $2', [referrerId, userId]);
+          await client.query(`
+            INSERT INTO "referrals" (referrer_id, referee_id, status)
+            VALUES ($1, $2, 'PENDING')
+            ON CONFLICT (referee_id) DO NOTHING
+          `, [referrerId, userId]);
+        }
+      }
     }
 
     // Check resend cooldown (60 seconds)
@@ -662,10 +682,16 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     
-    const userRes = await pool.query('SELECT id, email, name, role, "emailVerified", "preferred_currency" FROM "User" WHERE id = $1', [req.user.id]);
-    const user = userRes.rows[0];
+    const userRes = await pool.query('SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code" FROM "User" WHERE id = $1', [req.user.id]);
+    let user = userRes.rows[0];
     
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (!user.referral_code) {
+      const generatedCode = generateReferralCode();
+      await pool.query('UPDATE "User" SET "referral_code" = $1 WHERE id = $2', [generatedCode, user.id]);
+      user.referral_code = generatedCode;
+    }
     
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;

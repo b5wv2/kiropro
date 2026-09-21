@@ -8,6 +8,7 @@ export interface User {
   preferred_currency?: 'USD' | 'SDG';
   role: 'CUSTOMER' | 'ADMIN';
   emailVerified?: boolean;
+  referral_code?: string;
   createdAt: string;
 }
 
@@ -27,6 +28,7 @@ export interface RegisterData {
   email: string;
   password?: string;
   preferred_currency?: 'USD' | 'SDG';
+  referral_code?: string;
 }
 
 export interface AuthResult {

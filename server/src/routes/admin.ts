@@ -4,6 +4,7 @@ import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
+import { processReferralRewardOnOrder } from '../services/referralService';
 import { getOrCreateOrderReviewToken, createGeneralReviewToken } from '../services/reviewTokenService';
 import { executeOrderWithProvider } from '../services/orderExecutionService';
 import { validatePlayerAccount } from '../services/playerValidationService';
@@ -490,6 +491,12 @@ router.put('/orders/:id/status', requireAdmin, async (req: AuthRequest, res: Res
           await awardOrderCashback(orderId, client);
         } catch (cbErr) {
           console.error('[Admin] Manual execution cashback error:', cbErr);
+        }
+
+        try {
+          await processReferralRewardOnOrder(orderId, client);
+        } catch (refErr) {
+          console.error('[Admin] Manual execution referral reward error:', refErr);
         }
       }
 
