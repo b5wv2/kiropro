@@ -130,6 +130,10 @@ router.get('/', async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
 
   try {
+    const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
+    const rateConfig = rateSettingRes.rows[0]?.value || { rate: 7600 };
+    const exchangeRate = Number(rateConfig.rate) || 7600;
+
     const result = await pool.query(`
       SELECT 
         p.id, p."providerOfferId", p."productName", p."offerName", p.category,
@@ -160,6 +164,9 @@ router.get('/', async (req: Request, res: Response) => {
       const defaultGameCover = (groupKey === 'pubg-mobile' ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80' : 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=80');
       const gameCover = resolveImageUrl(row.categoryImageUrl, defaultGameCover);
 
+      const pkgPrice = Number(row.price || 0);
+      const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
+
       if (!groupedMap.has(groupKey)) {
         groupedMap.set(groupKey, {
           id: groupKey,
@@ -167,8 +174,10 @@ router.get('/', async (req: Request, res: Response) => {
           category: 'mobile',
           badge: row.categoryBadge || 'تسليم فوري',
           deliveryTime: row.categoryDeliveryTime || 'تسليم فوري وتلقائي',
-          minPrice: Number(row.price || 0),
-          currency: '$',
+          minPrice: pkgPrice,
+          minPriceSdg: pkgPriceSdg,
+          currency: 'SDG',
+          exchangeRate: exchangeRate,
           type: 'شحن ألعاب مباشر (Direct Top-Up)',
           image: gameCover,
           popular: true,
@@ -179,7 +188,6 @@ router.get('/', async (req: Request, res: Response) => {
       }
 
       const card = groupedMap.get(groupKey);
-      const pkgPrice = Number(row.price || 0);
       const resolvedPackageImage = resolveImageUrl(row.productImageUrl, row.categoryImageUrl);
 
       card.packages.push({
@@ -192,7 +200,9 @@ router.get('/', async (req: Request, res: Response) => {
         productType: row.productType,
         imageUrl: resolvedPackageImage,
         price: pkgPrice,
+        priceSdg: pkgPriceSdg,
         originalPrice: Math.round(pkgPrice * 1.2 * 100) / 100,
+        originalPriceSdg: Math.round(pkgPriceSdg * 1.2),
         bestValue: card.packages.length === 0,
         requiresGameServerId: Boolean(row.requiresGameServerId),
         isRequiredGameServerId: Boolean(row.requiresGameServerId)
@@ -200,6 +210,7 @@ router.get('/', async (req: Request, res: Response) => {
 
       if (pkgPrice > 0 && (card.minPrice === 0 || pkgPrice < card.minPrice)) {
         card.minPrice = pkgPrice;
+        card.minPriceSdg = pkgPriceSdg;
       }
     }
 
@@ -218,6 +229,10 @@ router.get('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
+    const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
+    const rateConfig = rateSettingRes.rows[0]?.value || { rate: 7600 };
+    const exchangeRate = Number(rateConfig.rate) || 7600;
+
     // Check if queried by category/game id
     const catCheck = await pool.query(
       `SELECT * FROM "GameCategory" WHERE "id" = $1 LIMIT 1`,
@@ -248,22 +263,29 @@ router.get('/:id', async (req: Request, res: Response) => {
 
       const categoryImageUrl = resolveImageUrl(category.imageUrl, DEFAULT_PLACEHOLDER);
 
-      const packages = result.rows.map((row, idx) => ({
-        id: row.id,
-        name: row.arabicName || row.offerName,
-        englishName: row.offerName,
-        arabicName: row.arabicName,
-        description: row.description,
-        subCategory: row.subCategory,
-        productType: row.productType,
-        imageUrl: resolveImageUrl(row.productImageUrl, row.categoryImageUrl || categoryImageUrl),
-        price: Number(row.price || 0),
-        originalPrice: Math.round(Number(row.price || 0) * 1.2 * 100) / 100,
-        bestValue: idx === 0
-      }));
+      const packages = result.rows.map((row, idx) => {
+        const pkgPrice = Number(row.price || 0);
+        const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
+        return {
+          id: row.id,
+          name: row.arabicName || row.offerName,
+          englishName: row.offerName,
+          arabicName: row.arabicName,
+          description: row.description,
+          subCategory: row.subCategory,
+          productType: row.productType,
+          imageUrl: resolveImageUrl(row.productImageUrl, row.categoryImageUrl || categoryImageUrl),
+          price: pkgPrice,
+          priceSdg: pkgPriceSdg,
+          originalPrice: Math.round(pkgPrice * 1.2 * 100) / 100,
+          originalPriceSdg: Math.round(pkgPriceSdg * 1.2),
+          bestValue: idx === 0
+        };
+      });
 
       const validPrices = packages.map(p => p.price).filter(p => p > 0);
       const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+      const minPriceSdg = Math.round(minPrice * exchangeRate);
 
       return res.json({
         id: targetCatId,
@@ -272,7 +294,9 @@ router.get('/:id', async (req: Request, res: Response) => {
         badge: category.badge || 'تسليم فوري',
         deliveryTime: category.deliveryTime || 'تسليم فوري وتلقائي',
         minPrice,
-        currency: '$',
+        minPriceSdg,
+        currency: 'SDG',
+        exchangeRate,
         type: 'شحن ألعاب مباشر (Direct Top-Up)',
         image: categoryImageUrl,
         popular: true,

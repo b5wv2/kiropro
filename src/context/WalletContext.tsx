@@ -30,8 +30,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const { user, isAuthenticated, navigateTo } = useAuth();
   const { openOverlay, closeOverlay } = useOverlay();
   const [balance, setBalance] = useState<number>(user ? user.balance : 0);
-  const [currency, setCurrency] = useState<string>(user?.currency || user?.preferred_currency || 'USD');
-  const [exchangeRate, setExchangeRate] = useState<number>(600);
+  const [currency, setCurrency] = useState<string>(user?.currency || user?.preferred_currency || 'SDG');
+  const [exchangeRate, setExchangeRate] = useState<number>(7600);
   const [pendingBalance, setPendingBalance] = useState<number>(0);
   const [topupRequests, setTopupRequests] = useState<any[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -74,13 +74,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Synchronize balance with logged in user and fetch pending topups
   useEffect(() => {
     if (user) {
-      const curr = user.currency || user.preferred_currency || 'USD';
+      const curr = user.currency || user.preferred_currency || 'SDG';
       setBalance(user.balance);
       setCurrency(curr);
       fetchTopups(curr);
     } else {
       setBalance(0);
-      setCurrency('USD');
+      setCurrency('SDG');
       setPendingBalance(0);
       setTopupRequests([]);
     }

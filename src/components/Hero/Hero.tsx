@@ -2,6 +2,7 @@ import React from 'react';
 import styles from './Hero.module.css';
 import { useTypewriter } from '../../hooks/useTypewriter';
 import { useWallet } from '../../context/WalletContext';
+import { formatCurrency } from '../../lib/formatters';
 import { Game } from '../../types';
 
 interface HeroProps {
@@ -23,7 +24,9 @@ export const Hero: React.FC<HeroProps> = ({ onQuickTopUp, featuredGame }) => {
     pauseDuration: 1800
   });
 
-  const { openDepositModal } = useWallet();
+  const { openDepositModal, exchangeRate } = useWallet();
+  const pubgPriceSdg = Math.round(8.99 * (exchangeRate || 7600));
+  const freeFirePriceSdg = Math.round(5.40 * (exchangeRate || 7600));
 
   return (
     <section className={styles.hero}>
@@ -153,7 +156,7 @@ export const Hero: React.FC<HeroProps> = ({ onQuickTopUp, featuredGame }) => {
                   <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#FFFFFF' }}>ببجي موبايل (PUBG Mobile)</h4>
                   <p style={{ fontSize: '0.75rem', color: '#94A3B8' }}>660 شدة (UC) عبر معرّف اللاعب</p>
                 </div>
-                <span className={styles.previewPrice}>$8.99</span>
+                <span className={styles.previewPrice}>{formatCurrency(pubgPriceSdg, 'SDG')}</span>
               </div>
 
               {/* Game Item 2: Free Fire */}
@@ -167,7 +170,7 @@ export const Hero: React.FC<HeroProps> = ({ onQuickTopUp, featuredGame }) => {
                   <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#FFFFFF' }}>فري فاير (Free Fire)</h4>
                   <p style={{ fontSize: '0.75rem', color: '#94A3B8' }}>520+52 جوهرة عبر الـ UID</p>
                 </div>
-                <span className={styles.previewPrice}>$5.40</span>
+                <span className={styles.previewPrice}>{formatCurrency(freeFirePriceSdg, 'SDG')}</span>
               </div>
 
               <button

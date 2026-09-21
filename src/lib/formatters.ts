@@ -1,7 +1,7 @@
 /**
  * Formats numeric values to standard currency format (e.g. $84.42)
  */
-export function formatCurrency(amount: number, currency: string = 'USD'): string {
+export function formatCurrency(amount: number, currency: string = 'SDG'): string {
   const safeAmount = isNaN(amount) ? 0 : amount;
   if (currency === 'SDG' || currency === 'ج.س') {
     return `${safeAmount.toLocaleString('en-US', {

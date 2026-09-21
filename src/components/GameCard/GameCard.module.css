@@ -116,9 +116,9 @@
 }
 
 .priceValue {
-  font-family: var(--font-latin);
-  font-size: 1.2rem;
+  font-family: var(--font-latin), var(--font-arabic);
+  font-size: 1.15rem;
   font-weight: 900;
   color: #0B0F19;
-  direction: ltr;
+  white-space: nowrap;
 }

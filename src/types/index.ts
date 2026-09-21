@@ -8,7 +8,9 @@ export interface GamePackage {
   productType?: string;
   imageUrl?: string;
   price: number;
+  priceSdg?: number;
   originalPrice?: number;
+  originalPriceSdg?: number;
   bestValue?: boolean;
   requiresGameServerId?: boolean;
   isRequiredGameServerId?: boolean;
@@ -39,7 +41,9 @@ export interface Game {
   badge: string;
   deliveryTime: string;
   minPrice: number;
+  minPriceSdg?: number;
   currency: string;
+  exchangeRate?: number;
   type: string;
   image: string;
   popular?: boolean;

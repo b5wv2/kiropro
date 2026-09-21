@@ -21,6 +21,8 @@ export const UsdtCard: React.FC<UsdtCardProps> = ({ config, onSelect }) => {
 
   // Dynamic price from backend config (defaults to 3 if not yet loaded)
   const minAmount = config?.minOrderAmount ? Math.max(3, config.minOrderAmount) : 3;
+  const usdtRate = config?.exchangeRate || 6200;
+  const startingSdg = Math.round(minAmount * usdtRate);
 
   return (
     <article
@@ -82,10 +84,11 @@ export const UsdtCard: React.FC<UsdtCardProps> = ({ config, onSelect }) => {
               className={styles.priceValue}
               style={{
                 color: '#10B981',
-                fontWeight: 900
+                fontWeight: 900,
+                whiteSpace: 'nowrap'
               }}
             >
-              ${minAmount}
+              {startingSdg.toLocaleString('en-US')} ج.س
             </span>
           </div>
 

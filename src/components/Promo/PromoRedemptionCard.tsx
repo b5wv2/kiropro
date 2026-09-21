@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Tag, Gift, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { validatePromoCode, redeemWalletCreditCode, PromoValidationResult } from '../../services/api';
 import { useWallet } from '../../context/WalletContext';
+import { formatCurrency } from '../../lib/formatters';
 
 interface PromoRedemptionCardProps {
   onSuccessCredit?: (amount: number) => void;
@@ -213,7 +214,7 @@ export const PromoRedemptionCard: React.FC<PromoRedemptionCardProps> = ({
           <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
             <span>المبلغ المضاف إلى رصيدك:</span>
             <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#047857', direction: 'ltr' }}>
-              +${creditSuccess.amount.toFixed(2)}
+              +{formatCurrency(creditSuccess.amount, 'SDG')}
             </span>
           </div>
         </div>
@@ -249,7 +250,7 @@ export const PromoRedemptionCard: React.FC<PromoRedemptionCardProps> = ({
             <div>
               <span style={{ fontSize: '0.75rem', color: '#78350F', display: 'block', fontWeight: 600 }}>نسبة الخصم:</span>
               <strong style={{ fontSize: '1.05rem', color: '#B45309' }}>
-                {discountSuccess.discountType === 'PERCENTAGE' ? `${discountSuccess.discountValue}%` : `$${discountSuccess.discountValue}`}
+                {discountSuccess.discountType === 'PERCENTAGE' ? `${discountSuccess.discountValue}%` : formatCurrency(discountSuccess.discountValue || 0, 'SDG')}
               </strong>
             </div>
 
@@ -257,7 +258,7 @@ export const PromoRedemptionCard: React.FC<PromoRedemptionCardProps> = ({
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#78350F', display: 'block', fontWeight: 600 }}>الحد الأقصى للخصم:</span>
                 <strong style={{ fontSize: '1.05rem', color: '#B45309', direction: 'ltr', display: 'inline-block' }}>
-                  ${discountSuccess.maxDiscount.toFixed(2)}
+                  {formatCurrency(discountSuccess.maxDiscount, 'SDG')}
                 </strong>
               </div>
             )}

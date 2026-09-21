@@ -2,6 +2,8 @@ import React from 'react';
 import styles from './GameCard.module.css';
 import { Game } from '../../types';
 import { getProductImageUrl } from '../../utils/imageUrl';
+import { formatCurrency } from '../../lib/formatters';
+import { useWallet } from '../../context/WalletContext';
 
 interface GameCardProps {
   game: Game;
@@ -9,6 +11,9 @@ interface GameCardProps {
 }
 
 export const GameCard: React.FC<GameCardProps> = ({ game, onSelect }) => {
+  const { exchangeRate } = useWallet();
+  const effectiveSdgPrice = game.minPriceSdg || Math.round(game.minPrice * (exchangeRate || 7600));
+
   return (
     <article
       className={styles.card}
@@ -43,7 +48,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game, onSelect }) => {
         <div className={styles.footer}>
           <div className={styles.priceWrapper}>
             <span className={styles.priceLabel}>يبدأ من</span>
-            <span className={styles.priceValue}>${game.minPrice.toFixed(2)}</span>
+            <span className={styles.priceValue}>{formatCurrency(effectiveSdgPrice, 'SDG')}</span>
           </div>
 
           <button

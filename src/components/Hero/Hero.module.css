@@ -236,11 +236,11 @@
 }
 
 .previewPrice {
-  font-family: var(--font-latin);
+  font-family: var(--font-latin), var(--font-arabic);
   color: var(--accent-yellow);
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 900;
-  direction: ltr;
+  white-space: nowrap;
 }
 
 /* Floating Status Badge */

@@ -32,7 +32,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [activeSubCategory, setActiveSubCategory] = useState<string>('ALL');
 
   const getPackagePrice = (pkg: GamePackage): number => {
-    return currency === 'SDG' ? Math.round(pkg.price * exchangeRate) : pkg.price;
+    return pkg.priceSdg || (currency === 'SDG' ? Math.round(pkg.price * (exchangeRate || 7600)) : pkg.price);
   };
 
   useEffect(() => {
@@ -371,7 +371,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                 onClick={() => setSelectedPackage(pkg)}
               >
                 <span className={styles.packageAmount}>{pkg.name}</span>
-                <span className={styles.packagePrice}>{formatCurrency(getPackagePrice(pkg), currency)}</span>
+                <span className={styles.packagePrice}>{formatCurrency(getPackagePrice(pkg), 'SDG')}</span>
                 {pkg.bestValue && (
                   <span style={{ fontSize: '0.65rem', color: '#16A34A', background: '#DCFCE7', borderRadius: 4, padding: '1px 4px', fontWeight: 800 }}>
                     أفضل قيمة
@@ -645,13 +645,13 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
           <div className={styles.walletRow}>
             <span>رصيدك الحالي:</span>
-            <span className={styles.numVal}>{formatCurrency(balance, currency)}</span>
+            <span className={styles.numVal}>{formatCurrency(balance, 'SDG')}</span>
           </div>
 
           <div className={styles.walletRow}>
             <span>السعر الأساسي:</span>
             <span className={styles.numVal} style={{ textDecoration: discountAmount > 0 ? 'line-through' : 'none', color: discountAmount > 0 ? '#94A3B8' : undefined }}>
-              {formatCurrency(rawOrderPrice, currency)}
+              {formatCurrency(rawOrderPrice, 'SDG')}
             </span>
           </div>
 
@@ -659,7 +659,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
             <div className={styles.walletRow} style={{ color: '#059669' }}>
               <span>الخصم ({appliedPromo?.code}):</span>
               <span className={styles.numVal} style={{ color: '#059669', fontWeight: 900 }}>
-                -{formatCurrency(discountAmount, currency)}
+                -{formatCurrency(discountAmount, 'SDG')}
               </span>
             </div>
           )}
@@ -667,7 +667,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           <div className={styles.walletRow} style={{ fontWeight: 800 }}>
             <span>المبلغ المطلوب دفعه:</span>
             <span className={styles.numVal} style={{ color: '#0B0F19', fontSize: '1.05rem', fontWeight: 900 }}>
-              {formatCurrency(finalPrice, currency)}
+              {formatCurrency(finalPrice, 'SDG')}
             </span>
           </div>
 
@@ -677,7 +677,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
               className={styles.numVal}
               style={{ color: isInsufficient ? '#EF4444' : '#10B981' }}
             >
-              {isInsufficient ? `عجز: ${formatCurrency(Math.abs(balanceAfter), currency)}` : formatCurrency(balanceAfter, currency)}
+              {isInsufficient ? `عجز: ${formatCurrency(Math.abs(balanceAfter), 'SDG')}` : formatCurrency(balanceAfter, 'SDG')}
             </span>
           </div>
         </div>
