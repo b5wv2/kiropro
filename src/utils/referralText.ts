@@ -11,6 +11,12 @@ export interface ReferralConfig {
   total_reward?: number;
   currency: string;
   min_order_amount?: number;
+  max_referrer_earnings?: number;
+  allow_existing_users_binding?: boolean;
+  first_order_only?: boolean;
+  allow_crypto_orders?: boolean;
+  allow_game_orders?: boolean;
+  allow_cards_orders?: boolean;
   updated_at?: string;
 }
 
@@ -49,7 +55,7 @@ export function generateReferralCopy(config?: Partial<ReferralConfig> | null): G
   const formattedReferrer = formatAmountWithCommas(referrerReward);
   const formattedReferee = formatAmountWithCommas(refereeReward);
 
-  // Exact Title, Subtitle, and Description required by the specification
+  // Exact Title, Subtitle, and Description generated completely dynamically
   const mainTitle = `نادي صاحبك وتعال واكسب ${formattedTotal} ${currency} 🎁🔥`;
   const subtitle = 'أنت وصاحبك تكسبوا مع بعض!';
   const description = `شارك كود الإحالة الخاص بيك مع صاحبك، ولما يسجل ويكمل أول طلب مؤهل، أنت تحصل على ${formattedReferrer} ${currency} وهو يحصل على ${formattedReferee} ${currency}.`;

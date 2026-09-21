@@ -8,7 +8,7 @@ import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '../services/emailService';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';
-import { generateReferralCode } from '../services/referralService';
+import { generateReferralCode, bindReferralCode } from '../services/referralService';
 
 const router = Router();
 
@@ -97,9 +97,9 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     let userId: string;
 
     if (existingUser) {
-      if (existingUser.emailVerified) {
+      if (existingUser.role === 'ADMIN' || existingUser.emailVerified) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل ومفعل مسبقاً. يرجى تسجيل الدخول.' });
+        return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل مسبقاً. يرجى تسجيل الدخول.' });
       }
 
       // User exists but has not verified email yet: update password hash, name, and preferred_currency
@@ -130,21 +130,12 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
         [walletId, userId, 0, userCurrency]
       );
 
-      // Link referral if provided
+      // Link referral and immediately award referee bonus if provided
       if (referral_code && typeof referral_code === 'string' && referral_code.trim()) {
-        const cleanRefCode = referral_code.trim().toUpperCase();
-        const referrerRes = await client.query(
-          'SELECT id FROM "User" WHERE UPPER("referral_code") = $1 AND id != $2',
-          [cleanRefCode, userId]
-        );
-        if (referrerRes.rows.length > 0) {
-          const referrerId = referrerRes.rows[0].id;
-          await client.query('UPDATE "User" SET "referred_by_id" = $1 WHERE id = $2', [referrerId, userId]);
-          await client.query(`
-            INSERT INTO "referrals" (referrer_id, referee_id, status)
-            VALUES ($1, $2, 'PENDING')
-            ON CONFLICT (referee_id) DO NOTHING
-          `, [referrerId, userId]);
+        try {
+          await bindReferralCode(userId, referral_code.trim(), client, false);
+        } catch (refErr: any) {
+          console.warn('[Register] Referral binding skipped:', refErr.message);
         }
       }
     }
@@ -1128,6 +1119,101 @@ router.post('/password-reset', passwordResetLimiter, async (req: Request, res: R
     await client.query('ROLLBACK');
     console.error('Password reset execution error:', err);
     return res.status(500).json({ error: 'حدث خطأ أثناء حفظ كلمة المرور، يرجى المحاولة لاحقاً.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ==========================================
+// 12. AUTHENTICATED CHANGE PASSWORD
+// Strictly allows an authenticated user/admin to change ONLY their own password
+// ==========================================
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'تم تجاوز الحد الأقصى لمحاولات تغيير كلمة المرور. يرجى المحاولة لاحقاً.' }
+});
+
+router.post('/change-password', changePasswordLimiter, requireAuth, async (req: AuthRequest, res: Response) => {
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'كلمة المرور الحالية وكلمة المرور الجديدة حقول مطلوبة.' });
+  }
+
+  if (typeof newPassword !== 'string' || newPassword.length < 6) {
+    return res.status(400).json({ error: 'كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف.' });
+  }
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون مختلفة عن كلمة المرور الحالية.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Strictly fetch ONLY the authenticated user record
+    const userRes = await client.query(
+      'SELECT id, email, role, "passwordHash" FROM "User" WHERE id = $1 FOR UPDATE',
+      [req.user.id]
+    );
+    const user = userRes.rows[0];
+
+    if (!user) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'الحساب غير موجود.' });
+    }
+
+    // Verify current password
+    const isCurrentValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isCurrentValid) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة.' });
+    }
+
+    // Hash new password
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    // Update password and record passwordChangedAt to invalidate old tokens
+    await client.query(
+      `UPDATE "User"
+       SET "passwordHash" = $1,
+           "passwordChangedAt" = CURRENT_TIMESTAMP,
+           "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [newHash, user.id]
+    );
+
+    // If admin, log to audit log
+    if (user.role === 'ADMIN') {
+      await client.query(
+        `INSERT INTO "AuditLog" (id, "adminId", action, reason)
+         VALUES ($1, $2, 'ADMIN_PASSWORD_CHANGE', $3)`,
+        [uuidv4(), user.id, 'Admin changed own account password securely']
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Issue a fresh token with updated timestamp
+    const freshToken = generateToken(user.id, user.email, user.role);
+    setTokenCookie(res, freshToken);
+
+    return res.json({
+      success: true,
+      message: 'تم تغيير كلمة المرور بنجاح.'
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[ChangePassword Error]:', err.message);
+    return res.status(500).json({ error: 'فشل تغيير كلمة المرور. يرجى المحاولة لاحقاً.' });
   } finally {
     client.release();
   }

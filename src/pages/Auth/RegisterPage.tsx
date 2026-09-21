@@ -220,7 +220,7 @@ export const RegisterPage: React.FC = () => {
               }}>
                 <Gift size={14} color="#16a34a" />
                 <span>
-                  هدية الصداقة: ستحصل على {generateReferralCopy(referralConfig).formattedReferee} {generateReferralCopy(referralConfig).currency} فور إكمال أول طلب مؤهل!
+                  هدية الصداقة الترحيبية: ستحصل على {generateReferralCopy(referralConfig).formattedReferee} {generateReferralCopy(referralConfig).currency} في محفظتك فور التسجيل!
                 </span>
               </div>
             )}

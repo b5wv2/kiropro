@@ -9,7 +9,10 @@ import {
   Send, 
   Flame,
   CheckCircle2,
-  Clock
+  Clock,
+  UserCheck,
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { ReferralConfig, generateReferralCopy } from '../../utils/referralText';
@@ -20,6 +23,9 @@ interface FriendItem {
   name: string;
   email: string;
   reward: number;
+  refereeReward?: number;
+  refereeRewardPaid?: boolean;
+  referrerRewardPaid?: boolean;
   currency: string;
   completedAt: string | null;
   createdAt: string;
@@ -28,10 +34,15 @@ interface FriendItem {
 interface UserReferralData {
   referralCode: string;
   shareUrl: string;
+  hasReferrer?: boolean;
+  referrerName?: string | null;
   stats: {
     totalReferred: number;
     successfulReferrals: number;
+    pendingReferrals?: number;
     totalEarned: number;
+    maxEarnings?: number;
+    isCapped?: boolean;
   };
   friends: FriendItem[];
   config: ReferralConfig;
@@ -43,24 +54,27 @@ export const ReferralCard: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  useEffect(() => {
-    let isMounted = true;
-    api.get<UserReferralData>('/api/referral/my-details')
-      .then((res) => {
-        if (isMounted && res) {
-          setData(res);
-        }
-      })
-      .catch((err) => {
-        console.warn('[ReferralCard] Failed to fetch user referral details:', err);
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
+  // Binding code state for existing users
+  const [inputCode, setInputCode] = useState('');
+  const [binding, setBinding] = useState(false);
+  const [bindSuccess, setBindSuccess] = useState<string | null>(null);
+  const [bindError, setBindError] = useState<string | null>(null);
 
-    return () => {
-      isMounted = false;
-    };
+  const fetchDetails = async () => {
+    try {
+      const res = await api.get<UserReferralData>('/api/referral/my-details');
+      if (res) {
+        setData(res);
+      }
+    } catch (err) {
+      console.warn('[ReferralCard] Failed to fetch user referral details:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDetails();
   }, []);
 
   const copyToClipboard = (text: string, isLink: boolean) => {
@@ -71,6 +85,26 @@ export const ReferralCard: React.FC = () => {
     } else {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2500);
+    }
+  };
+
+  const handleBindCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputCode.trim()) return;
+
+    setBinding(true);
+    setBindError(null);
+    setBindSuccess(null);
+
+    try {
+      const res: any = await api.post('/api/referral/bind-code', { referralCode: inputCode.trim() });
+      setBindSuccess(res.message || `تم ربط الكود بنجاح والحصول على الهدية الترحيبية!`);
+      setInputCode('');
+      await fetchDetails();
+    } catch (err: any) {
+      setBindError(err?.data?.error || err.message || 'فشل ربط كود الإحالة. يرجى التأكد من صحة الكود.');
+    } finally {
+      setBinding(false);
     }
   };
 
@@ -126,11 +160,31 @@ export const ReferralCard: React.FC = () => {
           <Flame size={15} color="#f97316" />
         </div>
 
-        {data?.config?.enabled === false && (
-          <span style={{ fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.2)', color: '#fca5a5', padding: '4px 10px', borderRadius: 6, fontWeight: 700 }}>
-            البرنامج متوقف مؤقتاً
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {data?.hasReferrer && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: '0.775rem',
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              color: '#34d399',
+              padding: '4px 10px',
+              borderRadius: 6,
+              fontWeight: 700
+            }}>
+              <UserCheck size={13} />
+              <span>مدعو بواسطة: {data.referrerName || 'صديق'}</span>
+            </span>
+          )}
+
+          {data?.config?.enabled === false && (
+            <span style={{ fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.2)', color: '#fca5a5', padding: '4px 10px', borderRadius: 6, fontWeight: 700 }}>
+              البرنامج متوقف مؤقتاً
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Dynamic Titles & Copy */}
@@ -180,7 +234,7 @@ export const ReferralCard: React.FC = () => {
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 16,
-        marginBottom: 24
+        marginBottom: 20
       }}>
         {/* Code Section */}
         <div>
@@ -273,6 +327,103 @@ export const ReferralCard: React.FC = () => {
         </div>
       </div>
 
+      {/* Bind Referral Code Section for Existing Unreferred Users */}
+      {data && !data.hasReferrer && data.config?.allow_existing_users_binding !== false && (
+        <div style={{
+          background: 'linear-gradient(90deg, rgba(250, 204, 21, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%)',
+          border: '1px dashed rgba(250, 204, 21, 0.45)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '16px 20px',
+          marginBottom: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#FACC15', fontWeight: 800, fontSize: '0.9rem', marginBottom: 6 }}>
+            <Sparkles size={16} color="#FACC15" />
+            <span>هل دعاك صديق؟ اربط كوده واحصل على هدية فورية في محفظتك!</span>
+          </div>
+          <p style={{ margin: '0 0 12px 0', fontSize: '0.825rem', color: '#CBD5E1', lineHeight: 1.5 }}>
+            أدخل كود الإحالة الذي شاركه معك صديقك لتحصل فوراً على <strong>{copyObj.formattedReferee} {copyObj.currency}</strong> رصيد ترحيبي في محفظتك.
+          </p>
+
+          <form onSubmit={handleBindCode} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="مثال: KP849201"
+              value={inputCode}
+              onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+              disabled={binding}
+              style={{
+                background: 'rgba(0, 0, 0, 0.4)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 8,
+                color: '#FFFFFF',
+                padding: '9px 14px',
+                fontFamily: 'monospace',
+                letterSpacing: 1.5,
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                flex: '1 1 200px',
+                maxWidth: 280
+              }}
+            />
+            <button
+              type="submit"
+              disabled={binding || !inputCode.trim()}
+              style={{
+                background: '#FACC15',
+                color: '#0B0F19',
+                border: 'none',
+                borderRadius: 8,
+                padding: '9px 18px',
+                fontWeight: 800,
+                fontSize: '0.85rem',
+                cursor: binding || !inputCode.trim() ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+            >
+              <Gift size={15} />
+              <span>{binding ? 'جاري الربط...' : 'ربط الكود واستلام الهدية'}</span>
+            </button>
+          </form>
+
+          {bindSuccess && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, color: '#34d399', fontSize: '0.825rem', fontWeight: 700 }}>
+              <CheckCircle2 size={16} />
+              <span>{bindSuccess}</span>
+            </div>
+          )}
+
+          {bindError && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, color: '#f87171', fontSize: '0.825rem', fontWeight: 700 }}>
+              <AlertCircle size={16} />
+              <span>{bindError}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Capped Earnings Warning Banner */}
+      {data?.stats?.isCapped && (
+        <div style={{
+          background: 'rgba(245, 158, 11, 0.15)',
+          border: '1px solid rgba(245, 158, 11, 0.4)',
+          borderRadius: 10,
+          padding: '10px 16px',
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          fontSize: '0.825rem',
+          color: '#fef08a'
+        }}>
+          <AlertCircle size={18} color="#FACC15" />
+          <span>
+            تهانينا! لقد حققت سقف أرباح برنامج الإحالة البالغ <strong>{data.stats.maxEarnings?.toLocaleString()} {copyObj.currency}</strong>.
+          </span>
+        </div>
+      )}
+
       {/* Stats Counter Grid */}
       <div style={{
         display: 'grid',
@@ -305,7 +456,7 @@ export const ReferralCard: React.FC = () => {
         }}>
           <span style={{ fontSize: '0.75rem', color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}>
             <CheckCircle2 size={14} color="#34D399" />
-            الطلبات المكتملة
+            الطلبات المؤهلة المكتملة
           </span>
           <span style={{ fontSize: '1.45rem', fontWeight: 900, color: '#34D399', display: 'block', marginTop: 4 }}>
             {data?.stats?.successfulReferrals ?? 0}
@@ -321,7 +472,7 @@ export const ReferralCard: React.FC = () => {
         }}>
           <span style={{ fontSize: '0.75rem', color: '#FACC15', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 800 }}>
             <TrendingUp size={14} color="#FACC15" />
-            إجمالي الأرباح المكتسبة
+            إجمالي أرباحك كداعي
           </span>
           <span style={{ fontSize: '1.45rem', fontWeight: 900, color: '#FACC15', display: 'block', marginTop: 4 }}>
             +{(data?.stats?.totalEarned ?? 0).toLocaleString('en-US')} {copyObj.currency}
@@ -337,23 +488,23 @@ export const ReferralCard: React.FC = () => {
         border: '1px solid rgba(255, 255, 255, 0.06)'
       }}>
         <span style={{ fontSize: '0.775rem', color: '#CBD5E1', fontWeight: 800, display: 'block', marginBottom: 10 }}>
-          💡 كيف تكسب من برنامج الإحالة؟
+          💡 كيف يعمل برنامج الإحالة؟
         </span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: '0.825rem', color: '#94A3B8' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <span style={{ background: '#FACC15', color: '#0B0F19', width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.75rem', flexShrink: 0 }}>1</span>
-            <span>شارك كود الدعوة الخاص بك مع صاحبك.</span>
+            <span>شارك كود الإحالة الخاص بك مع صاحبك.</span>
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <span style={{ background: '#FACC15', color: '#0B0F19', width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.75rem', flexShrink: 0 }}>2</span>
-            <span>صاحبك يسجل ويشحن أول طلب مؤهل.</span>
+            <span>صاحبك يسجل أو يربط الكود ويحصل على {copyObj.formattedReferee} {copyObj.currency} فوراً!</span>
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <span style={{ background: '#FACC15', color: '#0B0F19', width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.75rem', flexShrink: 0 }}>3</span>
             <span style={{ color: '#FACC15', fontWeight: 700 }}>
-              أنت تاخد {copyObj.formattedReferrer} وهو ياخد {copyObj.formattedReferee} {copyObj.currency}!
+              ولما صاحبك يكمل أول طلب مؤهل، أنت تاخد {copyObj.formattedReferrer} {copyObj.currency}!
             </span>
           </div>
         </div>
@@ -365,7 +516,7 @@ export const ReferralCard: React.FC = () => {
           <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#E2E8F0', display: 'block', marginBottom: 10 }}>
             سجل أصدقائك المدعوين ({data.friends.length}):
           </span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
             {data.friends.map(f => (
               <div 
                 key={f.id}
@@ -374,26 +525,26 @@ export const ReferralCard: React.FC = () => {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   background: 'rgba(0, 0, 0, 0.25)',
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                   borderRadius: 8,
                   fontSize: '0.8rem'
                 }}
               >
                 <div>
-                  <span style={{ fontWeight: 700, color: '#FFFFFF' }}>{f.name}</span>
-                  <span style={{ color: '#64748B', marginRight: 8, fontSize: '0.75rem' }}>({f.email})</span>
+                  <div style={{ fontWeight: 700, color: '#FFFFFF' }}>{f.name}</div>
+                  <div style={{ color: '#64748B', fontSize: '0.75rem' }}>{f.email}</div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {f.status === 'COMPLETED' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {f.referrerRewardPaid ? (
                     <span style={{ color: '#10B981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
                       <CheckCircle2 size={14} />
-                      <span>+{f.reward.toLocaleString('en-US')} {f.currency}</span>
+                      <span>+{f.reward.toLocaleString('en-US')} {f.currency} (مكتمل)</span>
                     </span>
                   ) : (
                     <span style={{ color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
                       <Clock size={14} />
-                      <span>بانتظار أول طلب</span>
+                      <span>بانتظار أول طلب مؤهل</span>
                     </span>
                   )}
                   <span style={{ color: '#64748B', fontSize: '0.7rem' }}>

@@ -38,7 +38,13 @@ export const AdminSettings: React.FC = () => {
     referrer_reward: 1000,
     referee_reward: 1000,
     currency: 'جنيه',
-    min_order_amount: 0,
+    min_order_amount: 5000,
+    max_referrer_earnings: 10000,
+    allow_existing_users_binding: true,
+    first_order_only: true,
+    allow_crypto_orders: true,
+    allow_game_orders: true,
+    allow_cards_orders: true,
     updated_at: ''
   });
 
@@ -92,7 +98,13 @@ export const AdminSettings: React.FC = () => {
             referrer_reward: Number(refData.settings.referrer_reward ?? 1000),
             referee_reward: Number(refData.settings.referee_reward ?? 1000),
             currency: String(refData.settings.currency || 'جنيه'),
-            min_order_amount: Number(refData.settings.min_order_amount ?? 0),
+            min_order_amount: Number(refData.settings.min_order_amount ?? 5000),
+            max_referrer_earnings: Number(refData.settings.max_referrer_earnings ?? 10000),
+            allow_existing_users_binding: Boolean(refData.settings.allow_existing_users_binding ?? true),
+            first_order_only: Boolean(refData.settings.first_order_only ?? true),
+            allow_crypto_orders: Boolean(refData.settings.allow_crypto_orders ?? true),
+            allow_game_orders: Boolean(refData.settings.allow_game_orders ?? true),
+            allow_cards_orders: Boolean(refData.settings.allow_cards_orders ?? true),
             updated_at: refData.settings.updated_at || ''
           });
         }
@@ -498,11 +510,11 @@ export const AdminSettings: React.FC = () => {
                 onChange={(e) => setReferralSettings({ ...referralSettings, referrer_reward: parseFloat(e.target.value) || 0 })}
                 style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem' }}
               />
-              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>المبلغ الذي يضاف لمحفظة الداعي فور أول طلب</span>
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>المبلغ الذي يضاف لمحفظة الداعي بعد أول طلب مؤهل</span>
             </div>
 
             <div className="admin-input-group">
-              <label className="admin-label">مكافأة الصديق المدعو:</label>
+              <label className="admin-label">مكافأة الصديق المدعو (الترحيبية):</label>
               <input
                 type="number"
                 min="0"
@@ -512,7 +524,7 @@ export const AdminSettings: React.FC = () => {
                 onChange={(e) => setReferralSettings({ ...referralSettings, referee_reward: parseFloat(e.target.value) || 0 })}
                 style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem' }}
               />
-              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>المبلغ الذي يضاف لمحفظة الصديق ترحيباً به</span>
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>المبلغ الذي يضاف لمحفظة الصديق فورياً عند ربط الكود</span>
             </div>
 
             <div className="admin-input-group">
@@ -529,15 +541,96 @@ export const AdminSettings: React.FC = () => {
             </div>
 
             <div className="admin-input-group">
-              <label className="admin-label">الحد الأدنى للطلب المؤهل (اختياري):</label>
+              <label className="admin-label">الحد الأدنى للطلب المؤهل:</label>
               <input
                 type="number"
                 min="0"
+                step="500"
                 className="admin-input"
                 value={referralSettings.min_order_amount}
                 onChange={(e) => setReferralSettings({ ...referralSettings, min_order_amount: parseFloat(e.target.value) || 0 })}
               />
-              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>0 تعني أي طلب مكتمل يُكسب المكافأة</span>
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>أقل مبلغ طلب للمدعو ليتم صرف مكافأة الداعي</span>
+            </div>
+
+            <div className="admin-input-group">
+              <label className="admin-label">سقف أرباح الداعي الإجمالية:</label>
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                className="admin-input"
+                value={referralSettings.max_referrer_earnings}
+                onChange={(e) => setReferralSettings({ ...referralSettings, max_referrer_earnings: parseFloat(e.target.value) || 0 })}
+              />
+              <span style={{ fontSize: '0.725rem', color: '#64748b', marginTop: 4 }}>أقصى مجموع أرباح يمكن للداعي تحقيقها من الإحالات</span>
+            </div>
+          </div>
+
+          {/* Program Behavior & Category Rules */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '10px',
+            padding: '14px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.875rem' }}>
+              قواعد التأهيل وتصنيفات الطلبات المحتسبة:
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={referralSettings.allow_existing_users_binding}
+                  onChange={(e) => setReferralSettings({ ...referralSettings, allow_existing_users_binding: e.target.checked })}
+                  style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                />
+                <span>السماح للمستخدمين الحاليين بربط كود إحالة</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={referralSettings.first_order_only}
+                  onChange={(e) => setReferralSettings({ ...referralSettings, first_order_only: e.target.checked })}
+                  style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                />
+                <span>مكافأة الداعي على أول طلب مؤهل فقط</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={referralSettings.allow_crypto_orders}
+                  onChange={(e) => setReferralSettings({ ...referralSettings, allow_crypto_orders: e.target.checked })}
+                  style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                />
+                <span>احتساب طلبات تحويلات USDT الرقمية</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={referralSettings.allow_game_orders}
+                  onChange={(e) => setReferralSettings({ ...referralSettings, allow_game_orders: e.target.checked })}
+                  style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                />
+                <span>احتساب طلبات شحن الألعاب</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={referralSettings.allow_cards_orders}
+                  onChange={(e) => setReferralSettings({ ...referralSettings, allow_cards_orders: e.target.checked })}
+                  style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                />
+                <span>احتساب طلبات بطاقات الهدايا الرقمية</span>
+              </label>
             </div>
           </div>
 
