@@ -15,18 +15,7 @@ import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 
 const AppContent: React.FC = () => {
-  const { currentView, user, isLoading, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0B0F19', color: '#F59E0B' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 44, height: 44, border: '3px solid rgba(245, 158, 11, 0.2)', borderTopColor: '#F59E0B', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#94A3B8' }}>جاري تهيئة المنصة...</span>
-        </div>
-      </div>
-    );
-  }
+  const { currentView, user, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
 
   // Maintenance Mode Guard:
   // Only users with role === 'ADMIN' (valid active/previous session) can enter.

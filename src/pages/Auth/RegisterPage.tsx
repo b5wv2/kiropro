@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import styles from './Auth.module.css';
 import { useAuth } from '../../context/AuthContext';
 import { OtpVerificationView } from '../../components/Auth/OtpVerificationView';
+import { BanNotice } from '../../components/common/BanNotice';
+import { BanDetails } from '../../types/auth';
 import { AlertCircle, Gift } from 'lucide-react';
 import { api } from '../../lib/api';
 import { ReferralConfig, generateReferralCopy } from '../../utils/referralText';
@@ -25,6 +27,7 @@ export const RegisterPage: React.FC = () => {
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(60);
   const [error, setError] = useState<string | null>(null);
+  const [banInfo, setBanInfo] = useState<BanDetails | null>(null);
 
   React.useEffect(() => {
     api.get<ReferralConfig>('/api/referral/config')
@@ -35,6 +38,7 @@ export const RegisterPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setBanInfo(null);
 
     if (!name.trim() || !email.trim()) {
       setError('يرجى إدخال جميع الحقول المطلوبة.');
@@ -59,7 +63,9 @@ export const RegisterPage: React.FC = () => {
       referral_code: referralCode.trim() ? referralCode.trim().toUpperCase() : undefined
     });
 
-    if (res.requiresVerification) {
+    if (res.banInfo) {
+      setBanInfo(res.banInfo);
+    } else if (res.requiresVerification) {
       setVerificationEmail(res.email || email.trim());
       if (res.cooldownRemaining) {
         setCooldownRemaining(res.cooldownRemaining);
@@ -68,6 +74,28 @@ export const RegisterPage: React.FC = () => {
       setError(res.error);
     }
   };
+
+  if (banInfo) {
+    return (
+      <div className={styles.authWrapper} dir="rtl">
+        <div className={styles.authCard}>
+          <div className={styles.header}>
+            <div className={styles.brandBadge}>
+              <span className={styles.brandKiro}>KIRO</span>
+              <span className={styles.brandPro}>PRO</span>
+            </div>
+          </div>
+          <BanNotice
+            banInfo={banInfo}
+            mode="register"
+            onDismiss={() => {
+              setBanInfo(null);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // If waiting for email verification, render the 6-cell OTP screen
   if (verificationEmail) {

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import styles from './Auth.module.css';
 import { useAuth } from '../../context/AuthContext';
 import { OtpVerificationView } from '../../components/Auth/OtpVerificationView';
+import { BanNotice } from '../../components/common/BanNotice';
+import { BanDetails } from '../../types/auth';
 import { AlertCircle, Zap } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
@@ -9,6 +11,7 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [banInfo, setBanInfo] = useState<BanDetails | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
 
   // Secure Quick Login state (only shown if a valid existing admin session exists on this browser)
@@ -44,11 +47,14 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setBanInfo(null);
     if (!email.trim() || !password) return;
 
     const res = await login({ email: email.trim(), password });
 
-    if (res.requiresVerification) {
+    if (res.banInfo) {
+      setBanInfo(res.banInfo);
+    } else if (res.requiresVerification) {
       setUnverifiedEmail(res.email || email.trim());
     } else if (!res.success && res.error) {
       setError(res.error);
@@ -58,11 +64,15 @@ export const LoginPage: React.FC = () => {
   const handleQuickLogin = async () => {
     if (isQuickLoggingIn || isLoading) return;
     setError(null);
+    setBanInfo(null);
     setIsQuickLoggingIn(true);
 
     try {
       const res = await quickLogin();
-      if (!res.success) {
+      if (res.banInfo) {
+        setBanInfo(res.banInfo);
+        setHasAdminSession(false);
+      } else if (!res.success) {
         setError(res.error || 'انتهت صلاحية الجلسة. يرجى تسجيل الدخول مجدداً بكلمة المرور.');
         setHasAdminSession(false);
       }
@@ -73,6 +83,29 @@ export const LoginPage: React.FC = () => {
       setIsQuickLoggingIn(false);
     }
   };
+
+  if (banInfo) {
+    return (
+      <div className={styles.authWrapper} dir="rtl">
+        <div className={styles.authCard}>
+          <div className={styles.header}>
+            <div className={styles.brandBadge}>
+              <span className={styles.brandKiro}>KIRO</span>
+              <span className={styles.brandPro}>PRO</span>
+            </div>
+          </div>
+          <BanNotice
+            banInfo={banInfo}
+            mode="login"
+            onDismiss={() => {
+              setBanInfo(null);
+              setPassword('');
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (unverifiedEmail) {
     return (

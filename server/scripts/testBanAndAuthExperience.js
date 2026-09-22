@@ -118,10 +118,11 @@ async function run() {
     // 10. Fresh session creation works after unban
     const newSessionId = await createSession({
       userId: testUserId,
-      sessionTokenHash: 'hash_test_new_123',
-      deviceId: testDevice,
-      ipAddress: testIp,
-      userAgent: 'Mozilla/5.0'
+      clientInfo: {
+        ip: testIp,
+        deviceId: testDevice,
+        userAgent: 'Mozilla/5.0'
+      }
     });
     assert(Boolean(newSessionId), '24. Fresh session created successfully after unban');
 

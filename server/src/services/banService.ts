@@ -290,8 +290,9 @@ export interface CreateBanParams {
   deviceId?: string | null;
   scope?: BanScope;
   reason: string;
-  createdBy: string;
+  createdBy?: string | null;
   durationHours?: number | null; // null or undefined = Permanent
+  expiresAt?: Date | null;
 }
 
 /**
@@ -304,7 +305,7 @@ export async function createBan(params: CreateBanParams): Promise<UserBanRecord>
     deviceId = null,
     scope = 'ACCOUNT_IP_DEVICE',
     reason,
-    createdBy,
+    createdBy = null,
     durationHours = null
   } = params;
 
@@ -313,7 +314,9 @@ export async function createBan(params: CreateBanParams): Promise<UserBanRecord>
   }
 
   let expiresAt: Date | null = null;
-  if (durationHours && durationHours > 0) {
+  if (params.expiresAt instanceof Date) {
+    expiresAt = params.expiresAt;
+  } else if (durationHours && durationHours > 0) {
     expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000);
   }
 
@@ -349,7 +352,7 @@ export async function createBan(params: CreateBanParams): Promise<UserBanRecord>
 
     // If account was banned, revoke ALL active sessions immediately
     if (userId) {
-      await revokeAllUserSessions(userId, createdBy, `ACCOUNT_BANNED: ${reason.trim()}`);
+      await revokeAllUserSessions(userId, createdBy || undefined, `ACCOUNT_BANNED: ${reason.trim()}`);
     }
 
     await client.query('COMMIT');

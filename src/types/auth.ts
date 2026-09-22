@@ -31,6 +31,15 @@ export interface RegisterData {
   referral_code?: string;
 }
 
+export interface BanDetails {
+  code: string;
+  message: string;
+  restrictionMessage?: string;
+  reason?: string;
+  expiresAt?: string | null;
+  permanent: boolean;
+}
+
 export interface AuthResult {
   success: boolean;
   requiresVerification?: boolean;
@@ -38,4 +47,5 @@ export interface AuthResult {
   error?: string;
   message?: string;
   cooldownRemaining?: number;
+  banInfo?: BanDetails;
 }
