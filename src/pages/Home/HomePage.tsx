@@ -14,12 +14,12 @@ import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = [
-  { id: 'all', name: 'الكل' },
-  { id: 'mobile', name: '🎮 ألعاب الموبايل' },
-  { id: 'digital', name: '📱 الخدمات والاشتراكات' },
-  { id: 'transfers', name: 'التحويلات الرقمية ⚡' },
-  { id: 'subscriptions', name: 'اشتراكات بريميوم' },
-  { id: 'cards', name: 'بطاقات الهدايا' }
+  { id: 'all', name: 'الكل ✨' },
+  { id: 'games', name: '🎮 الألعاب الإلكترونية' },
+  { id: 'apps', name: '📱 تطبيقات البث والدردشة' },
+  { id: 'digital', name: '⭐ نجوم تيليجرام' },
+  { id: 'subscriptions', name: '👑 الاشتراكات الرقمية' },
+  { id: 'transfers', name: '⚡ تحويلات USDT' }
 ];
 
 export const HomePage: React.FC = () => {
@@ -75,14 +75,17 @@ export const HomePage: React.FC = () => {
     let matchesCat = activeCategory === 'all';
     if (activeCategory === 'transfers') {
       matchesCat = false;
-    } else if (activeCategory === 'mobile') {
-      matchesCat = game.category === 'mobile' || game.id.includes('pubg') || game.id.includes('freefire') || game.id.includes('blood') || game.id.includes('likee');
+    } else if (activeCategory === 'games') {
+      // Strictly real gaming products! Exclude Likee and Telegram
+      matchesCat = (game.category === 'games' || game.category === 'mobile') &&
+        !game.id.includes('likee') &&
+        !game.id.includes('telegram');
+    } else if (activeCategory === 'apps') {
+      matchesCat = game.category === 'apps' || game.id.includes('likee');
     } else if (activeCategory === 'digital') {
-      matchesCat = game.category === 'digital' || game.category === 'subscriptions' || game.id.includes('telegram') || game.id.includes('likee');
+      matchesCat = game.category === 'digital' || game.id.includes('stars');
     } else if (activeCategory === 'subscriptions') {
-      matchesCat = game.category === 'subscriptions' || game.id.includes('premium') || game.id.includes('telegram');
-    } else if (activeCategory === 'cards') {
-      matchesCat = game.category === 'cards' || game.id.includes('gift') || game.id.includes('card');
+      matchesCat = game.category === 'subscriptions' || game.id.includes('premium');
     } else {
       matchesCat = game.category === activeCategory;
     }
@@ -92,6 +95,21 @@ export const HomePage: React.FC = () => {
       game.type.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCat && matchesSearch;
   });
+
+  // Separate games vs digital/apps for the 'all' view
+  const onlyGamesList = games.filter(g => 
+    (g.category === 'games' || g.category === 'mobile') &&
+    !g.id.includes('likee') &&
+    !g.id.includes('telegram')
+  );
+
+  const onlyDigitalAndAppsList = games.filter(g => 
+    g.category === 'apps' || 
+    g.category === 'digital' || 
+    g.category === 'subscriptions' ||
+    g.id.includes('likee') ||
+    g.id.includes('telegram')
+  );
 
   // Determine whether USDT card should be displayed based on filters
   const matchesUsdtCategory = activeCategory === 'all' || activeCategory === 'transfers';
@@ -103,6 +121,7 @@ export const HomePage: React.FC = () => {
     'polygon'.includes(searchQuery.toLowerCase());
 
   const showUsdtCard = matchesUsdtCategory && matchesUsdtSearch;
+  const isDefaultOverview = activeCategory === 'all' && searchQuery.trim() === '';
 
   return (
     <>
@@ -124,6 +143,9 @@ export const HomePage: React.FC = () => {
                 <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.12)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '3px 10px', borderRadius: '12px', fontWeight: 800 }}>
                   ⚡ تسليم فوري وتلقائي
                 </span>
+                <span style={{ fontSize: '0.75rem', background: 'rgba(59, 130, 246, 0.12)', color: '#2563eb', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '3px 10px', borderRadius: '12px', fontWeight: 800 }}>
+                  🔒 أسعار آمنة بالجنيه (SDG)
+                </span>
               </div>
               <h2 className="heading-section">المنتجات الأكثر طلباً</h2>
               <p className="subheading">حدد لعبتك أو خدمتك المفضلة، واشحن حسابك فوراً برصيد محفظتك مع تنفيذ تلقائي بدون انتظار.</p>
@@ -139,13 +161,13 @@ export const HomePage: React.FC = () => {
                 <input
                   type="text"
                   className="search-input"
-                  placeholder="ابحث عن لعبة أو بطاقة..."
+                  placeholder="ابحث عن لعبة أو خدمة..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
 
-              <div className="filter-tabs">
+              <div className="filter-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.id}
@@ -159,7 +181,7 @@ export const HomePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Games Fluid Grid */}
+          {/* Loading and Error States */}
           {loading ? (
             <div style={{ textAlign: 'center', padding: '60px 16px', color: 'var(--text-secondary)' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
@@ -183,7 +205,83 @@ export const HomePage: React.FC = () => {
                 إعادة المحاولة
               </button>
             </div>
+          ) : isDefaultOverview ? (
+            /* PROFESSIONAL DUAL-SECTION OVERVIEW (When "All" is active without search) */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
+              {/* SECTION 1: Video & Mobile Games */}
+              {onlyGamesList.length > 0 && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.25rem' }}>🎮</span>
+                        <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                          الألعاب الإلكترونية الأكثر طلباً
+                        </h3>
+                        <span style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
+                          تسليم فوري بالـ ID
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                        شحن فوري ومباشر لشدات ببجي، جواهر فري فاير، وذهب بلود سترايك
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="games-grid">
+                    {onlyGamesList.map(game => (
+                      <GameCard
+                        key={game.id}
+                        game={game}
+                        onSelect={(g) => setSelectedGameForModal(g)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION 2: Digital Apps & Subscriptions */}
+              {(onlyDigitalAndAppsList.length > 0 || showUsdtCard) && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.25rem' }}>📱</span>
+                        <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
+                          التطبيقات والخدمات الرقمية والاشتراكات
+                        </h3>
+                        <span style={{ fontSize: '0.72rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
+                          تفعيل رسمي معتمد
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                        شحن ماسات Likee، نجوم تيليجرام Telegram Stars، واشتراكات بريميوم الرسمية
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="games-grid">
+                    {/* USDT Instant Transfer Card */}
+                    {showUsdtCard && (
+                      <UsdtCard
+                        config={usdtConfig}
+                        onSelect={() => navigateTo('usdt')}
+                      />
+                    )}
+
+                    {onlyDigitalAndAppsList.map(game => (
+                      <GameCard
+                        key={game.id}
+                        game={game}
+                        onSelect={(g) => setSelectedGameForModal(g)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (filteredGames.length > 0 || showUsdtCard) ? (
+            /* FILTERED / SEARCH VIEW */
             <div className="games-grid">
               {/* USDT Instant Transfer Card */}
               {showUsdtCard && (
@@ -205,7 +303,7 @@ export const HomePage: React.FC = () => {
           ) : (
             <div style={{ textAlign: 'center', padding: '48px 16px', background: 'var(--bg-primary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
               <p style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>لم نجد نتائج مطابقة لبحثك</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>جرب البحث عن لعبة أخرى مثل "ببجي" أو "فري فاير" أو اختر قسماً آخر.</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>جرب البحث عن لعبة أو خدمة أخرى أو اختر قسماً آخر من القائمة أعلاه.</p>
             </div>
           )}
         </div>

@@ -28,6 +28,7 @@ import referralRoutes from './routes/referral';
 import { orderPollingService } from './services/orderPollingService';
 import { telegramBotService } from './services/telegramBotService';
 import { catalogSyncService } from './services/catalogSyncService';
+import pool from './db';
 import path from 'path';
 import fs from 'fs';
 
@@ -108,7 +109,28 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml'
 };
 
-app.get('/uploads/products/:filename', (req: Request, res: Response) => {
+// Auto-restore any missing persistent images from PostgreSQL UploadedAsset table to local disk cache
+async function restoreAssetsFromDatabase() {
+  try {
+    const assets = await pool.query('SELECT "filename", "dataBase64" FROM "UploadedAsset"');
+    let restoredCount = 0;
+    for (const asset of assets.rows) {
+      const filePath = path.join(UPLOADS_PRODUCTS_DIR, asset.filename);
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, Buffer.from(asset.dataBase64, 'base64'));
+        restoredCount++;
+      }
+    }
+    if (restoredCount > 0) {
+      console.log(`[AssetServer] Restored ${restoredCount} persistent images from database to disk cache.`);
+    }
+  } catch (err: any) {
+    console.warn('[AssetServer] Notice: asset auto-restore deferred:', err.message);
+  }
+}
+restoreAssetsFromDatabase();
+
+app.get('/uploads/products/:filename', async (req: Request, res: Response) => {
   const filename = Array.isArray(req.params.filename) ? req.params.filename[0] : String(req.params.filename || '');
 
   // Strict Whitelist Filename Validation (Prevents Path Traversal, Null Bytes, Directory Browsing)
@@ -123,9 +145,33 @@ app.get('/uploads/products/:filename', (req: Request, res: Response) => {
     return res.status(403).json({ error: 'غير مصرح بالوصول إلى هذا المسار.' });
   }
 
-  // Check File Existence
+  const ext = path.extname(filename).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+  // Check File Existence on local disk
   if (!fs.existsSync(safeFilePath)) {
-    // Graceful fallback to default placeholder image if present on disk
+    // 1. Look up in persistent database storage (PostgreSQL UploadedAsset)
+    try {
+      const assetRes = await pool.query(
+        'SELECT "mimeType", "dataBase64" FROM "UploadedAsset" WHERE "filename" = $1 LIMIT 1',
+        [filename]
+      );
+      if (assetRes.rows.length > 0) {
+        const row = assetRes.rows[0];
+        const buffer = Buffer.from(row.dataBase64, 'base64');
+        // Cache to local disk for future requests
+        try { fs.writeFileSync(safeFilePath, buffer); } catch {}
+        res.setHeader('Content-Type', row.mimeType || contentType);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        return res.send(buffer);
+      }
+    } catch (dbErr: any) {
+      console.warn('[AssetServer] Database asset lookup warning:', dbErr.message);
+    }
+
+    // 2. Graceful fallback to default placeholder image if present on disk
     const defaultPlaceholder = path.join(UPLOADS_PRODUCTS_DIR, 'default.webp');
     if (fs.existsSync(defaultPlaceholder)) {
       res.setHeader('Content-Type', 'image/webp');
@@ -137,10 +183,7 @@ app.get('/uploads/products/:filename', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'الصورة غير موجودة.' });
   }
 
-  // Explicit Content-Type header based on extension (never return HTML)
-  const ext = path.extname(filename).toLowerCase();
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
+  // File exists on disk cache -> serve immediately
   res.setHeader('Content-Type', contentType);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');

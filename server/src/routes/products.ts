@@ -163,21 +163,26 @@ router.get('/', async (req: Request, res: Response) => {
       const groupKey = row.gameCategoryId || (row.productName.toLowerCase().includes('pubg') ? 'pubg-mobile' : 'freefire-me');
       const gameDisplayName = row.categoryArabicName || row.categoryName || (groupKey === 'pubg-mobile' ? 'PUBG Mobile' : 'Free Fire (الشرق الأوسط)');
       const defaultGameCover = (groupKey === 'pubg-mobile' ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80' : 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=80');
-      const gameCover = resolveImageUrl(row.categoryImageUrl, defaultGameCover);
+      const gameCover = resolveImageUrl(row.categoryImageUrl || row.productImageUrl, defaultGameCover);
 
       const pkgPrice = Number(row.price || 0);
       const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
 
       let itemType = 'شحن ألعاب مباشر (Direct Top-Up)';
+      let itemCategory = row.categoryPlatform || 'games';
+
       if (groupKey === 'likee') {
         itemType = 'شحن ماسات لايكي فوري (Likee Diamonds)';
+        itemCategory = 'apps';
       } else if (groupKey === 'telegram-stars') {
         itemType = 'نجوم تيليجرام الرقمية (Telegram Stars)';
+        itemCategory = 'digital';
       } else if (groupKey === 'telegram-premium') {
         itemType = 'اشتراك تيليجرام بريميوم الرسمي (Telegram Premium)';
+        itemCategory = 'subscriptions';
+      } else {
+        itemCategory = 'games';
       }
-
-      const itemCategory = row.categoryPlatform || (groupKey.startsWith('telegram') ? 'digital' : 'mobile');
 
       if (!groupedMap.has(groupKey)) {
         groupedMap.set(groupKey, {
@@ -574,6 +579,24 @@ router.post('/admin/categories/:id/upload-image', requireAdmin, upload.single('i
   const finalUrl = backendUrl ? `${backendUrl}${relativeUrl}` : relativeUrl;
 
   try {
+    // 1. Permanently persist image file into PostgreSQL UploadedAsset table
+    try {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const base64 = fileBuffer.toString('base64');
+      const mimeType = req.file.mimetype || 'image/jpeg';
+      await pool.query(`
+        INSERT INTO "UploadedAsset" ("id", "filename", "mimeType", "dataBase64", "fileSize", "createdAt", "updatedAt")
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        ON CONFLICT ("filename") DO UPDATE SET
+          "dataBase64" = EXCLUDED."dataBase64",
+          "fileSize" = EXCLUDED."fileSize",
+          "mimeType" = EXCLUDED."mimeType",
+          "updatedAt" = NOW()
+      `, [req.file.filename, req.file.filename, mimeType, base64, req.file.size]);
+    } catch (assetErr: any) {
+      console.warn('[AssetPersistence] Failed to persist category image to DB:', assetErr.message);
+    }
+
     const result = await pool.query(`
       UPDATE "GameCategory"
       SET "imageUrl" = $1, "updatedAt" = NOW()
@@ -930,7 +953,7 @@ router.post('/admin/products/sync-prices', requireAdmin, async (req: AuthRequest
  * ADMIN: POST /api/admin/products/upload-image
  * Validates and stores product images safely on disk.
  */
-router.post('/admin/products/upload-image', requireAdmin, upload.single('image'), (req: Request, res: Response) => {
+router.post('/admin/products/upload-image', requireAdmin, upload.single('image'), async (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'لم يتم إرفاق أي صورة.' });
   }
@@ -939,6 +962,24 @@ router.post('/admin/products/upload-image', requireAdmin, upload.single('image')
   if (!isValidImageFileSignature(req.file.path, ext)) {
     try { fs.unlinkSync(req.file.path); } catch {}
     return res.status(400).json({ error: 'بصمة الصورة غير صالحة أو الملف تالف.' });
+  }
+
+  // Permanently persist image file into PostgreSQL UploadedAsset table
+  try {
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const base64 = fileBuffer.toString('base64');
+    const mimeType = req.file.mimetype || 'image/jpeg';
+    await pool.query(`
+      INSERT INTO "UploadedAsset" ("id", "filename", "mimeType", "dataBase64", "fileSize", "createdAt", "updatedAt")
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      ON CONFLICT ("filename") DO UPDATE SET
+        "dataBase64" = EXCLUDED."dataBase64",
+        "fileSize" = EXCLUDED."fileSize",
+        "mimeType" = EXCLUDED."mimeType",
+        "updatedAt" = NOW()
+    `, [req.file.filename, req.file.filename, mimeType, base64, req.file.size]);
+  } catch (assetErr: any) {
+    console.warn('[AssetPersistence] Failed to persist product image to DB:', assetErr.message);
   }
 
   const relativeUrl = `/uploads/products/${req.file.filename}`;

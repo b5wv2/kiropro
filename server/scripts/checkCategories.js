@@ -3,16 +3,16 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const pool = require('../dist/db').default;
 
 async function check() {
-  const cats = await pool.query('SELECT * FROM "GameCategory" ORDER BY "displayOrder" ASC');
+  const cats = await pool.query('SELECT id, name, "arabicName", "imageUrl" FROM "GameCategory" ORDER BY "displayOrder" ASC');
   console.log("CATEGORIES:", cats.rows);
   
-  const sampleProds = await pool.query(`
-    SELECT "gameCategoryId", "providerOfferId", "offerName", "providerCostUsd", "customerPriceUsd", "isActive"
+  const imgProds = await pool.query(`
+    SELECT "gameCategoryId", "productName", "offerName", "imageUrl"
     FROM "Product"
-    WHERE "gameCategoryId" IN ('likee', 'telegram-stars', 'telegram-premium')
-    ORDER BY "gameCategoryId", "providerCostUsd" ASC
+    WHERE "imageUrl" IS NOT NULL AND "imageUrl" != ''
+    LIMIT 20
   `);
-  console.log("SAMPLE PRODUCTS:", sampleProds.rows);
+  console.log("PRODUCTS WITH IMAGE:", imgProds.rows);
   await pool.end();
 }
 
