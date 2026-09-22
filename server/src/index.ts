@@ -54,8 +54,10 @@ const envFrontendUrls = (process.env.FRONTEND_URL || '')
   .map(u => u.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
-// In development, also permit local Vite dev servers
+// Production and Development allowed origins
 const allowedOrigins = [
+  'https://kiropro.store',
+  'https://www.kiropro.store',
   ...envFrontendUrls,
   ...(process.env.NODE_ENV !== 'production'
     ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
@@ -63,7 +65,7 @@ const allowedOrigins = [
 ];
 
 if (process.env.NODE_ENV === 'production' && envFrontendUrls.length === 0) {
-  console.warn('[Railway Configuration Warning] FRONTEND_URL is not configured in process.env. CORS will reject cross-origin frontend requests.');
+  console.log('[CORS] Defaulting to trusted production domain https://kiropro.store (FRONTEND_URL not set in env).');
 }
 
 app.use(cors({
@@ -77,7 +79,16 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-client-timezone",
+    "x-client-language",
+    "X-Requested-With",
+    "Accept",
+    "Origin"
+  ],
+  optionsSuccessStatus: 200
 }));
 app.use(express.json());
 app.use(cookieParser());
