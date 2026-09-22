@@ -11,7 +11,7 @@ import { JWT_SECRET, getAuthCookieOptions } from '../config';
 import { generateReferralCode, bindReferralCode } from '../services/referralService';
 import { extractClientInfo } from '../services/clientInfoService';
 import { createSession, closeSession, revokeAllUserSessions } from '../services/sessionService';
-import { checkBan } from '../services/banService';
+import { checkBan, formatBanResponse } from '../services/banService';
 import { logSecurityEvent } from '../services/securityEventService';
 
 const router = Router();
@@ -66,6 +66,23 @@ function generateSecureOtp(): string {
 // ==========================================
 router.post('/register', authLimiter, async (req: Request, res: Response) => {
   const { name, email, password, preferred_currency, referral_code } = req.body;
+  const clientInfo = extractClientInfo(req, res);
+
+  // Check if IP or Device has an active ban preventing account creation
+  const regBan = await checkBan({ ip: clientInfo.ip, deviceId: clientInfo.deviceId });
+  if (regBan.isBanned) {
+    await logSecurityEvent({
+      eventType: 'BAN_MATCH',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      userAgent: clientInfo.userAgent,
+      metadata: {
+        action: 'REGISTER_ATTEMPT_BLOCKED',
+        matched_scope: regBan.matchedScope
+      }
+    });
+    return res.status(403).json(formatBanResponse(regBan, 'register'));
+  }
   
   if (!email || !password) {
     return res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور حقول مطلوبة.' });
@@ -491,7 +508,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
           matched_scope: ipDevBan.matchedScope
         }
       });
-      return res.status(403).json({ error: 'لا يمكن تسجيل الدخول إلى هذا الحساب.' });
+      return res.status(403).json(formatBanResponse(ipDevBan, 'login'));
     }
 
     const userRes = await pool.query('SELECT * FROM "User" WHERE email = $1', [normalizedEmail]);
@@ -517,7 +534,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
             matched_scope: acctBan.matchedScope
           }
         });
-        return res.status(403).json({ error: 'لا يمكن تسجيل الدخول إلى هذا الحساب.' });
+        return res.status(403).json(formatBanResponse(acctBan, 'login'));
       }
     }
 
@@ -769,7 +786,7 @@ router.post('/quick-login', authLimiter, async (req: Request, res: Response) => 
         userAgent: clientInfo.userAgent,
         metadata: { reason: 'BANNED_QUICK_LOGIN', matched_scope: banCheck.matchedScope }
       });
-      return res.status(403).json({ error: 'لا يمكن تسجيل الدخول إلى هذا الحساب.' });
+      return res.status(403).json(formatBanResponse(banCheck, 'login'));
     }
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);

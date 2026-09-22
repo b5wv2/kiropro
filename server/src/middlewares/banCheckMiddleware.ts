@@ -1,12 +1,12 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './authMiddleware';
 import { extractClientInfo } from '../services/clientInfoService';
-import { checkBan } from '../services/banService';
+import { checkBan, formatBanResponse } from '../services/banService';
 import { logSecurityEvent } from '../services/securityEventService';
 
 /**
  * Middleware that checks if current IP, Device ID, or Authenticated Account is banned.
- * If banned, halts the request and returns a generic, safe Arabic error message.
+ * If banned, halts the request and returns a structured, safe Arabic ban response.
  */
 export async function banCheckMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -33,9 +33,7 @@ export async function banCheckMiddleware(req: AuthRequest, res: Response, next: 
         }
       });
 
-      return res.status(403).json({
-        error: 'لا يمكن إتمام هذه العملية. تم تقييد الوصول مؤقتاً لأسباب أمنية.'
-      });
+      return res.status(403).json(formatBanResponse(banResult, 'operation'));
     }
 
     next();

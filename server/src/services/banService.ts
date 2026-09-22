@@ -44,6 +44,73 @@ export interface BanCheckResult {
   expiresAt?: Date | null | undefined;
 }
 
+export interface PublicBanResponse {
+  code: string;
+  message: string;
+  restrictionMessage?: string | undefined;
+  reason: string;
+  expiresAt: string | null;
+  permanent: boolean;
+}
+
+/**
+ * Format a safe, structured ban response for public/client consumption.
+ * Strictly avoids leaking internal IDs, device_id, internal IP, admin IDs, SQL details, or security metadata.
+ */
+export function formatBanResponse(
+  banResult: BanCheckResult,
+  context: 'login' | 'register' | 'operation' = 'login'
+): PublicBanResponse {
+  const scope = banResult.matchedScope || 'ACCOUNT';
+  const expiresAt = banResult.expiresAt ? new Date(banResult.expiresAt).toISOString() : null;
+  const permanent = !banResult.expiresAt;
+  const rawReason = banResult.reason?.trim();
+
+  // Distinguish ban code per scope
+  const code = `${scope}_BANNED`;
+
+  if (context === 'register') {
+    return {
+      code,
+      message: 'لا يمكنك إنشاء حساب حاليًا',
+      restrictionMessage: 'تم تقييد الوصول من قبل إدارة KIROPRO.',
+      reason: rawReason || 'تم تقييد الوصول من هذا الجهاز أو الشبكة من قبل إدارة KIROPRO.',
+      expiresAt,
+      permanent
+    };
+  }
+
+  if (context === 'operation') {
+    return {
+      code,
+      message: 'تم تقييد الوصول من قبل إدارة KIROPRO',
+      restrictionMessage: 'لا يمكن إتمام هذه العملية بسبب تقييد أمني نشط.',
+      reason: rawReason || 'مخالفة السياسات الأمنية وشروط الاستخدام.',
+      expiresAt,
+      permanent
+    };
+  }
+
+  // context === 'login'
+  const isAccountScope =
+    scope === 'ACCOUNT' ||
+    scope === 'ACCOUNT_IP' ||
+    scope === 'ACCOUNT_DEVICE' ||
+    scope === 'ACCOUNT_IP_DEVICE';
+
+  const message = isAccountScope
+    ? 'تم حظر حسابك من قبل إدارة KIROPRO'
+    : 'تم تقييد الوصول من هذا الجهاز أو الشبكة من قبل إدارة KIROPRO';
+
+  return {
+    code,
+    message,
+    reason: rawReason || 'مخالفة شروط الاستخدام والسياسات الأمنية.',
+    expiresAt,
+    permanent
+  };
+}
+
 /**
  * Auto-expire temporary bans that have exceeded expires_at.
  * Runs inline before checking to ensure 100% precision.

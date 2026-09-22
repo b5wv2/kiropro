@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import pool from '../db';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';
 import { validateSession, touchSession } from '../services/sessionService';
-import { isAccountBanned } from '../services/banService';
+import { checkBan, formatBanResponse } from '../services/banService';
 import { extractClientIp } from '../services/clientInfoService';
 
 export interface AuthRequest extends Request {
@@ -53,10 +53,10 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
 
     // 2. Check if the account has an active ban
     if (decoded.id) {
-      const banned = await isAccountBanned(decoded.id);
-      if (banned) {
+      const banResult = await checkBan({ userId: decoded.id });
+      if (banResult.isBanned) {
         res.clearCookie('token', getAuthCookieOptions());
-        return res.status(403).json({ error: 'تم إيقاف هذا الحساب. يرجى التواصل مع إدارة النظام.' });
+        return res.status(403).json(formatBanResponse(banResult, 'operation'));
       }
     }
 
