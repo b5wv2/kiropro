@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import dotenv from 'dotenv';
 import dns from 'node:dns';
 dotenv.config();
@@ -10,11 +10,29 @@ dns.setDefaultResultOrder('ipv4first');
 // It expects DATABASE_URL to be formatted like: postgresql://postgres:password@localhost:5432/kiropro
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
 });
 
 // Prevent unhandled error event on idle clients from crashing Node.js
 pool.on('error', (err) => {
   console.error('[PostgreSQL Pool] Unexpected error on idle client:', err.message);
+});
+
+// Prevent unhandled error event on individual client instances when Neon/AWS resets sockets
+pool.on('connect', (client: PoolClient) => {
+  client.on('error', (err: any) => {
+    console.warn('[PostgreSQL Client] Socket/connection error handled:', err.message);
+  });
+});
+
+// Global process handler for transient network socket resets (ECONNRESET/EPIPE)
+process.on('uncaughtException', (err: any) => {
+  if (err?.code === 'ECONNRESET' || err?.code === 'EPIPE' || err?.code === 'ETIMEDOUT') {
+    console.warn('[Process] Caught recoverable network socket reset:', err.message);
+    return;
+  }
+  console.error('[Process] Uncaught Exception:', err);
 });
 
 // Test the connection on startup

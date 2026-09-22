@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db';
 import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { sendTopupCreatedEmail, sendTopupApprovedEmail, sendTopupRejectedEmail } from '../services/emailService';
+import { getGeneralSettings } from './admin';
 
 const router = Router();
 
@@ -153,6 +154,18 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
     const authReq = req as AuthRequest;
     if (!authReq.user) {
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Maintenance Mode Check: Prevent non-admin topups during maintenance
+    const genSettings = await getGeneralSettings();
+    if (genSettings.maintenanceMode && authReq.user.role !== 'ADMIN') {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      return res.status(503).json({
+        error: 'المتجر قيد الصيانة حالياً. لا يمكن استقبال طلبات شحن مؤقتاً.',
+        maintenance: true
+      });
     }
 
     if (!req.file) {

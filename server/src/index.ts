@@ -12,7 +12,7 @@ import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth';
 import walletRoutes from './routes/wallet';
 import ordersRoutes from './routes/orders';
-import adminRoutes from './routes/admin';
+import adminRoutes, { getGeneralSettings, getContactChannels, DEFAULT_CONTACT_CHANNELS } from './routes/admin';
 import topupRoutes from './routes/topup';
 import promoRoutes from './routes/promo';
 import productsRoutes from './routes/products';
@@ -175,6 +175,57 @@ app.use('/api/crypto/usdt', cryptoRoutes);
 app.use('/api/admin/crypto', adminCryptoRoutes);
 app.use('/api/internal/telegram', internalTelegramRoutes);
 app.use('/api/referral', referralRoutes);
+
+// Public platform settings & maintenance check endpoints
+app.get('/api/settings/public', async (_req: Request, res: Response) => {
+  try {
+    const [settings, contactChannels] = await Promise.all([
+      getGeneralSettings(),
+      getContactChannels()
+    ]);
+    const activeChannels = contactChannels.filter(c => c.enabled);
+    const primaryWhatsapp = contactChannels.find(c => c.id === 'whatsapp' && c.enabled) || null;
+
+    res.json({
+      maintenanceMode: settings.maintenanceMode,
+      storeName: settings.storeName,
+      supportEmail: settings.supportEmail,
+      telegramSupport: settings.telegramSupport,
+      contactChannels: activeChannels,
+      primaryWhatsapp
+    });
+  } catch {
+    res.json({
+      maintenanceMode: true,
+      storeName: 'KIROPRO',
+      contactChannels: DEFAULT_CONTACT_CHANNELS,
+      primaryWhatsapp: DEFAULT_CONTACT_CHANNELS[0]
+    });
+  }
+});
+
+app.get('/api/contact-channels', async (_req: Request, res: Response) => {
+  try {
+    const all = await getContactChannels();
+    const enabled = all.filter(c => c.enabled);
+    const primaryWhatsapp = all.find(c => c.id === 'whatsapp' && c.enabled) || null;
+    res.json({
+      channels: enabled,
+      primaryWhatsapp
+    });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch contact channels' });
+  }
+});
+
+app.get('/api/settings/maintenance', async (_req: Request, res: Response) => {
+  try {
+    const settings = await getGeneralSettings();
+    res.json({ maintenanceMode: settings.maintenanceMode });
+  } catch {
+    res.json({ maintenanceMode: true });
+  }
+});
 
 // Health check
 app.get('/api/health', (req, res) => {

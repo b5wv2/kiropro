@@ -12,9 +12,30 @@ import { ReviewPage } from './pages/Review/ReviewPage';
 import { AllReviewsPage } from './pages/Review/AllReviewsPage';
 import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
 import { AdminLayout } from './layouts/AdminLayout';
+import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 
 const AppContent: React.FC = () => {
-  const { currentView, user } = useAuth();
+  const { currentView, user, isLoading, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0B0F19', color: '#F59E0B' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 44, height: 44, border: '3px solid rgba(245, 158, 11, 0.2)', borderTopColor: '#F59E0B', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#94A3B8' }}>جاري تهيئة المنصة...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Maintenance Mode Guard:
+  // Only users with role === 'ADMIN' (valid active/previous session) can enter.
+  // All others are presented with the humorous Maintenance Screen.
+  const isAdmin = user?.role === 'ADMIN';
+
+  if (maintenanceMode && !isAdmin) {
+    return <MaintenancePage onCheckStatus={checkMaintenanceStatus} />;
+  }
 
   const isUsdtPath = typeof window !== 'undefined' && (
     window.location.pathname === '/usdt' || currentView === 'usdt'
@@ -73,14 +94,53 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <MainLayout>
-      {currentView === 'home' && <HomePage />}
-      {currentView === 'login' && <LoginPage />}
-      {currentView === 'register' && <RegisterPage />}
-      {currentView === 'forgot-password' && <ForgotPasswordPage />}
-      {currentView === 'account' && <AccountPage />}
-      {currentView === 'usdt' && <UsdtTransferPage />}
-    </MainLayout>
+    <>
+      {maintenanceMode && isAdmin && (
+        <div style={{
+          background: 'linear-gradient(90deg, #78350F 0%, #B45309 100%)',
+          color: '#FEF3C7',
+          padding: '8px 16px',
+          textAlign: 'center',
+          fontSize: '0.85rem',
+          fontWeight: 800,
+          borderBottom: '1px solid #F59E0B',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10000,
+          direction: 'rtl'
+        }}>
+          <span>🛠️ وضع الصيانة مفعل حالياً: المتجر مغلق أمام العملاء والزوار وأنت تتصفح بكامل الصلاحيات كمسؤول.</span>
+          <button
+            type="button"
+            onClick={() => navigateTo('admin')}
+            style={{
+              background: '#F59E0B',
+              color: '#0B0F19',
+              border: 'none',
+              borderRadius: 6,
+              padding: '3px 10px',
+              fontSize: '0.75rem',
+              fontWeight: 900,
+              cursor: 'pointer'
+            }}
+          >
+            إدارة الإعدادات
+          </button>
+        </div>
+      )}
+      <MainLayout>
+        {currentView === 'home' && <HomePage />}
+        {currentView === 'login' && <LoginPage />}
+        {currentView === 'register' && <RegisterPage />}
+        {currentView === 'forgot-password' && <ForgotPasswordPage />}
+        {currentView === 'account' && <AccountPage />}
+        {currentView === 'usdt' && <UsdtTransferPage />}
+      </MainLayout>
+    </>
   );
 };
 

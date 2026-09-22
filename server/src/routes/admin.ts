@@ -983,21 +983,286 @@ router.post('/providers/gamesdrop/test-connection', requireAdmin, async (req: Au
   }
 });
 
-// In-memory store for settings
-let platformSettings = {
+export interface GeneralPlatformSettings {
+  storeName: string;
+  supportEmail: string;
+  supportPhone: string;
+  telegramSupport: string;
+  defaultCurrency: string;
+  maintenanceMode: boolean;
+  autoFulfillOrders: boolean;
+}
+
+export const DEFAULT_GENERAL_SETTINGS: GeneralPlatformSettings = {
   storeName: 'KIROPRO Gaming Services',
   supportEmail: 'support@kiropro.com',
   supportPhone: '+966 50 000 0000',
   telegramSupport: '@kiropro_support',
-  defaultCurrency: '$ (USD)',
-  maintenanceMode: false,
+  defaultCurrency: 'SDG (ج.س)',
+  maintenanceMode: true,
   autoFulfillOrders: false
 };
 
+export async function getGeneralSettings(): Promise<GeneralPlatformSettings> {
+  try {
+    const res = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['general_settings']);
+    if (res.rows.length > 0 && res.rows[0].value) {
+      const val = res.rows[0].value;
+      return {
+        storeName: val.storeName || DEFAULT_GENERAL_SETTINGS.storeName,
+        supportEmail: val.supportEmail || DEFAULT_GENERAL_SETTINGS.supportEmail,
+        supportPhone: val.supportPhone || DEFAULT_GENERAL_SETTINGS.supportPhone,
+        telegramSupport: val.telegramSupport || DEFAULT_GENERAL_SETTINGS.telegramSupport,
+        defaultCurrency: val.defaultCurrency || DEFAULT_GENERAL_SETTINGS.defaultCurrency,
+        maintenanceMode: val.maintenanceMode !== undefined ? Boolean(val.maintenanceMode) : true,
+        autoFulfillOrders: Boolean(val.autoFulfillOrders)
+      };
+    }
+  } catch (err: any) {
+    console.error('[getGeneralSettings] DB error:', err.message);
+  }
+  return DEFAULT_GENERAL_SETTINGS;
+}
+
+export async function saveGeneralSettings(settings: GeneralPlatformSettings, updatedBy?: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO "platform_settings" (key, value, updated_at, updated_by)
+     VALUES ($1, $2, NOW(), $3)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW(), updated_by = COALESCE(EXCLUDED.updated_by, "platform_settings".updated_by)`,
+    ['general_settings', JSON.stringify(settings), updatedBy || null]
+  );
+}
+
+// ==========================================
+// CONTACT CHANNELS (WhatsApp, Telegram, Facebook)
+// ==========================================
+
+export interface ContactChannel {
+  id: 'whatsapp' | 'telegram' | 'facebook';
+  name: string;
+  title: string;
+  subtitle: string;
+  enabled: boolean;
+  url: string;
+  order: number;
+}
+
+export const DEFAULT_CONTACT_CHANNELS: ContactChannel[] = [
+  {
+    id: 'whatsapp',
+    name: 'WhatsApp',
+    title: 'واتساب',
+    subtitle: 'للدعم والاستفسارات',
+    enabled: true,
+    url: 'https://wa.me/249123456789',
+    order: 1
+  },
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    title: 'فيسبوك',
+    subtitle: 'تابعنا وتواصل معنا',
+    enabled: true,
+    url: 'https://facebook.com/kiropro',
+    order: 2
+  },
+  {
+    id: 'telegram',
+    name: 'Telegram',
+    title: 'تيليجرام',
+    subtitle: 'للتواصل السريع',
+    enabled: true,
+    url: 'https://t.me/kiropro_support',
+    order: 3
+  }
+];
+
+export function isValidContactUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('vbscript:') ||
+    lower.includes('<') ||
+    lower.includes('>') ||
+    lower.includes('"')
+  ) {
+    return false;
+  }
+  try {
+    const toTest = trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(toTest);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function sanitizeContactUrl(url: string): string {
+  const trimmed = url.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+export async function getContactChannels(): Promise<ContactChannel[]> {
+  try {
+    const res = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['contact_channels']);
+    if (res.rows.length > 0 && Array.isArray(res.rows[0].value)) {
+      const stored = res.rows[0].value as ContactChannel[];
+      return DEFAULT_CONTACT_CHANNELS.map(def => {
+        const found = stored.find(s => s.id === def.id);
+        if (found) {
+          return {
+            ...def,
+            ...found,
+            enabled: Boolean(found.enabled),
+            order: Number(found.order) || def.order,
+            url: found.url || def.url
+          };
+        }
+        return def;
+      }).sort((a, b) => a.order - b.order);
+    }
+  } catch (err: any) {
+    console.error('[getContactChannels] DB error:', err.message);
+  }
+  return DEFAULT_CONTACT_CHANNELS;
+}
+
+export async function saveContactChannels(channels: ContactChannel[], updatedBy?: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO "platform_settings" (key, value, updated_at, updated_by)
+     VALUES ($1, $2, NOW(), $3)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW(), updated_by = COALESCE(EXCLUDED.updated_by, "platform_settings".updated_by)`,
+    ['contact_channels', JSON.stringify(channels), updatedBy || null]
+  );
+}
+
+// Public: GET /api/contact-channels
+router.get('/contact-channels', async (_req: Request, res: Response) => {
+  try {
+    const all = await getContactChannels();
+    const enabled = all.filter(c => c.enabled);
+    const primaryWhatsapp = all.find(c => c.id === 'whatsapp' && c.enabled) || null;
+    res.json({
+      channels: enabled,
+      primaryWhatsapp
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch contact channels' });
+  }
+});
+
+// Admin: GET /api/admin/contact-channels
+router.get('/admin/contact-channels', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const channels = await getContactChannels();
+    res.json({ channels });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch contact channels' });
+  }
+});
+
+// Admin: PATCH & PUT /api/admin/contact-channels
+const updateContactChannelsHandler = async (req: AuthRequest, res: Response) => {
+  try {
+    const { channels } = req.body;
+    if (!Array.isArray(channels)) {
+      return res.status(400).json({ error: 'بيانات القنوات غير صحيحة (channels must be an array)' });
+    }
+
+    const currentChannels = await getContactChannels();
+    const updatedChannels: ContactChannel[] = [];
+
+    for (const ch of channels) {
+      if (!ch.id || !['whatsapp', 'telegram', 'facebook'].includes(ch.id)) {
+        continue;
+      }
+      
+      const current = currentChannels.find(c => c.id === ch.id) || DEFAULT_CONTACT_CHANNELS.find(c => c.id === ch.id)!;
+      let rawUrl = ch.url !== undefined ? String(ch.url).trim() : current.url;
+      
+      if (rawUrl) {
+        if (!isValidContactUrl(rawUrl)) {
+          return res.status(400).json({
+            error: `الرابط غير صالح لقناة ${ch.name || ch.id}. يجب أن يبدأ بـ https:// وأن يكون رابطاً صالحاً.`
+          });
+        }
+        rawUrl = sanitizeContactUrl(rawUrl);
+      }
+
+      updatedChannels.push({
+        id: ch.id,
+        name: ch.name || current.name,
+        title: ch.title !== undefined ? String(ch.title).trim() : current.title,
+        subtitle: ch.subtitle !== undefined ? String(ch.subtitle).trim() : current.subtitle,
+        enabled: ch.enabled !== undefined ? Boolean(ch.enabled) : current.enabled,
+        url: rawUrl || current.url,
+        order: ch.order !== undefined ? Number(ch.order) : current.order
+      });
+    }
+
+    updatedChannels.sort((a, b) => a.order - b.order);
+
+    const adminId = req.user?.id;
+    await saveContactChannels(updatedChannels, adminId);
+
+    await pool.query(
+      'INSERT INTO "AuditLog" (id, "adminId", action, reason) VALUES ($1, $2, $3, $4)',
+      [uuidv4(), adminId, 'CONTACT_CHANNELS_UPDATE', `Admin updated contact channels`]
+    );
+
+    res.json({
+      message: 'تم تحديث قنوات التواصل بنجاح',
+      channels: updatedChannels
+    });
+  } catch (err: any) {
+    console.error('[updateContactChannelsHandler] Error:', err);
+    res.status(500).json({ error: 'Failed to update contact channels' });
+  }
+};
+
+router.patch('/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
+router.put('/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
+
+// Public endpoint for general settings, contact channels & maintenance check
+router.get('/settings/public', async (_req: Request, res: Response) => {
+  try {
+    const [settings, contactChannels] = await Promise.all([
+      getGeneralSettings(),
+      getContactChannels()
+    ]);
+    const activeChannels = contactChannels.filter(c => c.enabled);
+    const primaryWhatsapp = contactChannels.find(c => c.id === 'whatsapp' && c.enabled) || null;
+
+    res.json({
+      maintenanceMode: settings.maintenanceMode,
+      storeName: settings.storeName,
+      supportEmail: settings.supportEmail,
+      telegramSupport: settings.telegramSupport,
+      contactChannels: activeChannels,
+      primaryWhatsapp
+    });
+  } catch (err: any) {
+    res.json({
+      maintenanceMode: true,
+      storeName: 'KIROPRO',
+      telegramSupport: '@kiropro_support',
+      contactChannels: DEFAULT_CONTACT_CHANNELS,
+      primaryWhatsapp: DEFAULT_CONTACT_CHANNELS[0]
+    });
+  }
+});
+
 // Admin Settings: Get
 router.get('/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const settings = await getGeneralSettings();
   res.json({
-    settings: platformSettings,
+    settings,
     system: {
       dbStatus: 'CONNECTED (PostgreSQL)',
       serverUptime: Math.floor(process.uptime()),
@@ -1009,26 +1274,29 @@ router.get('/settings', requireAdmin, async (req: AuthRequest, res: Response) =>
 
 // Admin Settings: Update
 router.put('/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const current = await getGeneralSettings();
   const { storeName, supportEmail, supportPhone, telegramSupport, defaultCurrency, maintenanceMode, autoFulfillOrders } = req.body;
   const adminId = req.user?.id;
 
-  platformSettings = {
-    ...platformSettings,
-    storeName: storeName || platformSettings.storeName,
-    supportEmail: supportEmail || platformSettings.supportEmail,
-    supportPhone: supportPhone || platformSettings.supportPhone,
-    telegramSupport: telegramSupport || platformSettings.telegramSupport,
-    defaultCurrency: defaultCurrency || platformSettings.defaultCurrency,
-    maintenanceMode: maintenanceMode !== undefined ? Boolean(maintenanceMode) : platformSettings.maintenanceMode,
-    autoFulfillOrders: autoFulfillOrders !== undefined ? Boolean(autoFulfillOrders) : platformSettings.autoFulfillOrders,
+  const updatedSettings: GeneralPlatformSettings = {
+    ...current,
+    storeName: storeName || current.storeName,
+    supportEmail: supportEmail || current.supportEmail,
+    supportPhone: supportPhone || current.supportPhone,
+    telegramSupport: telegramSupport || current.telegramSupport,
+    defaultCurrency: defaultCurrency || current.defaultCurrency,
+    maintenanceMode: maintenanceMode !== undefined ? Boolean(maintenanceMode) : current.maintenanceMode,
+    autoFulfillOrders: autoFulfillOrders !== undefined ? Boolean(autoFulfillOrders) : current.autoFulfillOrders,
   };
+
+  await saveGeneralSettings(updatedSettings, adminId);
 
   await pool.query(
     'INSERT INTO "AuditLog" (id, "adminId", action, reason) VALUES ($1, $2, $3, $4)',
-    [uuidv4(), adminId, 'SETTINGS_UPDATE', 'Admin updated platform settings']
+    [uuidv4(), adminId, 'SETTINGS_UPDATE', `Admin updated platform settings (Maintenance Mode: ${updatedSettings.maintenanceMode ? 'ACTIVE' : 'OFF'})`]
   );
 
-  res.json({ message: 'Settings updated successfully', settings: platformSettings });
+  res.json({ message: 'Settings updated successfully', settings: updatedSettings });
 });
 
 // ==========================================

@@ -8,10 +8,21 @@ import {
   DollarSign,
   Gift,
   Flame,
-  Users
+  Users,
+  Share2
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { generateReferralCopy } from '../../utils/referralText';
+
+interface ContactChannelItem {
+  id: 'whatsapp' | 'telegram' | 'facebook';
+  name: string;
+  title: string;
+  subtitle: string;
+  enabled: boolean;
+  url: string;
+  order: number;
+}
 
 export const AdminSettings: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -72,16 +83,29 @@ export const AdminSettings: React.FC = () => {
   const [savingReferral, setSavingReferral] = useState(false);
   const [referralSaveSuccess, setReferralSaveSuccess] = useState(false);
 
+  const [contactChannels, setContactChannels] = useState<ContactChannelItem[]>([
+    { id: 'whatsapp', name: 'WhatsApp', title: 'واتساب', subtitle: 'للدعم والاستفسارات', enabled: true, url: 'https://wa.me/249123456789', order: 1 },
+    { id: 'facebook', name: 'Facebook', title: 'فيسبوك', subtitle: 'تابعنا وتواصل معنا', enabled: true, url: 'https://facebook.com/kiropro', order: 2 },
+    { id: 'telegram', name: 'Telegram', title: 'تيليجرام', subtitle: 'للتواصل السريع', enabled: true, url: 'https://t.me/kiropro_support', order: 3 },
+  ]);
+  const [savingChannels, setSavingChannels] = useState(false);
+  const [channelsSaveSuccess, setChannelsSaveSuccess] = useState(false);
+  const [channelsError, setChannelsError] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const [data, rateData, refData] = await Promise.all([
+        const [data, rateData, refData, channelsData] = await Promise.all([
           api.get('/api/admin/settings').catch(() => ({})),
           api.get('/api/settings/exchange-rate').catch(() => ({})),
-          api.get('/api/referral/admin/settings').catch(() => ({}))
+          api.get('/api/referral/admin/settings').catch(() => ({})),
+          api.get('/api/admin/contact-channels').catch(() => ({}))
         ]);
         if (data.settings) setSettings(data.settings);
         if (data.system) setSystem(data.system);
+        if (channelsData?.channels && Array.isArray(channelsData.channels)) {
+          setContactChannels(channelsData.channels);
+        }
         if (rateData && rateData.rate) {
           setExchangeSettings({
             rate: rateData.rate,
@@ -119,6 +143,56 @@ export const AdminSettings: React.FC = () => {
     };
     fetchSettings();
   }, []);
+
+  const validateContactUrl = (url: string): string | null => {
+    if (!url || !url.trim()) return 'الرابط لا يمكن أن يكون فارغاً.';
+    const trimmed = url.trim().toLowerCase();
+    if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:') || trimmed.startsWith('vbscript:')) {
+      return 'الرابط يحتوي على بروتوكول غير آمن مرفوض (javascript/data).';
+    }
+    try {
+      const toTest = url.trim().startsWith('http://') || url.trim().startsWith('https://') ? url.trim() : `https://${url.trim()}`;
+      const parsed = new URL(toTest);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return 'يجب أن يبدأ الرابط بـ https://';
+      }
+    } catch {
+      return 'صيغة الرابط غير صحيحة.';
+    }
+    return null;
+  };
+
+  const handleSaveContactChannels = async () => {
+    setSavingChannels(true);
+    setChannelsError(null);
+    setChannelsSaveSuccess(false);
+
+    for (const ch of contactChannels) {
+      if (ch.enabled) {
+        const err = validateContactUrl(ch.url);
+        if (err) {
+          setChannelsError(`خطأ في رابط ${ch.title || ch.name}: ${err}`);
+          setSavingChannels(false);
+          return;
+        }
+      }
+    }
+
+    try {
+      const res = await api.put<{ message: string; channels: ContactChannelItem[] }>('/api/admin/contact-channels', {
+        channels: contactChannels
+      });
+      if (res?.channels) {
+        setContactChannels(res.channels);
+      }
+      setChannelsSaveSuccess(true);
+      setTimeout(() => setChannelsSaveSuccess(false), 3500);
+    } catch (err: any) {
+      setChannelsError(err.message || 'فشل حفظ إعدادات قنوات التواصل');
+    } finally {
+      setSavingChannels(false);
+    }
+  };
 
   const handleSaveExchangeRate = async () => {
     setSavingRate(true);
@@ -336,6 +410,178 @@ export const AdminSettings: React.FC = () => {
                 onChange={(e) => setSettings({ ...settings, telegramSupport: e.target.value })}
               />
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Contact Channels Management Card (WhatsApp, Facebook, Telegram) */}
+      <div className="admin-card">
+        <div className="admin-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <h3 className="admin-card-title">
+            <Share2 size={18} color="#25D366" />
+            <span>إدارة قنوات التواصل (WhatsApp, Facebook, Telegram)</span>
+          </h3>
+          {channelsSaveSuccess && (
+            <span style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CheckCircle2 size={16} />
+              <span>تم حفظ قنوات التواصل بنجاح</span>
+            </span>
+          )}
+        </div>
+
+        <div className="admin-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.6 }}>
+            تحكم في قنوات التواصل المعتمدة للمتجر: يمكنك تفعيل أو تعطيل أي قناة، وتعديل الرابط، وترتيب ظهورها للعملاء في صفحة الصيانة، بالإضافة إلى تفعيل زر الواتساب العائم في الوضع الطبيعي.
+          </p>
+
+          {channelsError && (
+            <div style={{ background: '#fef2f2', border: '1px solid #f87171', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '0.85rem' }}>
+              {channelsError}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {contactChannels.map((channel, idx) => {
+              const isWhatsapp = channel.id === 'whatsapp';
+              const isFacebook = channel.id === 'facebook';
+
+              const themeColor = isWhatsapp ? '#25D366' : isFacebook ? '#1877F2' : '#38BDF8';
+              const platformIcon = isWhatsapp ? '💬' : isFacebook ? '📘' : '✈️';
+
+              return (
+                <div
+                  key={channel.id}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '14px',
+                    border: `1.5px solid ${channel.enabled ? themeColor : '#e2e8f0'}`,
+                    background: channel.enabled ? `${themeColor}0A` : '#f8fafc',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '1.4rem' }}>{platformIcon}</span>
+                      <div>
+                        <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '1rem' }}>
+                          {channel.title || channel.name} ({channel.id.toUpperCase()})
+                        </span>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                          {isWhatsapp ? 'القناة الأساسية للزر العائم في الوضع الطبيعي' : 'تظهر كبطاقة تواصل في صفحة الصيانة عند التفعيل'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: channel.enabled ? '#059669' : '#64748b' }}>
+                        <span>{channel.enabled ? 'مفعّلة (ON)' : 'معطّلة (OFF)'}</span>
+                        <input
+                          type="checkbox"
+                          checked={channel.enabled}
+                          onChange={(e) => {
+                            const updated = [...contactChannels];
+                            updated[idx].enabled = e.target.checked;
+                            setContactChannels(updated);
+                          }}
+                          style={{ width: '20px', height: '20px', accentColor: themeColor, cursor: 'pointer' }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                    <div className="admin-input-group" style={{ gridColumn: '1 / -1' }}>
+                      <label className="admin-label">رابط القناة الرسمي (URL):</label>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          type="url"
+                          className="admin-input"
+                          dir="ltr"
+                          placeholder={isWhatsapp ? 'https://wa.me/249...' : isFacebook ? 'https://facebook.com/...' : 'https://t.me/...'}
+                          value={channel.url}
+                          onChange={(e) => {
+                            const updated = [...contactChannels];
+                            updated[idx].url = e.target.value;
+                            setContactChannels(updated);
+                          }}
+                        />
+                        {channel.url && (
+                          <a
+                            href={channel.url.startsWith('http') ? channel.url : `https://${channel.url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-secondary btn-sm"
+                            style={{ whiteSpace: 'nowrap', padding: '8px 12px', textDecoration: 'none' }}
+                          >
+                            تجربة الرابط 🔗
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="admin-input-group">
+                      <label className="admin-label">اسم القناة الظاهر للمستخدم:</label>
+                      <input
+                        type="text"
+                        className="admin-input"
+                        value={channel.title}
+                        onChange={(e) => {
+                          const updated = [...contactChannels];
+                          updated[idx].title = e.target.value;
+                          setContactChannels(updated);
+                        }}
+                      />
+                    </div>
+
+                    <div className="admin-input-group">
+                      <label className="admin-label">الوصف الفرعي (Subtitle):</label>
+                      <input
+                        type="text"
+                        className="admin-input"
+                        value={channel.subtitle}
+                        onChange={(e) => {
+                          const updated = [...contactChannels];
+                          updated[idx].subtitle = e.target.value;
+                          setContactChannels(updated);
+                        }}
+                      />
+                    </div>
+
+                    <div className="admin-input-group" style={{ maxWidth: '140px' }}>
+                      <label className="admin-label">ترتيب الظهور:</label>
+                      <input
+                        type="number"
+                        className="admin-input"
+                        min={1}
+                        max={10}
+                        value={channel.order}
+                        onChange={(e) => {
+                          const updated = [...contactChannels];
+                          updated[idx].order = Number(e.target.value) || 1;
+                          setContactChannels(updated);
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSaveContactChannels}
+              disabled={savingChannels}
+              style={{ minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <Save size={16} />
+              <span>{savingChannels ? 'جاري الحفظ...' : 'حفظ قنوات التواصل'}</span>
+            </button>
           </div>
         </div>
       </div>

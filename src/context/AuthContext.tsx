@@ -2,10 +2,25 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, LoginCredentials, RegisterData, AuthResult } from '../types/auth';
 import { api, setToken, clearToken, BASE_URL } from '../lib/api';
 
+export interface ContactChannel {
+  id: 'whatsapp' | 'telegram' | 'facebook';
+  name: string;
+  title: string;
+  subtitle: string;
+  enabled: boolean;
+  url: string;
+  order: number;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  maintenanceMode: boolean;
+  checkMaintenanceStatus: () => Promise<boolean>;
+  contactChannels: ContactChannel[];
+  primaryWhatsapp: ContactChannel | null;
+  refreshContactChannels: () => Promise<void>;
   login: (credentials: LoginCredentials) => Promise<AuthResult>;
   register: (data: RegisterData) => Promise<AuthResult>;
   verifyEmail: (email: string, otp: string) => Promise<AuthResult>;
@@ -24,8 +39,44 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [contactChannels, setContactChannels] = useState<ContactChannel[]>([]);
+  const [primaryWhatsapp, setPrimaryWhatsapp] = useState<ContactChannel | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt'>('home');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+
+  const refreshContactChannels = async () => {
+    try {
+      const res = await api.get<{ channels: ContactChannel[]; primaryWhatsapp: ContactChannel | null }>('/api/contact-channels');
+      if (res?.channels) {
+        setContactChannels(res.channels);
+        setPrimaryWhatsapp(res.primaryWhatsapp || null);
+      }
+    } catch (e) {
+      console.error('Failed to refresh contact channels:', e);
+    }
+  };
+
+  const checkMaintenanceStatus = async (): Promise<boolean> => {
+    try {
+      const res = await api.get<{
+        maintenanceMode: boolean;
+        contactChannels?: ContactChannel[];
+        primaryWhatsapp?: ContactChannel | null;
+      }>('/api/settings/public');
+      const isMaint = Boolean(res?.maintenanceMode);
+      setMaintenanceMode(isMaint);
+      if (res?.contactChannels) {
+        setContactChannels(res.contactChannels);
+      }
+      if (res?.primaryWhatsapp !== undefined) {
+        setPrimaryWhatsapp(res.primaryWhatsapp);
+      }
+      return isMaint;
+    } catch {
+      return maintenanceMode;
+    }
+  };
 
   useEffect(() => {
     const initAuth = async () => {
@@ -38,10 +89,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentView('usdt');
         }
 
-        const data = await api.get('/api/auth/me');
-        if (data?.user) {
-          setUser(data.user);
-          if (data.user?.role === 'ADMIN' && window.location.pathname.includes('admin')) {
+        const [authData, settingsData] = await Promise.all([
+          api.get('/api/auth/me').catch(() => null),
+          api.get('/api/settings/public').catch(() => null)
+        ]);
+
+        if (settingsData) {
+          if (settingsData.maintenanceMode !== undefined) {
+            setMaintenanceMode(Boolean(settingsData.maintenanceMode));
+          }
+          if (settingsData.contactChannels) {
+            setContactChannels(settingsData.contactChannels);
+          }
+          if (settingsData.primaryWhatsapp !== undefined) {
+            setPrimaryWhatsapp(settingsData.primaryWhatsapp);
+          }
+        }
+
+        if (authData?.user) {
+          setUser(authData.user);
+          if (authData.user?.role === 'ADMIN' && window.location.pathname.includes('admin')) {
             setCurrentView('admin');
           } else if (window.location.pathname === '/reviews') {
             setCurrentView('reviews');
@@ -280,6 +347,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: Boolean(user),
         isLoading,
+        maintenanceMode,
+        checkMaintenanceStatus,
+        contactChannels,
+        primaryWhatsapp,
+        refreshContactChannels,
         login,
         register,
         verifyEmail,

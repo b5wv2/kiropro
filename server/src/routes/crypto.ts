@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { getUsdtPublicConfig, createUsdtOrder } from '../services/cryptoService';
+import { getGeneralSettings } from './admin';
 
 const router = Router();
 
@@ -35,6 +36,15 @@ router.post('/order', usdtOrderLimiter, requireAuth, async (req: AuthRequest, re
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: 'غير مصرح. يرجى تسجيل الدخول أولاً.' });
+  }
+
+  // Maintenance Mode Check: Prevent non-admin crypto orders during maintenance
+  const genSettings = await getGeneralSettings();
+  if (genSettings.maintenanceMode && user.role !== 'ADMIN') {
+    return res.status(503).json({
+      error: 'خدمة التحويلات الرقمية قيد الصيانة مؤقتاً.',
+      maintenance: true
+    });
   }
 
   const { amount, network, walletAddress } = req.body;

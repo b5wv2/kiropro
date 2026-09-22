@@ -9,6 +9,7 @@ import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackSe
 import { processReferralRewardOnOrder } from '../services/referralService';
 import { sendOrderProcessingEmail, sendOrderCompletedEmail } from '../services/emailService';
 import { getOrCreateOrderReviewToken } from '../services/reviewTokenService';
+import { getGeneralSettings } from './admin';
 
 const router = Router();
 
@@ -28,6 +29,15 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
 
   try {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Maintenance Mode Check: Prevent non-admin orders during maintenance
+    const genSettings = await getGeneralSettings();
+    if (genSettings.maintenanceMode && user.role !== 'ADMIN') {
+      return res.status(503).json({
+        error: 'المتجر قيد الصيانة حالياً. لا يمكن استقبال طلبات جديدة مؤقتاً.',
+        maintenance: true
+      });
+    }
 
     // Section 1 & 2: Absolute Price Authority & Product Must Exist
     // Client-supplied amount is NEVER accepted or trusted.
