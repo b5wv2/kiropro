@@ -7,12 +7,15 @@ import {
   Eye, 
   ShoppingCart, 
   Clock, 
-  RefreshCw,
-  AlertTriangle
+  RefreshCw, 
+  AlertTriangle,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../lib/formatters';
 import { StatusBadge } from '../../components/admin/StatusBadge';
+import { UserSecurityModal } from '../../components/admin/UserSecurityModal';
 
 interface Customer {
   id: string;
@@ -22,6 +25,8 @@ interface Customer {
   currency?: string;
   ordersCount: string | number;
   createdAt: string;
+  isBanned?: boolean;
+  activeSessionsCount?: number;
 }
 
 export const AdminCustomers: React.FC = () => {
@@ -29,6 +34,9 @@ export const AdminCustomers: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'with_balance'>('all');
+
+  // Customer Security Center Modal State
+  const [securityModalUserId, setSecurityModalUserId] = useState<string | null>(null);
 
   // Customer Details Modal State
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -222,6 +230,7 @@ export const AdminCustomers: React.FC = () => {
                   <th>رصيد المحفظة</th>
                   <th>عدد الطلبات</th>
                   <th>تاريخ التسجيل</th>
+                  <th>حالة الأمان</th>
                   <th>الإجراءات</th>
                 </tr>
               </thead>
@@ -256,7 +265,49 @@ export const AdminCustomers: React.FC = () => {
                       {new Date(c.createdAt).toLocaleDateString('ar-EG')}
                     </td>
                     <td>
+                      {c.isBanned ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          color: '#ef4444'
+                        }}>
+                          <ShieldAlert size={12} />
+                          <span>محظور</span>
+                        </span>
+                      ) : (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          color: '#10b981'
+                        }}>
+                          <ShieldCheck size={12} />
+                          <span>نشط ({c.activeSessionsCount || 0} جلسة)</span>
+                        </span>
+                      )}
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          onClick={() => setSecurityModalUserId(c.id)}
+                          className="admin-btn admin-btn-secondary admin-btn-sm"
+                          title="مركز الأمان والنشاط"
+                          style={{ color: c.isBanned ? '#ef4444' : '#0284c7' }}
+                        >
+                          <ShieldCheck size={14} />
+                          <span>الأمان</span>
+                        </button>
                         <button
                           onClick={() => openCustomerDetails(c.id)}
                           className="admin-btn admin-btn-secondary admin-btn-sm"
@@ -366,6 +417,15 @@ export const AdminCustomers: React.FC = () => {
                         >
                           <MinusCircle size={15} />
                           <span>خصم رصيد</span>
+                        </button>
+                        <button
+                          onClick={() => setSecurityModalUserId(customerDetails.customer.id)}
+                          className="admin-btn admin-btn-secondary admin-btn-sm"
+                          style={{ color: '#0284c7' }}
+                          title="عرض مركز الأمان والنشاط"
+                        >
+                          <ShieldCheck size={15} />
+                          <span>مركز الأمان</span>
                         </button>
                       </div>
                     </div>
@@ -784,6 +844,14 @@ export const AdminCustomers: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {securityModalUserId && (
+        <UserSecurityModal
+          userId={securityModalUserId}
+          onClose={() => setSecurityModalUserId(null)}
+          onStatusChanged={fetchCustomers}
+        />
       )}
     </>
   );

@@ -15,7 +15,8 @@ import {
   ArrowDownCircle,
   CreditCard,
   Coins,
-  Star
+  Star,
+  ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -33,6 +34,7 @@ export type AdminTab =
   | 'reviews'
   | 'providers' 
   | 'audit' 
+  | 'security'
   | 'settings';
 
 interface AdminSidebarProps {
@@ -64,6 +66,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'reviews', label: 'التقييمات والمراجعات', icon: Star },
     { id: 'providers', label: 'مزودو الخدمة (APIs)', icon: Server },
     { id: 'audit', label: 'سجل العمليات (Audit)', icon: ShieldAlert },
+    { id: 'security', label: 'سجل الأمان (Security)', icon: ShieldCheck },
     { id: 'settings', label: 'إعدادات المنصة', icon: Settings },
   ];
 

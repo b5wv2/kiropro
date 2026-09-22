@@ -8,6 +8,10 @@ import { processReferralRewardOnOrder } from '../services/referralService';
 import { getOrCreateOrderReviewToken, createGeneralReviewToken } from '../services/reviewTokenService';
 import { executeOrderWithProvider } from '../services/orderExecutionService';
 import { validatePlayerAccount } from '../services/playerValidationService';
+import { maskDeviceId, extractClientIp } from '../services/clientInfoService';
+import { getUserSessions, revokeSession, revokeAllUserSessions } from '../services/sessionService';
+import { createBan, revokeBan, getUserBans, isAccountBanned, expireOverdueBans } from '../services/banService';
+import { querySecurityEvents, logSecurityEvent } from '../services/securityEventService';
 
 const router = Router();
 
@@ -70,7 +74,9 @@ router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
         u.id, u.email, u.name, u."createdAt",
         COALESCE(w.balance, 0) as balance,
         COALESCE(w.currency, u.preferred_currency, 'SDG') as currency,
-        (SELECT COUNT(*) FROM "Order" o WHERE o."userId" = u.id) as "ordersCount"
+        (SELECT COUNT(*) FROM "Order" o WHERE o."userId" = u.id) as "ordersCount",
+        EXISTS(SELECT 1 FROM "user_bans" b WHERE b.user_id = u.id AND b.status = 'ACTIVE') as "isBanned",
+        (SELECT COUNT(*) FROM "user_sessions" s WHERE s.user_id = u.id AND s.status = 'ACTIVE' AND s.expires_at > CURRENT_TIMESTAMP)::int as "activeSessionsCount"
       FROM "User" u
       LEFT JOIN "Wallet" w ON u.id = w."userId"
       WHERE u.role = 'CUSTOMER'
@@ -1615,4 +1621,402 @@ router.post('/review-links/:id/toggle', requireAdmin, async (req: AuthRequest, r
   }
 });
 
+// ====================================================================
+// USER SECURITY CENTER & AUDIT LOGS
+// ====================================================================
+
+// 1. User Security Center: Complete summary & details
+router.get('/users/:id/security', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id);
+
+  try {
+    const userRes = await pool.query(
+      'SELECT id, name, email, role, "createdAt" FROM "User" WHERE id = $1',
+      [id]
+    );
+    const targetUser = userRes.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'المستخدم غير موجود.' });
+    }
+
+    // Auto-expire overdue bans first
+    await expireOverdueBans();
+
+    // Summary counts
+    const bans = await getUserBans(id);
+    const activeBans = bans.filter(b => b.status === 'ACTIVE');
+    const isBanned = activeBans.length > 0;
+
+    const sessions = await getUserSessions(id);
+    const activeSessions = sessions.filter(
+      s => s.status === 'ACTIVE' && new Date(s.expires_at) > new Date()
+    );
+
+    // Failed login counts
+    const failed24hRes = await pool.query(
+      `SELECT COUNT(*) FROM "security_events"
+       WHERE user_id = $1 AND event_type = 'LOGIN_FAILED' AND created_at >= NOW() - INTERVAL '24 hours'`,
+      [id]
+    );
+    const failed24h = parseInt(failed24hRes.rows[0]?.count || '0', 10);
+
+    const failed7dRes = await pool.query(
+      `SELECT COUNT(*) FROM "security_events"
+       WHERE user_id = $1 AND event_type = 'LOGIN_FAILED' AND created_at >= NOW() - INTERVAL '7 days'`,
+      [id]
+    );
+    const failed7d = parseInt(failed7dRes.rows[0]?.count || '0', 10);
+
+    const totalEventsRes = await pool.query(
+      `SELECT COUNT(*) FROM "security_events" WHERE user_id = $1`,
+      [id]
+    );
+    const totalEvents = parseInt(totalEventsRes.rows[0]?.count || '0', 10);
+
+    // Known Devices with correlation
+    const devicesRes = await pool.query(
+      `SELECT 
+         s.device_id,
+         s.browser,
+         s.browser_version,
+         s.operating_system,
+         s.os_version,
+         s.device_type,
+         MIN(s.login_at) as first_seen,
+         MAX(s.last_seen_at) as last_seen,
+         COUNT(*) as sessions_count
+       FROM "user_sessions" s
+       WHERE s.user_id = $1
+       GROUP BY s.device_id, s.browser, s.browser_version, s.operating_system, s.os_version, s.device_type
+       ORDER BY MAX(s.last_seen_at) DESC`,
+      [id]
+    );
+
+    // Correlate devices with other accounts
+    const knownDevices = await Promise.all(
+      devicesRes.rows.map(async (dev) => {
+        const otherUsersRes = await pool.query(
+          `SELECT DISTINCT u.id, u.name, u.email 
+           FROM "user_sessions" s
+           JOIN "User" u ON s.user_id = u.id
+           WHERE s.device_id = $1 AND s.user_id != $2
+           LIMIT 5`,
+          [dev.device_id, id]
+        );
+
+        return {
+          deviceId: maskDeviceId(dev.device_id),
+          rawDeviceId: dev.device_id,
+          browser: dev.browser || 'Unknown',
+          browserVersion: dev.browser_version || '',
+          operatingSystem: dev.operating_system || 'Unknown',
+          osVersion: dev.os_version || '',
+          deviceType: dev.device_type || 'Desktop',
+          firstSeen: dev.first_seen,
+          lastSeen: dev.last_seen,
+          sessionsCount: parseInt(dev.sessions_count, 10),
+          correlatedUsers: otherUsersRes.rows
+        };
+      })
+    );
+
+    // Known IPs with correlation
+    const ipsRes = await pool.query(
+      `SELECT 
+         s.ip_address,
+         MIN(s.login_at) as first_seen,
+         MAX(s.last_seen_at) as last_seen,
+         COUNT(*) as sessions_count
+       FROM "user_sessions" s
+       WHERE s.user_id = $1
+       GROUP BY s.ip_address
+       ORDER BY MAX(s.last_seen_at) DESC`,
+      [id]
+    );
+
+    const knownIps = await Promise.all(
+      ipsRes.rows.map(async (item) => {
+        const otherUsersRes = await pool.query(
+          `SELECT DISTINCT u.id, u.name, u.email 
+           FROM "user_sessions" s
+           JOIN "User" u ON s.user_id = u.id
+           WHERE s.ip_address = $1 AND s.user_id != $2
+           LIMIT 5`,
+          [item.ip_address, id]
+        );
+
+        const ipBanRes = await pool.query(
+          `SELECT id FROM "user_bans" WHERE ip_address = $1 AND status = 'ACTIVE' LIMIT 1`,
+          [item.ip_address]
+        );
+
+        const ipAttemptsRes = await pool.query(
+          `SELECT COUNT(*) FROM "security_events" 
+           WHERE ip_address = $1 AND event_type IN ('LOGIN_SUCCESS', 'LOGIN_FAILED')`,
+          [item.ip_address]
+        );
+
+        return {
+          ip: item.ip_address,
+          firstSeen: item.first_seen,
+          lastSeen: item.last_seen,
+          sessionsCount: parseInt(item.sessions_count, 10),
+          loginAttempts: parseInt(ipAttemptsRes.rows[0]?.count || '0', 10),
+          isBanned: ipBanRes.rows.length > 0,
+          correlatedUsers: otherUsersRes.rows
+        };
+      })
+    );
+
+    // Recent login events
+    const loginHistoryRes = await pool.query(
+      `SELECT id, event_type, ip_address, device_id, session_id, user_agent, metadata, created_at
+       FROM "security_events"
+       WHERE user_id = $1 AND event_type IN ('LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'SESSION_CREATED')
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [id]
+    );
+
+    // Recent security events (all types)
+    const securityEventsRes = await pool.query(
+      `SELECT id, event_type, ip_address, device_id, session_id, user_agent, metadata, created_at
+       FROM "security_events"
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [id]
+    );
+
+    res.json({
+      user: targetUser,
+      summary: {
+        securityStatus: isBanned ? 'BANNED' : 'ACTIVE',
+        isBanned,
+        activeSessionsCount: activeSessions.length,
+        knownDevicesCount: knownDevices.length,
+        knownIpsCount: knownIps.length,
+        failedLogins24h: failed24h,
+        failedLogins7d: failed7d,
+        securityEventsCount: totalEvents,
+        activeBansCount: activeBans.length
+      },
+      activeSessions: activeSessions.map(s => ({
+        ...s,
+        deviceIdMasked: maskDeviceId(s.device_id)
+      })),
+      allSessions: sessions.map(s => ({
+        ...s,
+        deviceIdMasked: maskDeviceId(s.device_id)
+      })),
+      knownDevices,
+      knownIps,
+      loginHistory: loginHistoryRes.rows.map(e => ({
+        ...e,
+        deviceIdMasked: maskDeviceId(e.device_id)
+      })),
+      securityEvents: securityEventsRes.rows.map(e => ({
+        ...e,
+        deviceIdMasked: maskDeviceId(e.device_id)
+      })),
+      bans
+    });
+  } catch (err: any) {
+    console.error('Error fetching user security details:', err);
+    res.status(500).json({ error: 'فشل تحميل بيانات أمان المستخدم.' });
+  }
+});
+
+// 2. Revoke a single session
+router.post('/users/:id/sessions/:sessionId/revoke', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const sessionId = String(req.params.sessionId);
+  const adminId = req.user?.id;
+  const { reason = 'إلغاء الجلسة يدويًا من المشرف' } = req.body;
+
+  try {
+    const success = await revokeSession(sessionId, adminId, reason);
+    if (!success) {
+      return res.status(404).json({ error: 'الجلسة غير موجودة أو تم إلغاؤها مسبقاً.' });
+    }
+
+    res.json({ success: true, message: 'تم إلغاء الجلسة بنجاح.' });
+  } catch (err: any) {
+    console.error('Error revoking session:', err);
+    res.status(500).json({ error: 'فشل إلغاء الجلسة.' });
+  }
+});
+
+// 3. Revoke ALL active sessions for user
+router.post('/users/:id/sessions/revoke-all', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id);
+  const adminId = req.user?.id;
+  const { reason = 'إلغاء جميع الجلسات يدويًا من المشرف' } = req.body;
+
+  try {
+    const revokedCount = await revokeAllUserSessions(id, adminId, reason);
+    res.json({
+      success: true,
+      count: revokedCount,
+      message: `تم إلغاء ${revokedCount} جلسة نشطة بنجاح.`
+    });
+  } catch (err: any) {
+    console.error('Error revoking all sessions:', err);
+    res.status(500).json({ error: 'فشل إلغاء الجلسات.' });
+  }
+});
+
+// 4. Create Ban
+router.post('/users/:id/ban', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id);
+  const adminId = req.user?.id;
+  const { reason, scope = 'ACCOUNT_IP_DEVICE', durationHours, ip, deviceId } = req.body;
+
+  if (!reason || typeof reason !== 'string' || !reason.trim()) {
+    return res.status(400).json({ error: 'سبب الحظر حقل مطلوب.' });
+  }
+
+  if (!adminId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    // If IP or Device not provided, fetch the most recent session of the user
+    let targetIp = ip ? String(ip) : undefined;
+    let targetDeviceId = deviceId ? String(deviceId) : undefined;
+
+    if (!targetIp || !targetDeviceId) {
+      const lastSessionRes = await pool.query(
+        `SELECT ip_address, device_id FROM "user_sessions" WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1`,
+        [id]
+      );
+      if (lastSessionRes.rows[0]) {
+        targetIp = targetIp || lastSessionRes.rows[0].ip_address;
+        targetDeviceId = targetDeviceId || lastSessionRes.rows[0].device_id;
+      }
+    }
+
+    const ban = await createBan({
+      userId: id,
+      ip: targetIp || null,
+      deviceId: targetDeviceId || null,
+      scope,
+      reason,
+      createdBy: adminId,
+      durationHours: durationHours ? Number(durationHours) : null
+    });
+
+    res.json({
+      success: true,
+      message: 'تم حظر المستخدم وإلغاء جميع جلساته النشطة بنجاح.',
+      ban
+    });
+  } catch (err: any) {
+    console.error('Error creating ban:', err);
+    res.status(500).json({ error: err.message || 'فشل تطبيق الحظر.' });
+  }
+});
+
+// 5. Revoke Ban (Unban)
+router.post('/bans/:banId/revoke', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const banId = String(req.params.banId);
+  const adminId = req.user?.id;
+  const { reason = 'فك الحظر من المشرف' } = req.body;
+
+  if (!adminId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const ban = await revokeBan({
+      banId,
+      revokedBy: adminId,
+      revokeReason: reason
+    });
+
+    res.json({
+      success: true,
+      message: 'تم فك الحظر بنجاح. ملاحظة: الجلسات الملغاة لا تعود ويجب على المستخدم تسجيل الدخول من جديد.',
+      ban
+    });
+  } catch (err: any) {
+    console.error('Error revoking ban:', err);
+    res.status(500).json({ error: err.message || 'فشل فك الحظر.' });
+  }
+});
+
+// 6. Central Security Audit Log Query
+router.get('/security/events', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      userId,
+      email,
+      ipAddress,
+      deviceId,
+      eventType,
+      startDate,
+      endDate,
+      search,
+      limit,
+      offset
+    } = req.query;
+
+    const result = await querySecurityEvents({
+      userId: userId ? String(userId) : undefined,
+      email: email ? String(email) : undefined,
+      ipAddress: ipAddress ? String(ipAddress) : undefined,
+      deviceId: deviceId ? String(deviceId) : undefined,
+      eventType: eventType ? String(eventType) : undefined,
+      startDate: startDate ? String(startDate) : undefined,
+      endDate: endDate ? String(endDate) : undefined,
+      search: search ? String(search) : undefined,
+      limit: limit ? Math.min(200, Math.max(1, parseInt(String(limit), 10))) : 50,
+      offset: offset ? Math.max(0, parseInt(String(offset), 10)) : 0
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error fetching security events:', err);
+    res.status(500).json({ error: 'فشل تحميل سجل الأمان.' });
+  }
+});
+
+// 7. Security Dashboard High-level Stats
+router.get('/security/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    await expireOverdueBans();
+
+    const [
+      activeSessionsRes,
+      activeUsersRes,
+      failedLogins24hRes,
+      securityEvents24hRes,
+      activeBansRes,
+      bansTodayRes,
+      suspiciousRes
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM "user_sessions" WHERE status = 'ACTIVE' AND expires_at > NOW()`),
+      pool.query(`SELECT COUNT(DISTINCT user_id) FROM "user_sessions" WHERE status = 'ACTIVE' AND expires_at > NOW()`),
+      pool.query(`SELECT COUNT(*) FROM "security_events" WHERE event_type = 'LOGIN_FAILED' AND created_at >= NOW() - INTERVAL '24 hours'`),
+      pool.query(`SELECT COUNT(*) FROM "security_events" WHERE created_at >= NOW() - INTERVAL '24 hours'`),
+      pool.query(`SELECT COUNT(*) FROM "user_bans" WHERE status = 'ACTIVE'`),
+      pool.query(`SELECT COUNT(*) FROM "user_bans" WHERE created_at >= DATE_TRUNC('day', NOW())`),
+      pool.query(`SELECT COUNT(*) FROM "security_events" WHERE event_type IN ('SUSPICIOUS_LOGIN', 'BAN_MATCH', 'ABUSE_SIGNAL') AND created_at >= NOW() - INTERVAL '7 days'`)
+    ]);
+
+    res.json({
+      activeSessions: parseInt(activeSessionsRes.rows[0]?.count || '0', 10),
+      activeUsers: parseInt(activeUsersRes.rows[0]?.count || '0', 10),
+      loginFailures24h: parseInt(failedLogins24hRes.rows[0]?.count || '0', 10),
+      securityEvents24h: parseInt(securityEvents24hRes.rows[0]?.count || '0', 10),
+      activeBans: parseInt(activeBansRes.rows[0]?.count || '0', 10),
+      bansToday: parseInt(bansTodayRes.rows[0]?.count || '0', 10),
+      suspiciousLogins: parseInt(suspiciousRes.rows[0]?.count || '0', 10)
+    });
+  } catch (err: any) {
+    console.error('Error fetching security stats:', err);
+    res.status(500).json({ error: 'فشل تحميل إحصائيات الأمان.' });
+  }
+});
+
 export default router;
+

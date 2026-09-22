@@ -9,6 +9,10 @@ import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '../services/emailService';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';
 import { generateReferralCode, bindReferralCode } from '../services/referralService';
+import { extractClientInfo } from '../services/clientInfoService';
+import { createSession, closeSession, revokeAllUserSessions } from '../services/sessionService';
+import { checkBan } from '../services/banService';
+import { logSecurityEvent } from '../services/securityEventService';
 
 const router = Router();
 
@@ -39,8 +43,8 @@ const otpVerifyLimiter = rateLimit({
   message: { error: 'تم تجاوز الحد الأقصى لمحاولات التحقق. يرجى المحاولة لاحقاً.' }
 });
 
-const generateToken = (id: string, email: string, role: string) => {
-  return jwt.sign({ id, email, role }, JWT_SECRET, { expiresIn: '7d' });
+const generateToken = (id: string, email: string, role: string, sessionId?: string) => {
+  return jwt.sign({ id, email, role, sessionId }, JWT_SECRET, { expiresIn: '7d' });
 };
 
 const getCookieOptions = getAuthCookieOptions;
@@ -179,6 +183,16 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     }
 
     await client.query('COMMIT');
+
+    const clientInfo = extractClientInfo(req, res);
+    await logSecurityEvent({
+      userId,
+      eventType: 'REGISTER',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      userAgent: clientInfo.userAgent,
+      metadata: { email: normalizedEmail }
+    });
 
     res.status(200).json({
       success: true,
@@ -455,6 +469,7 @@ router.get('/verification-status', async (req: Request, res: Response) => {
 // ==========================================
 router.post('/login', authLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;
+  const clientInfo = extractClientInfo(req, res);
 
   if (!email || !password) {
     return res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور حقول مطلوبة.' });
@@ -463,20 +478,83 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
   const normalizedEmail = email.trim().toLowerCase();
 
   try {
+    // 1. Check if IP or Device alone has an active ban before querying
+    const ipDevBan = await checkBan({ ip: clientInfo.ip, deviceId: clientInfo.deviceId });
+    if (ipDevBan.isBanned) {
+      await logSecurityEvent({
+        eventType: 'LOGIN_FAILED',
+        ipAddress: clientInfo.ip,
+        deviceId: clientInfo.deviceId,
+        userAgent: clientInfo.userAgent,
+        metadata: {
+          reason: 'BANNED_IP_OR_DEVICE',
+          matched_scope: ipDevBan.matchedScope
+        }
+      });
+      return res.status(403).json({ error: 'لا يمكن تسجيل الدخول إلى هذا الحساب.' });
+    }
+
     const userRes = await pool.query('SELECT * FROM "User" WHERE email = $1', [normalizedEmail]);
     const user = userRes.rows[0];
     
+    // 2. If user exists, check scoped account bans
+    if (user) {
+      const acctBan = await checkBan({
+        userId: user.id,
+        ip: clientInfo.ip,
+        deviceId: clientInfo.deviceId
+      });
+
+      if (acctBan.isBanned) {
+        await logSecurityEvent({
+          userId: user.id,
+          eventType: 'LOGIN_FAILED',
+          ipAddress: clientInfo.ip,
+          deviceId: clientInfo.deviceId,
+          userAgent: clientInfo.userAgent,
+          metadata: {
+            reason: 'BANNED_ACCOUNT',
+            matched_scope: acctBan.matchedScope
+          }
+        });
+        return res.status(403).json({ error: 'لا يمكن تسجيل الدخول إلى هذا الحساب.' });
+      }
+    }
+
     if (!user) {
+      await logSecurityEvent({
+        eventType: 'LOGIN_FAILED',
+        ipAddress: clientInfo.ip,
+        deviceId: clientInfo.deviceId,
+        userAgent: clientInfo.userAgent,
+        metadata: { reason: 'INVALID_CREDENTIALS', email_not_found: true }
+      });
       return res.status(400).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' });
     }
 
     const validPassword = await bcrypt.compare(password, user.passwordHash);
     if (!validPassword) {
+      await logSecurityEvent({
+        userId: user.id,
+        eventType: 'LOGIN_FAILED',
+        ipAddress: clientInfo.ip,
+        deviceId: clientInfo.deviceId,
+        userAgent: clientInfo.userAgent,
+        metadata: { reason: 'INVALID_CREDENTIALS', bad_password: true }
+      });
       return res.status(400).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' });
     }
 
     // If user is CUSTOMER and not verified, prompt them to verify
     if (user.role !== 'ADMIN' && !user.emailVerified) {
+      await logSecurityEvent({
+        userId: user.id,
+        eventType: 'LOGIN_FAILED',
+        ipAddress: clientInfo.ip,
+        deviceId: clientInfo.deviceId,
+        userAgent: clientInfo.userAgent,
+        metadata: { reason: 'UNVERIFIED_EMAIL' }
+      });
       return res.status(403).json({
         error: 'يرجى تأكيد بريدك الإلكتروني أولاً لتفعيل حسابك.',
         requiresVerification: true,
@@ -488,7 +566,31 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const balance = walletRes.rows[0]?.balance || 0;
     const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
 
-    const token = generateToken(user.id, user.email, user.role);
+    // 3. Create server-side session
+    const sessionId = await createSession({
+      userId: user.id,
+      clientInfo,
+      loginMethod: 'PASSWORD'
+    });
+
+    // 4. Log LOGIN_SUCCESS
+    await logSecurityEvent({
+      userId: user.id,
+      eventType: 'LOGIN_SUCCESS',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      sessionId,
+      userAgent: clientInfo.userAgent,
+      metadata: {
+        browser: clientInfo.browser,
+        os: clientInfo.os,
+        device_type: clientInfo.deviceType,
+        login_method: 'PASSWORD'
+      }
+    });
+
+    // 5. Issue JWT with embedded sessionId
+    const token = generateToken(user.id, user.email, user.role, sessionId);
     setTokenCookie(res, token);
 
     const safeUser = { 
@@ -512,7 +614,30 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
 // ==========================================
 // 6. LOGOUT
 // ==========================================
-router.post('/logout', (req: Request, res: Response) => {
+router.post('/logout', async (req: Request, res: Response) => {
+  try {
+    let token: string | undefined;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (req.cookies?.token) {
+      token = req.cookies.token;
+    }
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        if (decoded?.sessionId) {
+          await closeSession(decoded.sessionId);
+        }
+      } catch {
+        // Ignore token verification errors during logout
+      }
+    }
+  } catch (err: any) {
+    console.error('[Logout Error]:', err?.message || err);
+  }
+
   res.cookie('token', '', {
     ...getCookieOptions(),
     expires: new Date(0),
@@ -628,12 +753,52 @@ router.post('/quick-login', authLimiter, async (req: Request, res: Response) => 
       }
     }
 
+    const clientInfo = extractClientInfo(req, res);
+    const banCheck = await checkBan({
+      userId: user.id,
+      ip: clientInfo.ip,
+      deviceId: clientInfo.deviceId
+    });
+
+    if (banCheck.isBanned) {
+      await logSecurityEvent({
+        userId: user.id,
+        eventType: 'LOGIN_FAILED',
+        ipAddress: clientInfo.ip,
+        deviceId: clientInfo.deviceId,
+        userAgent: clientInfo.userAgent,
+        metadata: { reason: 'BANNED_QUICK_LOGIN', matched_scope: banCheck.matchedScope }
+      });
+      return res.status(403).json({ error: 'لا يمكن تسجيل الدخول إلى هذا الحساب.' });
+    }
+
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
     const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
 
-    // Issue refreshed token
-    const freshToken = generateToken(user.id, user.email, user.role);
+    // Issue refreshed session & token
+    const sessionId = await createSession({
+      userId: user.id,
+      clientInfo,
+      loginMethod: 'QUICK_LOGIN'
+    });
+
+    await logSecurityEvent({
+      userId: user.id,
+      eventType: 'LOGIN_SUCCESS',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      sessionId,
+      userAgent: clientInfo.userAgent,
+      metadata: {
+        browser: clientInfo.browser,
+        os: clientInfo.os,
+        device_type: clientInfo.deviceType,
+        login_method: 'QUICK_LOGIN'
+      }
+    });
+
+    const freshToken = generateToken(user.id, user.email, user.role, sessionId);
     setTokenCookie(res, freshToken);
 
     const safeUser = {
@@ -784,6 +949,16 @@ router.post('/forgot-password', passwordResetLimiter, async (req: Request, res: 
       console.error('[ForgotPassword Error] Failed to send email via Resend:', emailResult.error);
       return res.status(500).json({ error: 'تعذر إرسال رمز التحقق حاليًا. حاول مرة أخرى لاحقاً.' });
     }
+
+    const clientInfo = extractClientInfo(req, res);
+    await logSecurityEvent({
+      userId: user.id,
+      eventType: 'PASSWORD_RESET_REQUESTED',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      userAgent: clientInfo.userAgent,
+      metadata: { email: normalizedEmail }
+    });
 
     return res.status(200).json({
       success: true,
@@ -1062,6 +1237,19 @@ router.post('/password-reset', passwordResetLimiter, async (req: Request, res: R
 
     await client.query('COMMIT');
 
+    // Invalidate all active sessions in DB
+    await revokeAllUserSessions(user.id, undefined, 'PASSWORD_RESET_COMPLETED');
+
+    const clientInfo = extractClientInfo(req, res);
+    await logSecurityEvent({
+      userId: user.id,
+      eventType: 'PASSWORD_RESET_COMPLETED',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      userAgent: clientInfo.userAgent,
+      metadata: { method: 'EMAIL_OTP' }
+    });
+
     // Clear any token cookies on client to ensure old sessions are invalidated
     res.clearCookie('token', getAuthCookieOptions());
 
@@ -1156,8 +1344,29 @@ router.post('/change-password', changePasswordLimiter, requireAuth, async (req: 
 
     await client.query('COMMIT');
 
-    // Issue a fresh token with updated timestamp
-    const freshToken = generateToken(user.id, user.email, user.role);
+    // Revoke previous sessions in DB
+    await revokeAllUserSessions(user.id, undefined, 'PASSWORD_CHANGED');
+
+    const clientInfo = extractClientInfo(req, res);
+    // Create fresh session for this device
+    const sessionId = await createSession({
+      userId: user.id,
+      clientInfo,
+      loginMethod: 'PASSWORD_CHANGED'
+    });
+
+    await logSecurityEvent({
+      userId: user.id,
+      eventType: 'PASSWORD_CHANGED',
+      ipAddress: clientInfo.ip,
+      deviceId: clientInfo.deviceId,
+      sessionId,
+      userAgent: clientInfo.userAgent,
+      metadata: { method: 'SETTINGS' }
+    });
+
+    // Issue a fresh token with updated timestamp & new sessionId
+    const freshToken = generateToken(user.id, user.email, user.role, sessionId);
     setTokenCookie(res, freshToken);
 
     return res.json({

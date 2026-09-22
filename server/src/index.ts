@@ -14,6 +14,7 @@ import walletRoutes from './routes/wallet';
 import ordersRoutes from './routes/orders';
 import adminRoutes, { getGeneralSettings, getContactChannels, DEFAULT_CONTACT_CHANNELS, updateContactChannelsHandler } from './routes/admin';
 import { requireAdmin } from './middlewares/authMiddleware';
+import { banCheckMiddleware } from './middlewares/banCheckMiddleware';
 import topupRoutes from './routes/topup';
 import promoRoutes from './routes/promo';
 import productsRoutes from './routes/products';
@@ -164,18 +165,18 @@ const generalApiLimiter = rateLimit({
 app.use('/api/', generalApiLimiter);
 
 app.use('/api/auth', authRoutes);
-app.use('/api/wallet', walletRoutes);
-app.use('/api/orders', ordersRoutes);
+app.use('/api/wallet', banCheckMiddleware, walletRoutes);
+app.use('/api/orders', banCheckMiddleware, ordersRoutes);
 app.use('/api/products', productsReadLimiter, productsRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api', topupRoutes);
+app.use('/api', banCheckMiddleware, topupRoutes);
 app.use('/api/promo-codes', promoRoutes);
 app.use('/api/cashback', cashbackRoutes);
 app.use('/api/reviews', reviewsRoutes);
-app.use('/api/crypto/usdt', cryptoRoutes);
+app.use('/api/crypto/usdt', banCheckMiddleware, cryptoRoutes);
 app.use('/api/admin/crypto', adminCryptoRoutes);
 app.use('/api/internal/telegram', internalTelegramRoutes);
-app.use('/api/referral', referralRoutes);
+app.use('/api/referral', banCheckMiddleware, referralRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

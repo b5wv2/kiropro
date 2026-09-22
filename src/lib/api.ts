@@ -77,6 +77,15 @@ async function request<T = any>(endpoint: string, options: ApiRequestOptions = {
     reqHeaders['Authorization'] = `Bearer ${token}`;
   }
 
+  try {
+    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+      reqHeaders['x-client-timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+    if (typeof navigator !== 'undefined' && navigator.language) {
+      reqHeaders['x-client-language'] = navigator.language;
+    }
+  } catch {}
+
   const config: RequestInit = {
     ...customConfig,
     headers: reqHeaders,

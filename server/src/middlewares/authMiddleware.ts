@@ -2,12 +2,16 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import pool from '../db';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';
+import { validateSession, touchSession } from '../services/sessionService';
+import { isAccountBanned } from '../services/banService';
+import { extractClientIp } from '../services/clientInfoService';
 
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
     role: string;
+    sessionId?: string;
     balance?: number;
   };
 }
@@ -26,9 +30,37 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string; role: string; iat?: number };
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: string;
+      email: string;
+      role: string;
+      sessionId?: string;
+      iat?: number;
+    };
 
-    // Invalidate session if password was changed after token issuance
+    // 1. Session verification (if session ID is present in token)
+    if (decoded.sessionId) {
+      const sessionCheck = await validateSession(decoded.sessionId);
+      if (!sessionCheck.valid) {
+        res.clearCookie('token', getAuthCookieOptions());
+        return res.status(401).json({ error: sessionCheck.error || 'الجلسة غير صالحة أو تم إبطالها.' });
+      }
+
+      // Background throttled touch
+      const clientIp = extractClientIp(req);
+      touchSession(decoded.sessionId, clientIp).catch(() => {});
+    }
+
+    // 2. Check if the account has an active ban
+    if (decoded.id) {
+      const banned = await isAccountBanned(decoded.id);
+      if (banned) {
+        res.clearCookie('token', getAuthCookieOptions());
+        return res.status(403).json({ error: 'تم إيقاف هذا الحساب. يرجى التواصل مع إدارة النظام.' });
+      }
+    }
+
+    // 3. Invalidate session if password was changed after token issuance
     if (decoded.id && decoded.iat) {
       const userRes = await pool.query('SELECT "passwordChangedAt" FROM "User" WHERE id = $1', [decoded.id]);
       const pwdChangedAt = userRes.rows[0]?.passwordChangedAt;
@@ -62,7 +94,13 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string; role: string; iat?: number };
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: string;
+      email: string;
+      role: string;
+      sessionId?: string;
+      iat?: number;
+    };
     
     // Strict DB verification for admin actions
     const userRes = await pool.query('SELECT role, "passwordChangedAt" FROM "User" WHERE id = $1', [decoded.id]);
@@ -70,6 +108,18 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
 
     if (!user || user.role !== 'ADMIN') {
       return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+
+    // 1. Session verification
+    if (decoded.sessionId) {
+      const sessionCheck = await validateSession(decoded.sessionId);
+      if (!sessionCheck.valid) {
+        res.clearCookie('token', getAuthCookieOptions());
+        return res.status(401).json({ error: sessionCheck.error || 'الجلسة غير صالحة أو تم إبطالها.' });
+      }
+
+      const clientIp = extractClientIp(req);
+      touchSession(decoded.sessionId, clientIp).catch(() => {});
     }
 
     if (user.passwordChangedAt && decoded.iat) {
@@ -98,7 +148,12 @@ export const optionalAuth = (req: AuthRequest, _res: Response, next: NextFunctio
 
   if (token) {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string; role: string };
+      const decoded = jwt.verify(token, JWT_SECRET) as {
+        id: string;
+        email: string;
+        role: string;
+        sessionId?: string;
+      };
       req.user = decoded;
     } catch {
       // Ignored for optional auth
