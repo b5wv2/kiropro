@@ -112,13 +112,42 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       basePriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * 100) / 100;
     }
 
+    // Resolve Player / Game User ID (Special Handling for Telegram @username resolution)
+    let deliveryGameUserId = (playerId || user.id || '').trim();
+    if (localProduct.requiresGameUserId) {
+      if (!playerId || !playerId.trim()) {
+        return res.status(400).json({ error: 'معرّف الحساب مطلوب لإتمام هذا الطلب.' });
+      }
+
+      const isTelegramProduct = 
+        (localProduct.productName || '').toLowerCase().includes('telegram') ||
+        (localProduct.gameCategoryId || '').toLowerCase().includes('telegram');
+
+      if (isTelegramProduct) {
+        if (/^\d+$/.test(playerId.trim())) {
+          deliveryGameUserId = playerId.trim();
+        } else {
+          // Resolve @username via GamesDrop aggregator
+          const resolved = await gamesDropProvider.resolveTelegramUser(playerId.trim());
+          if (!resolved.valid || !resolved.userId) {
+            return res.status(400).json({
+              error: resolved.message || 'تعذر التحقق من معرّف تيليجرام. يرجى إدخال المعرف الرقمي (User ID) مباشرة.'
+            });
+          }
+          deliveryGameUserId = String(resolved.userId);
+        }
+      } else {
+        deliveryGameUserId = playerId.trim();
+      }
+    }
+
     // Fetch latest authoritative provider price from GamesDrop before creating order (find-one)
     let latestOffer: any;
     try {
       latestOffer = await gamesDropProvider.findOffer(providerOfferId);
     } catch (err: any) {
       console.error(`[Internal Provider Error] Failed to query upstream find-one(${providerOfferId}):`, err.message);
-      const friendlyErr = mapGamesDropErrorMessage(err.errorCode);
+      const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
       return res.status(502).json({ 
         error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
       });
@@ -130,6 +159,20 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         error: 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
       });
     }
+
+    // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
+    const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
+    if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
+      // Upstream cost increased by more than 5%: prevent under-pricing loss
+      await pool.query(
+        `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
+        [latestProviderPrice, localProduct.id]
+      );
+      return res.status(409).json({
+        error: 'تغير سعر المنتج لدى المزود. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
+      });
+    }
+
     const providerCurrency = latestOffer.currency || 'USD';
     const effectivePackageName = packageName || localProduct.arabicName || localProduct.offerName || 'منتج رقمي';
 
@@ -331,9 +374,10 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         offerId: providerOfferId,
         price: latestProviderPrice, // Upstream GamesDrop price ONLY, never customerPriceUsd
         transactionId: transactionId,
+        useBalance: true, // Prepaid balance settlement
         customer: {
           email: playerId && playerId.includes('@') ? playerId : (user.email || 'customer@kiropro.store'),
-          gameUserId: playerId || user.id,
+          gameUserId: deliveryGameUserId,
           ...(effectiveServerId ? { gameServerId: effectiveServerId } : {})
         }
       });
@@ -373,7 +417,8 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         refundClient.release();
       }
 
-      return res.status(400).json({ error: 'تعذر تنفيذ الطلب حاليًا. حاول مرة أخرى.' });
+      const friendlyErrMsg = mapGamesDropErrorMessage(gdErr.code || gdErr.errorCode || gdErr.message);
+      return res.status(400).json({ error: friendlyErrMsg || 'تعذر تنفيذ الطلب حاليًا. حاول مرة أخرى.' });
     }
 
     // Handle GamesDrop Response

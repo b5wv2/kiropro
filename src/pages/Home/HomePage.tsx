@@ -15,11 +15,11 @@ import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = [
   { id: 'all', name: 'الكل' },
+  { id: 'mobile', name: '🎮 ألعاب الموبايل' },
+  { id: 'digital', name: '📱 الخدمات والاشتراكات' },
   { id: 'transfers', name: 'التحويلات الرقمية ⚡' },
-  { id: 'mobile', name: 'ألعاب الجوال' },
-  { id: 'pc', name: 'ألعاب البي سي' },
-  { id: 'cards', name: 'بطاقات الهدايا' },
-  { id: 'subscriptions', name: 'الاشتراكات الرقمية' }
+  { id: 'subscriptions', name: 'اشتراكات بريميوم' },
+  { id: 'cards', name: 'بطاقات الهدايا' }
 ];
 
 export const HomePage: React.FC = () => {
@@ -72,7 +72,21 @@ export const HomePage: React.FC = () => {
 
   // Filter games based on activeCategory and search
   const filteredGames = games.filter(game => {
-    const matchesCat = activeCategory === 'all' || game.category === activeCategory;
+    let matchesCat = activeCategory === 'all';
+    if (activeCategory === 'transfers') {
+      matchesCat = false;
+    } else if (activeCategory === 'mobile') {
+      matchesCat = game.category === 'mobile' || game.id.includes('pubg') || game.id.includes('freefire') || game.id.includes('blood') || game.id.includes('likee');
+    } else if (activeCategory === 'digital') {
+      matchesCat = game.category === 'digital' || game.category === 'subscriptions' || game.id.includes('telegram') || game.id.includes('likee');
+    } else if (activeCategory === 'subscriptions') {
+      matchesCat = game.category === 'subscriptions' || game.id.includes('premium') || game.id.includes('telegram');
+    } else if (activeCategory === 'cards') {
+      matchesCat = game.category === 'cards' || game.id.includes('gift') || game.id.includes('card');
+    } else {
+      matchesCat = game.category === activeCategory;
+    }
+
     const matchesSearch = searchQuery === '' ||
       game.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       game.type.toLowerCase().includes(searchQuery.toLowerCase());
@@ -105,9 +119,14 @@ export const HomePage: React.FC = () => {
         <div className="container">
           <div className="section-header-row">
             <div>
-              <span className="badge-tag badge-brand" style={{ marginBottom: 8 }}>الألعاب والبطاقات</span>
-              <h2 className="heading-section">الألعاب الأكثر طلباً</h2>
-              <p className="subheading">حدد لعبتك المفضلة، واشحن حسابك فوراً برصيد محفظتك مع تنفيذ تلقائي بدون انتظار.</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 8, flexWrap: 'wrap' }}>
+                <span className="badge-tag badge-brand">🎮 الألعاب والخدمات الرقمية</span>
+                <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.12)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '3px 10px', borderRadius: '12px', fontWeight: 800 }}>
+                  ⚡ تسليم فوري وتلقائي
+                </span>
+              </div>
+              <h2 className="heading-section">المنتجات الأكثر طلباً</h2>
+              <p className="subheading">حدد لعبتك أو خدمتك المفضلة، واشحن حسابك فوراً برصيد محفظتك مع تنفيذ تلقائي بدون انتظار.</p>
             </div>
 
             {/* Live Search & Filter Tabs */}

@@ -28,7 +28,9 @@ import {
   uploadProductImage,
   fetchAdminCategories,
   uploadAdminCategoryImage,
-  removeAdminCategoryImage
+  removeAdminCategoryImage,
+  triggerGamesDropCatalogSync,
+  GamesDropCatalogSyncResult
 } from '../../services/api';
 import { getProductImageUrl } from '../../utils/imageUrl';
 import { AdminProduct, AdminCatalogResponse, GameCategory } from '../../types';
@@ -77,6 +79,9 @@ export const AdminProducts: React.FC = () => {
   const [syncingPrices, setSyncingPrices] = useState(false);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncScope, setSyncScope] = useState<'ACTIVE' | 'SELECTED' | 'ALL'>('ACTIVE');
+  const [catalogSyncModalOpen, setCatalogSyncModalOpen] = useState(false);
+  const [catalogSyncing, setCatalogSyncing] = useState(false);
+  const [catalogSyncStats, setCatalogSyncStats] = useState<GamesDropCatalogSyncResult['stats'] | null>(null);
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog)
@@ -300,6 +305,22 @@ export const AdminProducts: React.FC = () => {
       setAlertInfo({ type: 'error', text: err.message || 'فشل مزامنة الأسعار من المزود' });
     } finally {
       setSyncingPrices(false);
+    }
+  };
+
+  const handleRunCatalogSync = async () => {
+    setCatalogSyncing(true);
+    try {
+      const res = await triggerGamesDropCatalogSync();
+      setCatalogSyncStats(res.stats);
+      setCatalogSyncModalOpen(true);
+      await loadCategories();
+      await loadCatalog(page, search, statusFilter, categoryFilter);
+      setAlertInfo({ type: 'success', text: 'تمت مزامنة الكتالوج وتحديث أحدث العروض والأسعار من GamesDrop بنجاح!' });
+    } catch (err: any) {
+      setAlertInfo({ type: 'error', text: err.message || 'فشلت مزامنة الكتالوج من GamesDrop' });
+    } finally {
+      setCatalogSyncing(false);
     }
   };
 
@@ -696,6 +717,27 @@ export const AdminProducts: React.FC = () => {
               المعطلة ({stats.inactiveCount})
             </button>
           </div>
+
+          {/* GamesDrop Catalog Sync Button (Live Import & Upsert) */}
+          <button 
+            type="button"
+            className="admin-btn admin-btn-sm"
+            style={{ 
+              background: 'linear-gradient(135deg, #059669, #047857)', 
+              borderColor: '#059669', 
+              color: '#ffffff', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              fontWeight: 700,
+              boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)'
+            }}
+            onClick={handleRunCatalogSync}
+            disabled={catalogSyncing}
+          >
+            <Sparkles size={15} className={catalogSyncing ? 'spin' : ''} />
+            <span>{catalogSyncing ? 'جاري المزامنة...' : 'مزامنة الكتالوج الآن'}</span>
+          </button>
 
           {/* Sync Provider Prices Button (Admin Only) */}
           <button 
@@ -1318,6 +1360,92 @@ export const AdminProducts: React.FC = () => {
                       <span>بدء مزامنة الأسعار الآن</span>
                     </>
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GamesDrop Catalog Sync Results Modal */}
+      {catalogSyncModalOpen && catalogSyncStats && (
+        <div className="admin-modal-backdrop" onClick={() => setCatalogSyncModalOpen(false)}>
+          <div className="admin-modal" style={{ maxWidth: '620px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3 className="admin-modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <RefreshCw size={20} color="#10b981" />
+                <span>تقرير نتائج مزامنة الكتالوج (GamesDrop Live Sync)</span>
+              </h3>
+              <button 
+                type="button" 
+                className="admin-modal-close" 
+                onClick={() => setCatalogSyncModalOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="admin-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.6 }}>
+                تم الاتصال المباشر مع <strong>GamesDrop Partner API</strong> وسحب كافة عروض المنتجات المستهدفة وتحديث تكاليفها الحالية في قاعدة بيانات KIROPRO بنجاح.
+              </div>
+
+              {/* 5 Stats Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>العروض المفحوصة</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a' }}>{catalogSyncStats.productsChecked}</div>
+                </div>
+
+                <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#065f46', fontWeight: 700, marginBottom: '4px' }}>عروض جديدة مضافة</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#059669' }}>+{catalogSyncStats.newOffers}</div>
+                </div>
+
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#1e40af', fontWeight: 700, marginBottom: '4px' }}>عروض تم تحديثها</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#2563eb' }}>{catalogSyncStats.updatedOffers}</div>
+                </div>
+
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 700, marginBottom: '4px' }}>تغيرات في الأسعار</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#d97706' }}>{catalogSyncStats.priceChanges}</div>
+                </div>
+
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#991b1b', fontWeight: 700, marginBottom: '4px' }}>عروض نفدت (Out of Stock)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#dc2626' }}>{catalogSyncStats.outOfStock}</div>
+                </div>
+              </div>
+
+              {/* Category Breakdown */}
+              {catalogSyncStats.details && (
+                <div style={{ background: '#f1f5f9', borderRadius: '10px', padding: '12px 16px', fontSize: '0.85rem' }}>
+                  <div style={{ fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>تفاصيل الفئات المستهدفة:</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <span>💎 Likee: <strong>{catalogSyncStats.details.likeeOffers} عرض</strong></span>
+                    <span>⭐ Telegram Stars: <strong>{catalogSyncStats.details.telegramStarsOffers} عرض</strong></span>
+                    <span>👑 Telegram Premium: <strong>{catalogSyncStats.details.telegramPremiumOffers} عرض</strong></span>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Pricing Safe Notice */}
+              <div style={{ background: '#ecfdf5', padding: '12px 14px', borderRadius: '8px', border: '1px solid #a7f3d0', fontSize: '0.82rem', color: '#065f46', lineHeight: 1.5 }}>
+                🔒 <strong>التسعير والأرباح اليدوية:</strong> كافة المنتجات والعروض الجديدة تُترك غير مفعلة افتراضياً حتى تقوم بتحديد سعر البيع للعملاء بالدولار/الجنيه وهامش الربح المطلوب وتفعيلها يدوياً بأمان تام.
+              </div>
+
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                وقت المزامنة: {new Date(catalogSyncStats.lastSyncTime).toLocaleString('ar-EG')}
+              </div>
+
+              <div className="admin-modal-footer" style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  onClick={() => setCatalogSyncModalOpen(false)}
+                >
+                  إغلاق
                 </button>
               </div>
             </div>

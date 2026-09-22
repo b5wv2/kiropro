@@ -37,7 +37,7 @@ export interface GameCategory {
 export interface Game {
   id: string;
   name: string;
-  category: 'mobile' | 'pc' | 'cards' | 'subscriptions';
+  category: 'mobile' | 'pc' | 'cards' | 'subscriptions' | 'digital';
   badge: string;
   deliveryTime: string;
   minPrice: number;

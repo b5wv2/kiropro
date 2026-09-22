@@ -128,6 +128,64 @@ export class GamesDropProvider {
   }
 
   /**
+   * Telegram Username to Numeric User ID Resolution
+   * POST https://gamesdrop.io/api/aggregator/a6/telegram/user-info
+   * Never stores telegram tokens or secrets.
+   */
+  public async resolveTelegramUser(username: string): Promise<{
+    valid: boolean;
+    userId?: number;
+    firstName?: string;
+    username?: string;
+    photoUrl?: string;
+    message?: string;
+  }> {
+    const clean = username.trim();
+    if (!clean) {
+      return { valid: false, message: 'يرجى إدخال اسم المستخدم لحساب تيليجرام.' };
+    }
+
+    // If already numeric ID
+    if (/^\d+$/.test(clean)) {
+      return {
+        valid: true,
+        userId: Number(clean),
+        username: clean
+      };
+    }
+
+    try {
+      const res = await gamesDropClient.request<any>('https://gamesdrop.io/api/aggregator/a6/telegram/user-info', {
+        method: 'POST',
+        body: { username: clean.startsWith('@') ? clean : `@${clean}` },
+        timeoutMs: 10000
+      });
+
+      if (res && res.valid && res.userInfo && res.userInfo.id) {
+        return {
+          valid: true,
+          userId: Number(res.userInfo.id),
+          firstName: res.userInfo.first_name,
+          username: res.userInfo.username,
+          photoUrl: res.userInfo.photo_url,
+          message: res.message || 'تم التحقق من حساب تيليجرام بنجاح.'
+        };
+      }
+
+      return {
+        valid: false,
+        message: 'اسم المستخدم صالح لكن المعرف الرقمي غير متاح علناً. يرجى إدخال معرّف تيليجرام الرقمي (User ID) مباشرة أو بدء محادثة مع البوت @gamesdrop_api_bot أولاً.'
+      };
+    } catch (err: any) {
+      console.warn('[GamesDrop resolveTelegramUser] Failed to resolve username:', err.message);
+      return {
+        valid: false,
+        message: 'تعذر التحقق من اسم المستخدم تلقائياً. يرجى إدخال معرّف تيليجرام الرقمي (User ID) الخاص بك مباشرة.'
+      };
+    }
+  }
+
+  /**
    * Catalog Synchronization (for future production sync)
    * POST /api/v1/offers/sync
    */

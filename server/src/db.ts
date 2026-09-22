@@ -11,7 +11,8 @@ dns.setDefaultResultOrder('ipv4first');
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 30000,
+  max: 20,
 });
 
 // Prevent unhandled error event on idle clients from crashing Node.js

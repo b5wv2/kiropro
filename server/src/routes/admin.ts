@@ -989,6 +989,61 @@ router.post('/providers/gamesdrop/test-connection', requireAdmin, async (req: Au
   }
 });
 
+import { catalogSyncService } from '../services/catalogSyncService';
+
+// Admin: Trigger Manual Catalog Sync [مزامنة الكتالوج الآن]
+router.post('/providers/gamesdrop/sync', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const adminId = req.user?.id;
+  const startTime = Date.now();
+  try {
+    const stats = await catalogSyncService.syncTargetedProducts();
+    
+    // Log in AuditLog
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, reason)
+       VALUES ($1, $2, 'GAMESDROP_CATALOG_SYNC', $3)`,
+      [
+        uuidv4(),
+        adminId,
+        `Catalog sync completed in ${Date.now() - startTime}ms. Checked: ${stats.productsChecked}, New: ${stats.newOffers}, Updated: ${stats.updatedOffers}, Price changes: ${stats.priceChanges}, Out of stock: ${stats.outOfStock}`
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: 'تمت المزامنة بنجاح وتحديث كتالوج المنتجات من GamesDrop.',
+      stats
+    });
+  } catch (err: any) {
+    console.error('[Admin] Catalog sync error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      message: 'فشلت عملية مزامنة الكتالوج مع GamesDrop.'
+    });
+  }
+});
+
+// Admin: Get Catalog Sync Status
+router.get('/providers/gamesdrop/sync-status', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const stats = await catalogSyncService.getSyncStats();
+    res.json({
+      success: true,
+      stats: stats || {
+        productsChecked: 0,
+        newOffers: 0,
+        updatedOffers: 0,
+        priceChanges: 0,
+        outOfStock: 0,
+        lastSyncTime: null
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch sync status' });
+  }
+});
+
 export interface GeneralPlatformSettings {
   storeName: string;
   supportEmail: string;

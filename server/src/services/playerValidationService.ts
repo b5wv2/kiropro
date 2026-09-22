@@ -49,6 +49,7 @@ export function checkPlayerValidationRateLimit(key: string): { allowed: boolean;
 export interface PlayerValidationResult {
   valid: boolean;
   playerName?: string;
+  telegramUserId?: number;
   message?: string;
 }
 
@@ -99,10 +100,10 @@ export async function validatePlayerAccount(params: {
 
   // 1. Load authoritative product from PostgreSQL
   const prodRes = await pool.query(
-    `SELECT id, "productName", "offerName", "providerOfferId", 
+    `SELECT id, "productName", "offerName", "providerOfferId", "gameCategoryId",
             "requiresGameUserId", "requiresGameServerId", "isActive"
      FROM "Product" 
-     WHERE (id::text = $1 OR "productId"::text = $1) AND "isActive" = true
+     WHERE (id::text = $1 OR "productId"::text = $1 OR "providerOfferId"::text = $1)
      LIMIT 1`,
     [productId]
   );
@@ -115,6 +116,38 @@ export async function validatePlayerAccount(params: {
   }
 
   const product = prodRes.rows[0];
+  const isTelegramProduct = 
+    (product.productName || '').toLowerCase().includes('telegram') ||
+    (product.gameCategoryId || '').toLowerCase().includes('telegram');
+
+  // Telegram Special Handling: Username resolution (@username -> numeric ID)
+  if (isTelegramProduct) {
+    if (/^\d+$/.test(cleanUserId)) {
+      // Direct numeric Telegram ID
+      return {
+        valid: true,
+        playerName: `معرف رقمي: ${cleanUserId}`,
+        telegramUserId: Number(cleanUserId),
+        message: 'تم قبول معرّف تيليجرام بنجاح.'
+      };
+    }
+
+    // Resolving @username
+    const tgRes = await gamesDropProvider.resolveTelegramUser(cleanUserId);
+    if (tgRes.valid && tgRes.userId) {
+      return {
+        valid: true,
+        playerName: tgRes.firstName ? `${tgRes.firstName} (@${tgRes.username})` : `@${tgRes.username}`,
+        telegramUserId: tgRes.userId,
+        message: tgRes.message || 'تم التحقق من حساب تيليجرام بنجاح.'
+      };
+    }
+
+    return {
+      valid: false,
+      message: tgRes.message || 'تعذر التحقق من معرّف تيليجرام. يرجى إدخال المعرف الرقمي (User ID) مباشرة.'
+    };
+  }
 
   // 2. Extract numeric GamesDrop offerGroupId (Rule 10)
   const numericOfferId = Number(product.providerOfferId);
@@ -159,7 +192,7 @@ export async function validatePlayerAccount(params: {
     validatedServerId = undefined;
   }
 
-  // 4. Call GamesDrop check-game-data API (only pass gameServerId if required)
+  // 4. Call GamesDrop check-game-data API (for Likee and other direct top-ups)
   try {
     const gdResult = await gamesDropProvider.checkGameData({
       offerId: numericOfferId,
@@ -175,7 +208,7 @@ export async function validatePlayerAccount(params: {
     } else {
       return {
         valid: false,
-        message: 'تعذر التحقق من معرّف اللاعب. تأكد من الرقم وحاول مرة أخرى.'
+        message: 'تعذر التحقق من معرّف الحساب. تأكد من الرقم وحاول مرة أخرى.'
       };
     }
   } catch (err: any) {
@@ -183,7 +216,7 @@ export async function validatePlayerAccount(params: {
     const friendly = mapGamesDropErrorMessage(err.errorCode || err.message);
     return {
       valid: false,
-      message: friendly || 'تعذر التحقق من معرّف اللاعب. تأكد من الرقم وحاول مرة أخرى.'
+      message: friendly || 'تعذر التحقق من معرّف الحساب. تأكد من الرقم وحاول مرة أخرى.'
     };
   }
 }

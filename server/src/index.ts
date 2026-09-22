@@ -27,6 +27,7 @@ import internalTelegramRoutes from './routes/internalTelegram';
 import referralRoutes from './routes/referral';
 import { orderPollingService } from './services/orderPollingService';
 import { telegramBotService } from './services/telegramBotService';
+import { catalogSyncService } from './services/catalogSyncService';
 import path from 'path';
 import fs from 'fs';
 
@@ -281,6 +282,17 @@ const server = app.listen(PORT, async () => {
   } catch (botErr: any) {
     console.error('[TelegramBot] Failed to start bot service on server startup:', botErr.message);
   }
+
+  // Rate-safe Scheduled Catalog Sync (every 30 minutes)
+  const SYNC_INTERVAL_MS = 30 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      console.log('[ScheduledSync] Executing 30-minute background catalog sync...');
+      await catalogSyncService.syncTargetedProducts();
+    } catch (syncErr: any) {
+      console.warn('[ScheduledSync] Background catalog sync notice:', syncErr.message);
+    }
+  }, SYNC_INTERVAL_MS).unref();
 });
 
 function gracefulShutdown(signal: string) {

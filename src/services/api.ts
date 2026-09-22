@@ -242,3 +242,30 @@ export async function removeAdminCategoryImage(
   return api.delete(`/api/products/admin/categories/${id}/image`);
 }
 
+export interface GamesDropCatalogSyncResult {
+  success: boolean;
+  message: string;
+  stats: {
+    productsChecked: number;
+    newOffers: number;
+    updatedOffers: number;
+    priceChanges: number;
+    outOfStock: number;
+    lastSyncTime: string;
+    details?: {
+      likeeOffers: number;
+      telegramStarsOffers: number;
+      telegramPremiumOffers: number;
+    };
+  };
+}
+
+export async function triggerGamesDropCatalogSync(): Promise<GamesDropCatalogSyncResult> {
+  return api.post('/api/admin/providers/gamesdrop/sync');
+}
+
+export async function fetchGamesDropSyncStatus(): Promise<{ success: boolean; stats: GamesDropCatalogSyncResult['stats'] }> {
+  return api.get('/api/admin/providers/gamesdrop/sync-status');
+}
+
+

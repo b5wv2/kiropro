@@ -145,6 +145,7 @@ router.get('/', async (req: Request, res: Response) => {
         c."imageUrl" as "categoryImageUrl",
         c."name" as "categoryName",
         c."arabicName" as "categoryArabicName",
+        c.platform as "categoryPlatform",
         c.badge as "categoryBadge",
         c."deliveryTime" as "categoryDeliveryTime",
         c."idFieldLabel" as "categoryIdFieldLabel",
@@ -167,18 +168,29 @@ router.get('/', async (req: Request, res: Response) => {
       const pkgPrice = Number(row.price || 0);
       const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
 
+      let itemType = 'شحن ألعاب مباشر (Direct Top-Up)';
+      if (groupKey === 'likee') {
+        itemType = 'شحن ماسات لايكي فوري (Likee Diamonds)';
+      } else if (groupKey === 'telegram-stars') {
+        itemType = 'نجوم تيليجرام الرقمية (Telegram Stars)';
+      } else if (groupKey === 'telegram-premium') {
+        itemType = 'اشتراك تيليجرام بريميوم الرسمي (Telegram Premium)';
+      }
+
+      const itemCategory = row.categoryPlatform || (groupKey.startsWith('telegram') ? 'digital' : 'mobile');
+
       if (!groupedMap.has(groupKey)) {
         groupedMap.set(groupKey, {
           id: groupKey,
           name: gameDisplayName,
-          category: 'mobile',
+          category: itemCategory,
           badge: row.categoryBadge || 'تسليم فوري',
           deliveryTime: row.categoryDeliveryTime || 'تسليم فوري وتلقائي',
           minPrice: pkgPrice,
           minPriceSdg: pkgPriceSdg,
           currency: 'SDG',
           exchangeRate: exchangeRate,
-          type: 'شحن ألعاب مباشر (Direct Top-Up)',
+          type: itemType,
           image: gameCover,
           popular: true,
           packages: [],
@@ -387,6 +399,7 @@ router.post('/:id/validate-player', optionalAuth, async (req: AuthRequest, res: 
     return res.json({
       valid: result.valid,
       playerName: result.playerName,
+      telegramUserId: result.telegramUserId,
       message: result.message
     });
   } catch (err: any) {

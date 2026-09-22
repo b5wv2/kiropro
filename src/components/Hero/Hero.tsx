@@ -11,10 +11,11 @@ interface HeroProps {
 }
 
 const PHRASES = [
-  'ألعابك فوراً',
-  'منتجاتك الرقمية',
-  'رصيدك بثوانٍ',
-  'بطاقاتك فوراً'
+  'ألعابك المفضلة',
+  'ماسات Likee فوراً 💎',
+  'نجوم تيليجرام ⭐',
+  'اشتراكات Telegram Premium',
+  'رصيدك الرقمي بثوانٍ'
 ];
 
 export const Hero: React.FC<HeroProps> = ({ onQuickTopUp, featuredGame }) => {

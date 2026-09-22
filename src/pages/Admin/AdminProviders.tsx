@@ -4,9 +4,11 @@ import {
   RefreshCw, 
   CheckCircle2, 
   XCircle,
-  Zap
+  Zap,
+  X
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { triggerGamesDropCatalogSync, GamesDropCatalogSyncResult } from '../../services/api';
 
 interface ProviderInfo {
   id: string;
@@ -33,6 +35,9 @@ export const AdminProviders: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [catalogSyncing, setCatalogSyncing] = useState(false);
+  const [catalogSyncModalOpen, setCatalogSyncModalOpen] = useState(false);
+  const [catalogSyncStats, setCatalogSyncStats] = useState<GamesDropCatalogSyncResult['stats'] | null>(null);
 
   const fetchProviders = async () => {
     try {
@@ -71,6 +76,23 @@ export const AdminProviders: React.FC = () => {
     }
   };
 
+  const handleCatalogSync = async () => {
+    setCatalogSyncing(true);
+    try {
+      const res = await triggerGamesDropCatalogSync();
+      setCatalogSyncStats(res.stats);
+      setCatalogSyncModalOpen(true);
+      fetchProviders();
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: `✕ فشلت مزامنة الكتالوج: ${err?.message || 'خطأ غير معروف'}`
+      });
+    } finally {
+      setCatalogSyncing(false);
+    }
+  };
+
   if (loading && providers.length === 0) {
     return (
       <div style={{ padding: '60px 20px', textAlign: 'center', color: '#64748b' }}>
@@ -93,15 +115,35 @@ export const AdminProviders: React.FC = () => {
           </p>
         </div>
 
-        <button 
-          onClick={handleTestConnection}
-          disabled={testingConnection}
-          className="admin-btn admin-btn-primary"
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800 }}
-        >
-          <RefreshCw size={16} className={testingConnection ? 'animate-spin' : ''} />
-          <span>{testingConnection ? 'جاري فحص الاتصال...' : 'اختبار الاتصال (Test Connection)'}</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button 
+            onClick={handleCatalogSync}
+            disabled={catalogSyncing}
+            className="admin-btn admin-btn-secondary"
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              fontWeight: 800,
+              background: '#ecfdf5',
+              color: '#065f46',
+              border: '1.5px solid #a7f3d0'
+            }}
+          >
+            <RefreshCw size={16} className={catalogSyncing ? 'animate-spin' : ''} />
+            <span>{catalogSyncing ? 'جاري المزامنة...' : 'مزامنة الكتالوج الآن (Catalog Sync)'}</span>
+          </button>
+
+          <button 
+            onClick={handleTestConnection}
+            disabled={testingConnection}
+            className="admin-btn admin-btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800 }}
+          >
+            <RefreshCw size={16} className={testingConnection ? 'animate-spin' : ''} />
+            <span>{testingConnection ? 'جاري فحص الاتصال...' : 'اختبار الاتصال (Test Connection)'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Test Result Toast Banner */}
@@ -303,6 +345,92 @@ export const AdminProviders: React.FC = () => {
           </ul>
         </div>
       </div>
+
+      {/* GamesDrop Catalog Sync Results Modal */}
+      {catalogSyncModalOpen && catalogSyncStats && (
+        <div className="admin-modal-backdrop" onClick={() => setCatalogSyncModalOpen(false)}>
+          <div className="admin-modal" style={{ maxWidth: '620px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3 className="admin-modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <RefreshCw size={20} color="#10b981" />
+                <span>تقرير نتائج مزامنة الكتالوج (GamesDrop Live Sync)</span>
+              </h3>
+              <button 
+                type="button" 
+                className="admin-modal-close" 
+                onClick={() => setCatalogSyncModalOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="admin-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.6 }}>
+                تم الاتصال المباشر مع <strong>GamesDrop Partner API</strong> وسحب كافة عروض المنتجات المستهدفة وتحديث تكاليفها الحالية في قاعدة بيانات KIROPRO بنجاح.
+              </div>
+
+              {/* 5 Stats Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>العروض المفحوصة</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a' }}>{catalogSyncStats.productsChecked}</div>
+                </div>
+
+                <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#065f46', fontWeight: 700, marginBottom: '4px' }}>عروض جديدة مضافة</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#059669' }}>+{catalogSyncStats.newOffers}</div>
+                </div>
+
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#1e40af', fontWeight: 700, marginBottom: '4px' }}>عروض تم تحديثها</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#2563eb' }}>{catalogSyncStats.updatedOffers}</div>
+                </div>
+
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 700, marginBottom: '4px' }}>تغيرات في الأسعار</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#d97706' }}>{catalogSyncStats.priceChanges}</div>
+                </div>
+
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#991b1b', fontWeight: 700, marginBottom: '4px' }}>عروض نفدت (Out of Stock)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#dc2626' }}>{catalogSyncStats.outOfStock}</div>
+                </div>
+              </div>
+
+              {/* Category Breakdown */}
+              {catalogSyncStats.details && (
+                <div style={{ background: '#f1f5f9', borderRadius: '10px', padding: '12px 16px', fontSize: '0.85rem' }}>
+                  <div style={{ fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>تفاصيل الفئات المستهدفة:</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <span>💎 Likee: <strong>{catalogSyncStats.details.likeeOffers} عرض</strong></span>
+                    <span>⭐ Telegram Stars: <strong>{catalogSyncStats.details.telegramStarsOffers} عرض</strong></span>
+                    <span>👑 Telegram Premium: <strong>{catalogSyncStats.details.telegramPremiumOffers} عرض</strong></span>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Pricing Safe Notice */}
+              <div style={{ background: '#ecfdf5', padding: '12px 14px', borderRadius: '8px', border: '1px solid #a7f3d0', fontSize: '0.82rem', color: '#065f46', lineHeight: 1.5 }}>
+                🔒 <strong>التسعير والأرباح اليدوية:</strong> كافة المنتجات والعروض الجديدة تُترك غير مفعلة افتراضياً حتى تقوم بتحديد سعر البيع للعملاء بالدولار/الجنيه وهامش الربح المطلوب وتفعيلها يدوياً بأمان تام.
+              </div>
+
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                وقت المزامنة: {new Date(catalogSyncStats.lastSyncTime).toLocaleString('ar-EG')}
+              </div>
+
+              <div className="admin-modal-footer" style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  onClick={() => setCatalogSyncModalOpen(false)}
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
