@@ -12,7 +12,8 @@ import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth';
 import walletRoutes from './routes/wallet';
 import ordersRoutes from './routes/orders';
-import adminRoutes, { getGeneralSettings, getContactChannels, DEFAULT_CONTACT_CHANNELS } from './routes/admin';
+import adminRoutes, { getGeneralSettings, getContactChannels, DEFAULT_CONTACT_CHANNELS, updateContactChannelsHandler } from './routes/admin';
+import { requireAdmin } from './middlewares/authMiddleware';
 import topupRoutes from './routes/topup';
 import promoRoutes from './routes/promo';
 import productsRoutes from './routes/products';
@@ -213,6 +214,18 @@ app.get('/api/contact-channels', async (_req: Request, res: Response) => {
       channels: enabled,
       primaryWhatsapp
     });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch contact channels' });
+  }
+});
+
+// Admin contact-channels routes (direct fallback on app to ensure compatibility with all proxy rules)
+app.put('/api/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
+app.patch('/api/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
+app.get('/api/admin/contact-channels', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const channels = await getContactChannels();
+    res.json({ channels });
   } catch {
     res.status(500).json({ error: 'Failed to fetch contact channels' });
   }

@@ -1158,6 +1158,15 @@ router.get('/contact-channels', async (_req: Request, res: Response) => {
 });
 
 // Admin: GET /api/admin/contact-channels
+router.get('/contact-channels', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const channels = await getContactChannels();
+    res.json({ channels });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch contact channels' });
+  }
+});
+
 router.get('/admin/contact-channels', requireAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     const channels = await getContactChannels();
@@ -1168,7 +1177,7 @@ router.get('/admin/contact-channels', requireAdmin, async (_req: AuthRequest, re
 });
 
 // Admin: PATCH & PUT /api/admin/contact-channels
-const updateContactChannelsHandler = async (req: AuthRequest, res: Response) => {
+export const updateContactChannelsHandler = async (req: AuthRequest, res: Response) => {
   try {
     const { channels } = req.body;
     if (!Array.isArray(channels)) {
@@ -1226,6 +1235,8 @@ const updateContactChannelsHandler = async (req: AuthRequest, res: Response) => 
   }
 };
 
+router.patch('/contact-channels', requireAdmin, updateContactChannelsHandler);
+router.put('/contact-channels', requireAdmin, updateContactChannelsHandler);
 router.patch('/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
 router.put('/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
 
