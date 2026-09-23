@@ -159,11 +159,96 @@ router.get('/', async (req: Request, res: Response) => {
     // Group items by curated game / category
     const groupedMap = new Map<string, any>();
 
+    // Strict category resolver with 100% isolation for Free Fire
+    const resolveCardCategory = (row: any): string | null => {
+      const explicitCat = (row.gameCategoryId || '').trim();
+      const text = `${row.productName || ''} ${row.offerName || ''}`.toLowerCase();
+
+      // Telegram isolation: NEVER allow Telegram products into Free Fire or PUBG
+      if (text.includes('telegram') || text.includes('stars') || text.includes('نجوم') || explicitCat.startsWith('telegram')) {
+        if (text.includes('premium') || text.includes('بريميوم') || explicitCat === 'telegram-premium') {
+          return 'telegram-premium';
+        }
+        return 'telegram-stars';
+      }
+
+      if (text.includes('likee') || explicitCat === 'likee') {
+        return 'likee';
+      }
+
+      if (text.includes('blood strike') || text.includes('bloodstrike') || explicitCat.startsWith('blood-strike')) {
+        if (text.includes('global') || text.includes('عالمي') || explicitCat === 'blood-strike-global') {
+          return 'blood-strike-global';
+        }
+        return 'blood-strike-me';
+      }
+
+      if (text.includes('pubg') || explicitCat === 'pubg-mobile') {
+        return 'pubg-mobile';
+      }
+
+      // Free Fire: ONLY match if explicitly marked as freefire-me or text explicitly contains freefire/free fire
+      if (explicitCat === 'freefire-me' || text.includes('freefire') || text.includes('free fire')) {
+        return 'freefire-me';
+      }
+
+      // If DB has another explicit category, use it
+      if (explicitCat) {
+        return explicitCat;
+      }
+
+      // Uncategorized / orphan product: NEVER dump into Free Fire!
+      return null;
+    };
+
+    const defaultCovers: Record<string, string> = {
+      'pubg-mobile': '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg',
+      'freefire-me': '/uploads/products/prod_1789435947312_54dc7dd7.webp',
+      'likee': '/uploads/products/prod_1790076515614_23d0ac5a.jpg',
+      'telegram-stars': '/uploads/products/prod_1790076568074_2b5df6d4.jpg',
+      'telegram-premium': '/uploads/products/prod_1790076822152_f1f36553.webp',
+      'blood-strike-global': '/uploads/products/prod_1790076798846_db25c3b2.png',
+      'blood-strike-me': '/uploads/products/prod_1790076811295_aea21c2a.png'
+    };
+
+    const defaultNames: Record<string, string> = {
+      'pubg-mobile': 'PUBG Mobile',
+      'freefire-me': 'Free Fire (الشرق الأوسط)',
+      'likee': 'لايكي (Likee)',
+      'telegram-stars': 'نجوم تيليجرام (Telegram Stars)',
+      'telegram-premium': 'اشتراكات تيليجرام بريميوم (Telegram Premium)',
+      'blood-strike-global': 'Blood Strike — السيرفر العالمي',
+      'blood-strike-me': 'Blood Strike — الشرق الأوسط'
+    };
+
+    const defaultLabels: Record<string, { label: string; placeholder: string }> = {
+      'pubg-mobile': { label: 'معرّف اللاعب (Player ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (Player ID)' },
+      'freefire-me': { label: 'معرّف اللاعب (Player ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (Player ID)' },
+      'likee': { label: 'معرف حساب Likee (Likee ID)', placeholder: 'أدخل معرّف حساب Likee الخاص بك' },
+      'telegram-stars': { label: 'معرف تيليجرام أو اسم المستخدم (@username / User ID)', placeholder: 'أدخل @username أو معرّف تيليجرام الرقمي' },
+      'telegram-premium': { label: 'معرف تيليجرام أو اسم المستخدم (@username)', placeholder: 'أدخل @username أو معرّف تيليجرام' },
+      'blood-strike-global': { label: 'معرّف اللاعب (User ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (User ID)' },
+      'blood-strike-me': { label: 'معرّف اللاعب (User ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (User ID)' }
+    };
+
     for (const row of result.rows) {
-      const groupKey = row.gameCategoryId || (row.productName.toLowerCase().includes('pubg') ? 'pubg-mobile' : 'freefire-me');
-      const gameDisplayName = row.categoryArabicName || row.categoryName || (groupKey === 'pubg-mobile' ? 'PUBG Mobile' : 'Free Fire (الشرق الأوسط)');
-      const defaultGameCover = (groupKey === 'pubg-mobile' ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80' : 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=80');
-      const gameCover = resolveImageUrl(row.categoryImageUrl || row.productImageUrl, defaultGameCover);
+      const groupKey = resolveCardCategory(row);
+      if (!groupKey) {
+        // Skip uncategorized orphan products to protect store integrity
+        continue;
+      }
+
+      // Hard Defense-In-Depth: Absolutely block non-FreeFire products from ever entering Free Fire
+      if (groupKey === 'freefire-me') {
+        const checkText = `${row.productName || ''} ${row.offerName || ''}`.toLowerCase();
+        if (checkText.includes('telegram') || checkText.includes('star') || checkText.includes('likee') || checkText.includes('pubg') || checkText.includes('strike')) {
+          console.warn(`[Products Route] Blocked contaminated product from Free Fire: ${row.id} - ${row.productName} / ${row.offerName}`);
+          continue;
+        }
+      }
+
+      const gameDisplayName = row.categoryArabicName || row.categoryName || defaultNames[groupKey] || row.productName;
+      const gameCover = resolveImageUrl(row.categoryImageUrl || row.productImageUrl, defaultCovers[groupKey] || DEFAULT_PLACEHOLDER);
 
       const pkgPrice = Number(row.price || 0);
       const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
@@ -180,7 +265,14 @@ router.get('/', async (req: Request, res: Response) => {
       } else if (groupKey === 'telegram-premium') {
         itemType = 'اشتراك تيليجرام بريميوم الرسمي (Telegram Premium)';
         itemCategory = 'subscriptions';
-      } else {
+      } else if (groupKey.startsWith('blood-strike')) {
+        itemType = 'شحن ذهب بلود سترايك فوري (Blood Strike Gold)';
+        itemCategory = 'games';
+      } else if (groupKey === 'pubg-mobile') {
+        itemType = 'شحن شدات ببجي مباشر (PUBG Mobile UC)';
+        itemCategory = 'games';
+      } else if (groupKey === 'freefire-me') {
+        itemType = 'شحن جواهر فري فاير مباشر (Free Fire Diamonds)';
         itemCategory = 'games';
       }
 
@@ -199,8 +291,8 @@ router.get('/', async (req: Request, res: Response) => {
           image: gameCover,
           popular: true,
           packages: [],
-          idFieldLabel: row.categoryIdFieldLabel || 'معرّف اللاعب (Player ID)',
-          idPlaceholder: row.categoryIdPlaceholder || 'أدخل معرّف اللاعب الخاص بك (Player ID)'
+          idFieldLabel: row.categoryIdFieldLabel || defaultLabels[groupKey]?.label || 'معرّف اللاعب (Player ID)',
+          idPlaceholder: row.categoryIdPlaceholder || defaultLabels[groupKey]?.placeholder || 'أدخل معرّف اللاعب الخاص بك (Player ID)'
         });
       }
 

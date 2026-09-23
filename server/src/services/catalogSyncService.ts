@@ -21,14 +21,19 @@ export class CatalogSyncService {
   /**
    * Determine matching category ID in KIROPRO based on product name and attributes
    */
-  public resolveGameCategoryId(productName: string): string | null {
-    const norm = (productName || '').toLowerCase();
+  public resolveGameCategoryId(productName: string, offerName?: string): string | null {
+    const norm = `${productName || ''} ${offerName || ''}`.toLowerCase();
     if (norm.includes('likee')) return 'likee';
-    if (norm.includes('telegram stars') || norm.includes('telegram_stars')) return 'telegram-stars';
-    if (norm.includes('telegram premium') || norm.includes('telegram_premium')) return 'telegram-premium';
+    if (norm.includes('telegram') && (norm.includes('premium') || norm.includes('بريميوم'))) return 'telegram-premium';
+    if (norm.includes('telegram') && (norm.includes('star') || norm.includes('نجوم'))) return 'telegram-stars';
+    if (norm.includes('telegram_premium')) return 'telegram-premium';
+    if (norm.includes('stars') || norm.includes('telegram_stars')) return 'telegram-stars';
     if (norm.includes('pubg')) return 'pubg-mobile';
-    if (norm.includes('freefire') || norm.includes('free fire')) return 'freefire-me';
-    if (norm.includes('blood strike') || norm.includes('bloodstrike')) return 'blood-strike-me';
+    if (norm.includes('freefire') || norm.includes('free fire') || norm.includes('free_fire')) return 'freefire-me';
+    if (norm.includes('blood strike') || norm.includes('bloodstrike') || norm.includes('blood_strike')) {
+      if (norm.includes('global') || norm.includes('عالمي')) return 'blood-strike-global';
+      return 'blood-strike-me';
+    }
     return null;
   }
 
@@ -138,7 +143,7 @@ export class CatalogSyncService {
       const inStock = Boolean(row.inStock);
       const reqUser = Boolean(row.isRequiredGameUserId);
       const reqServer = Boolean(row.isRequiredGameServerId);
-      const gameCatId = this.resolveGameCategoryId(productName);
+      const gameCatId = this.resolveGameCategoryId(productName, offerName);
 
       if (!inStock) {
         stats.outOfStock++;

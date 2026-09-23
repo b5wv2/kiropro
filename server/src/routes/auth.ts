@@ -8,38 +8,79 @@ import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '../services/emailService';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';
-import { generateReferralCode, bindReferralCode } from '../services/referralService';
-import { extractClientInfo } from '../services/clientInfoService';
+import { generateReferralCode, recordPendingReferralOnRegister, processRefereeRewardOnVerification } from '../services/referralService';
+import { extractClientInfo, extractClientIp } from '../services/clientInfoService';
 import { createSession, closeSession, revokeAllUserSessions } from '../services/sessionService';
 import { checkBan, formatBanResponse } from '../services/banService';
 import { logSecurityEvent } from '../services/securityEventService';
 
 const router = Router();
 
-// Strict Auth Rate Limiter (10 requests / 15 mins per IP)
-const authLimiter = rateLimit({
+// Robust keyGenerator extracting true client IP behind Cloudflare and Railway proxies
+const authIpKeyGenerator = (req: Request): string => {
+  return extractClientIp(req);
+};
+
+// 1. Register Rate Limiter: Scoped per IP + Device to prevent shared cellular CGNAT lockouts
+const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 60,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'تم تجاوز الحد الأقصى للمحاولات. يرجى المحاولة بعد 15 دقيقة.' }
+  keyGenerator: (req: Request) => {
+    const info = extractClientInfo(req);
+    return `${info.ip}_${info.deviceId}`;
+  },
+  message: { error: 'تم تجاوز الحد الأقصى لمحاولات إنشاء الحساب. يرجى المحاولة بعد 15 دقيقة.' }
 });
 
-// Password Reset Request Rate Limiter (25 requests / 15 mins per IP, higher in test)
+// 2. Login Rate Limiter: 150 requests per 15 mins per IP (generous for shared mobile networks)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 150,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: authIpKeyGenerator,
+  message: { error: 'تم تجاوز الحد الأقصى لمحاولات تسجيل الدخول. يرجى المحاولة بعد 15 دقيقة.' }
+});
+
+// 3. Resend OTP Limiter (30 requests / 15 mins per IP + DB level 60-second cooldown per email)
+const resendOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: authIpKeyGenerator,
+  message: { error: 'تم تجاوز الحد الأقصى لإعادة إرسال رمز التحقق. يرجى الانتظار والمحاولة لاحقاً.' }
+});
+
+// 4. Quick Login Limiter (50 requests / 15 mins per IP)
+const quickLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: authIpKeyGenerator,
+  message: { error: 'تم تجاوز الحد الأقصى لمحاولات الدخول السريع. يرجى المحاولة بعد 15 دقيقة.' }
+});
+
+// 5. Password Reset Request Rate Limiter (25 requests / 15 mins per IP, higher in test)
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === 'test' ? 1000 : 25,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: authIpKeyGenerator,
   message: { error: 'تم تجاوز الحد الأقصى لطلبات استعادة كلمة المرور. يرجى المحاولة بعد 15 دقيقة.' }
 });
 
-// OTP Verification Rate Limiter (50 attempts / 15 mins per IP, higher in test)
+// 6. OTP Verification Rate Limiter (100 attempts / 15 mins per IP, higher in test)
 const otpVerifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'test' ? 1000 : 50,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 100,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: authIpKeyGenerator,
   message: { error: 'تم تجاوز الحد الأقصى لمحاولات التحقق. يرجى المحاولة لاحقاً.' }
 });
 
@@ -64,7 +105,7 @@ function generateSecureOtp(): string {
 // ==========================================
 // 1. REGISTER (ISSUES 6-DIGIT EMAIL OTP)
 // ==========================================
-router.post('/register', authLimiter, async (req: Request, res: Response) => {
+router.post('/register', registerLimiter, async (req: Request, res: Response) => {
   const { name, email, password, preferred_currency, referral_code } = req.body;
   const clientInfo = extractClientInfo(req, res);
 
@@ -144,12 +185,12 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
         [walletId, userId, 0, userCurrency]
       );
 
-      // Link referral and immediately award referee bonus if provided
+      // Link referral as pending - STRICTLY NO WALLET PAYOUT ON REGISTER
       if (referral_code && typeof referral_code === 'string' && referral_code.trim()) {
         try {
-          await bindReferralCode(userId, referral_code.trim(), client, false);
+          await recordPendingReferralOnRegister(userId, referral_code.trim(), client);
         } catch (refErr: any) {
-          console.warn('[Register] Referral binding skipped:', refErr.message);
+          console.warn('[Register] Referral pending binding skipped:', refErr.message);
         }
       }
     }
@@ -229,7 +270,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
 // ==========================================
 // 2. VERIFY EMAIL OTP
 // ==========================================
-router.post('/verify-email', authLimiter, async (req: Request, res: Response) => {
+router.post('/verify-email', otpVerifyLimiter, async (req: Request, res: Response) => {
   const { email, otp } = req.body;
 
   if (!email || !otp) {
@@ -324,6 +365,13 @@ router.post('/verify-email', authLimiter, async (req: Request, res: Response) =>
       return res.status(404).json({ error: 'المستخدم غير موجود في النظام.' });
     }
 
+    // Attempt to process pending referee reward safely (only if emailVerified and referral payouts enabled)
+    try {
+      await processRefereeRewardOnVerification(user.id, client);
+    } catch (refErr: any) {
+      console.warn('[VerifyEmail] Referee reward processing skipped:', refErr.message);
+    }
+
     // Fetch user wallet
     const walletRes = await client.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
@@ -353,7 +401,7 @@ router.post('/verify-email', authLimiter, async (req: Request, res: Response) =>
 // ==========================================
 // 3. RESEND OTP
 // ==========================================
-router.post('/resend-otp', authLimiter, async (req: Request, res: Response) => {
+router.post('/resend-otp', resendOtpLimiter, async (req: Request, res: Response) => {
   const { email } = req.body;
 
   if (!email) {
@@ -484,7 +532,7 @@ router.get('/verification-status', async (req: Request, res: Response) => {
 // ==========================================
 // 5. LOGIN (PROTECTED: CHECKS EMAIL VERIFICATION)
 // ==========================================
-router.post('/login', authLimiter, async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;
   const clientInfo = extractClientInfo(req, res);
 
@@ -717,7 +765,7 @@ router.get('/session-status', async (req: Request, res: Response) => {
 // ==========================================
 // 6.2. QUICK LOGIN (REQUIRES PRE-EXISTING VALID ADMIN SESSION ON THIS BROWSER)
 // ==========================================
-router.post('/quick-login', authLimiter, async (req: Request, res: Response) => {
+router.post('/quick-login', quickLoginLimiter, async (req: Request, res: Response) => {
   let token: string | undefined;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {

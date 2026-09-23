@@ -34,9 +34,9 @@ import fs from 'fs';
 
 const app = express();
 
-// 1. Trust proxy: Required for Railway, Render, Cloudflare, and SSL terminating reverse proxies.
-// Enables req.secure and proper handling of Secure HttpOnly cookies behind Railway proxies.
-app.set('trust proxy', 1);
+// 1. Trust proxy: Required for Railway + Cloudflare multi-hop reverse proxies.
+// Enables req.secure and proper handling of Secure HttpOnly cookies behind proxies.
+app.set('trust proxy', true);
 
 // Security Headers: Protection against clickjacking, MIME sniffing, and insecure transport
 app.use(helmet({

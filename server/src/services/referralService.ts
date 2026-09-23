@@ -15,6 +15,7 @@ export interface ReferralSettings {
   allow_game_orders?: boolean | undefined;
   allow_cards_orders?: boolean | undefined;
   total_reward?: number | undefined;
+  payouts_frozen?: boolean | undefined;
   updated_at?: string | undefined;
 }
 
@@ -31,8 +32,15 @@ export interface FullReferralSettings {
   allow_game_orders: boolean;
   allow_cards_orders: boolean;
   total_reward: number;
+  payouts_frozen: boolean;
   updated_at?: string | undefined;
 }
+
+// ====================================================================
+// EMERGENCY FEATURE FLAG: Freeze all automatic referral payouts
+// When false: referrals can be bound, but NO payouts are executed.
+// ====================================================================
+export const REFERRAL_REWARDS_ENABLED = false;
 
 export const DEFAULT_SETTINGS: FullReferralSettings = {
   enabled: true,
@@ -46,7 +54,8 @@ export const DEFAULT_SETTINGS: FullReferralSettings = {
   allow_crypto_orders: true,
   allow_game_orders: true,
   allow_cards_orders: true,
-  total_reward: 2000
+  total_reward: 2000,
+  payouts_frozen: true
 };
 
 /**
@@ -86,6 +95,7 @@ export async function getReferralSettings(): Promise<FullReferralSettings> {
     const allow_crypto_orders = Boolean(val.allow_crypto_orders ?? DEFAULT_SETTINGS.allow_crypto_orders);
     const allow_game_orders = Boolean(val.allow_game_orders ?? DEFAULT_SETTINGS.allow_game_orders);
     const allow_cards_orders = Boolean(val.allow_cards_orders ?? DEFAULT_SETTINGS.allow_cards_orders);
+    const payouts_frozen = val.payouts_frozen !== undefined ? Boolean(val.payouts_frozen) : DEFAULT_SETTINGS.payouts_frozen;
 
     return {
       enabled,
@@ -100,6 +110,7 @@ export async function getReferralSettings(): Promise<FullReferralSettings> {
       allow_crypto_orders,
       allow_game_orders,
       allow_cards_orders,
+      payouts_frozen,
       updated_at: res.rows[0]?.updated_at
     };
   } catch (err: any) {
@@ -132,6 +143,7 @@ export async function updateReferralSettings(
     allow_crypto_orders: newSettings.allow_crypto_orders !== undefined ? Boolean(newSettings.allow_crypto_orders) : current.allow_crypto_orders,
     allow_game_orders: newSettings.allow_game_orders !== undefined ? Boolean(newSettings.allow_game_orders) : current.allow_game_orders,
     allow_cards_orders: newSettings.allow_cards_orders !== undefined ? Boolean(newSettings.allow_cards_orders) : current.allow_cards_orders,
+    payouts_frozen: newSettings.payouts_frozen !== undefined ? Boolean(newSettings.payouts_frozen) : current.payouts_frozen,
     total_reward: referrer_reward + referee_reward
   };
 
@@ -317,7 +329,7 @@ export async function bindReferralCode(
 
     // 1. Fetch Referee & lock
     const refereeRes = await client.query(
-      'SELECT id, name, "referred_by_id" FROM "User" WHERE id = $1 FOR UPDATE',
+      'SELECT id, name, "emailVerified", "referred_by_id" FROM "User" WHERE id = $1 FOR UPDATE',
       [refereeId]
     );
     const referee = refereeRes.rows[0];
@@ -327,6 +339,10 @@ export async function bindReferralCode(
 
     if (referee.referred_by_id) {
       throw new Error('تم ربط حسابك بكود إحالة مسبقاً');
+    }
+
+    if (!referee.emailVerified) {
+      throw new Error('يجب تأكيد بريدك الإلكتروني أولاً قبل ربط كود الإحالة والمطالبة بالمكافأة');
     }
 
     // Check if referral row already exists for this referee
@@ -362,7 +378,14 @@ export async function bindReferralCode(
     const referrerReward = settings.referrer_reward;
     const rewardCurrency = 'SDG';
     const referralId = uuidv4();
-    const shouldPayRefereeNow = refereeReward > 0;
+    
+    // STRICT SECURITY: Reward is only paid if feature flag is active, payouts are not frozen, and email is verified
+    const shouldPayRefereeNow = Boolean(
+      REFERRAL_REWARDS_ENABLED &&
+      !settings.payouts_frozen &&
+      referee.emailVerified &&
+      refereeReward > 0
+    );
 
     // 4. Create row in referrals table
     await client.query(`
@@ -383,7 +406,7 @@ export async function bindReferralCode(
       rewardCurrency
     ]);
 
-    // 5. Pay Referee immediate welcome reward to their wallet (Idempotent)
+    // 5. Pay Referee immediate welcome reward to their wallet if permitted
     if (shouldPayRefereeNow) {
       const walletRes = await client.query(
         'SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE',
@@ -421,10 +444,12 @@ export async function bindReferralCode(
 
     return {
       success: true,
-      reward: refereeReward,
+      reward: shouldPayRefereeNow ? refereeReward : 0,
       currency: rewardCurrency,
       referrerName: referrer.name || 'صديقك',
-      message: `تم ربط كود الإحالة بنجاح! تم إضافة ${refereeReward.toLocaleString('ar-EG')} ${rewardCurrency} إلى محفظتك كهدية ترحيبية فورية.`
+      message: shouldPayRefereeNow 
+        ? `تم ربط كود الإحالة بنجاح! تم إضافة ${refereeReward.toLocaleString('ar-EG')} ${rewardCurrency} إلى محفظتك كهدية ترحيبية فورية.`
+        : 'تم ربط كود الإحالة بنجاح! سيتم فحص وصرف المكافأة بعد اكتمال التحقق والتأهيل.'
     };
   } catch (err: any) {
     if (isInternalTx) await client.query('ROLLBACK');
@@ -436,11 +461,166 @@ export async function bindReferralCode(
 }
 
 /**
+ * Record a pending referral during user registration.
+ * STRICT SECURITY: NEVER credits wallet or pays any bonus.
+ * The referral is created with referee_reward_paid = false.
+ */
+export async function recordPendingReferralOnRegister(
+  refereeId: string, 
+  referralCode: string, 
+  client: PoolClient
+): Promise<{ success: boolean; referrerName?: string }> {
+  if (!referralCode || !referralCode.trim()) {
+    return { success: false };
+  }
+
+  const cleanCode = referralCode.trim().toUpperCase();
+  const settings = await getReferralSettings();
+  if (!settings.enabled) {
+    return { success: false };
+  }
+
+  // 1. Find Referrer by code
+  const referrerRes = await client.query(
+    'SELECT id, name FROM "User" WHERE UPPER(referral_code) = $1',
+    [cleanCode]
+  );
+  const referrer = referrerRes.rows[0];
+  if (!referrer || referrer.id === refereeId) {
+    return { success: false };
+  }
+
+  // 2. Link referrer on User
+  await client.query(
+    'UPDATE "User" SET referred_by_id = $1 WHERE id = $2',
+    [referrer.id, refereeId]
+  );
+
+  // 3. Create pending row in referrals table (STRICTLY NO WALLET PAYOUT)
+  const referralId = uuidv4();
+  await client.query(`
+    INSERT INTO "referrals" (
+      id, referrer_id, referee_id, status,
+      referee_reward_amount, referee_reward_paid, referee_reward_paid_at,
+      referrer_reward_amount, referrer_reward_paid, currency
+    ) VALUES ($1, $2, $3, 'PENDING', $4, false, null, $5, false, 'SDG')
+    ON CONFLICT (referee_id) DO NOTHING
+  `, [
+    referralId,
+    referrer.id,
+    refereeId,
+    settings.referee_reward,
+    settings.referrer_reward
+  ]);
+
+  return { success: true, referrerName: referrer.name };
+}
+
+/**
+ * Award referee welcome reward upon successful email OTP verification.
+ * STRICT SECURITY:
+ * 1. Checks REFERRAL_REWARDS_ENABLED and settings.payouts_frozen
+ * 2. Checks user is emailVerified = true
+ * 3. Atomic lock on referrals and wallet
+ * 4. Idempotent: sets referee_reward_paid = true and relies on unique constraint
+ */
+export async function processRefereeRewardOnVerification(
+  userId: string,
+  client: PoolClient
+): Promise<{ awarded: boolean; reward?: number; reason?: string }> {
+  // If referral rewards are globally frozen during an incident, skip payout safely
+  if (!REFERRAL_REWARDS_ENABLED) {
+    return { awarded: false, reason: 'REFERRAL_REWARDS_FROZEN' };
+  }
+
+  const settings = await getReferralSettings();
+  if (!settings.enabled || settings.payouts_frozen) {
+    return { awarded: false, reason: 'REFERRAL_REWARDS_FROZEN' };
+  }
+
+  // Verify user is verified
+  const userRes = await client.query(
+    'SELECT id, "emailVerified" FROM "User" WHERE id = $1 FOR UPDATE',
+    [userId]
+  );
+  const user = userRes.rows[0];
+  if (!user || !user.emailVerified) {
+    return { awarded: false, reason: 'USER_NOT_VERIFIED' };
+  }
+
+  // Find pending referral
+  const refRes = await client.query(
+    'SELECT id, referrer_id, referee_reward_amount, referee_reward_paid FROM "referrals" WHERE referee_id = $1 FOR UPDATE',
+    [userId]
+  );
+  const referral = refRes.rows[0];
+  if (!referral || referral.referee_reward_paid) {
+    return { awarded: false, reason: 'ALREADY_PAID_OR_NO_REFERRAL' };
+  }
+
+  const rewardAmount = Number(referral.referee_reward_amount || settings.referee_reward);
+  if (rewardAmount <= 0) {
+    return { awarded: false, reason: 'ZERO_REWARD' };
+  }
+
+  // Lock wallet
+  const walletRes = await client.query(
+    'SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE',
+    [userId]
+  );
+  const wallet = walletRes.rows[0];
+  if (!wallet) {
+    return { awarded: false, reason: 'NO_WALLET' };
+  }
+
+  // Check if a transaction already exists for this referral (idempotency guard)
+  const existingTx = await client.query(
+    'SELECT id FROM "WalletTransaction" WHERE "walletId" = $1 AND "referenceType" = \'REFERRAL\' AND "referenceId" = $2',
+    [wallet.id, referral.id]
+  );
+  if (existingTx.rows.length > 0) {
+    await client.query(
+      'UPDATE "referrals" SET referee_reward_paid = true, referee_reward_paid_at = CURRENT_TIMESTAMP WHERE id = $1',
+      [referral.id]
+    );
+    return { awarded: false, reason: 'TRANSACTION_ALREADY_EXISTS' };
+  }
+
+  const balBefore = Number(wallet.balance || 0);
+  const balAfter = balBefore + rewardAmount;
+
+  await client.query('UPDATE "Wallet" SET balance = $1 WHERE id = $2', [balAfter, wallet.id]);
+
+  await client.query(`
+    INSERT INTO "WalletTransaction" (
+      id, "walletId", amount, type, description, 
+      currency, "balanceBefore", "balanceAfter", "referenceType", "referenceId", "createdBy", "created_by_type"
+    ) VALUES ($1, $2, $3, 'REFERRAL_BONUS', $4, 'SDG', $5, $6, 'REFERRAL', $7, null, 'SYSTEM')
+  `, [
+    uuidv4(),
+    wallet.id,
+    rewardAmount,
+    'مكافأة الترحيب بربط كود الصداقة',
+    balBefore,
+    balAfter,
+    referral.id
+  ]);
+
+  await client.query(
+    'UPDATE "referrals" SET referee_reward_paid = true, referee_reward_paid_at = CURRENT_TIMESTAMP WHERE id = $1',
+    [referral.id]
+  );
+
+  return { awarded: true, reward: rewardAmount };
+}
+
+/**
  * Backward compatibility wrapper for registration flow
  */
 export async function linkReferralOnRegister(refereeId: string, referralCode: string, client?: PoolClient): Promise<boolean> {
   try {
-    const res = await bindReferralCode(refereeId, referralCode, client, false);
+    if (!client) return false;
+    const res = await recordPendingReferralOnRegister(refereeId, referralCode, client);
     return res.success;
   } catch (err: any) {
     console.warn('[ReferralService] linkReferralOnRegister skipped:', err.message);
@@ -526,9 +706,21 @@ export async function processReferralRewardOnOrder(
 
     // 3. Load program settings
     const settings = await getReferralSettings();
+    if (!REFERRAL_REWARDS_ENABLED || settings.payouts_frozen) {
+      if (isInternalTx) await client.query('ROLLBACK');
+      return { awarded: false, reason: 'REFERRAL_REWARDS_FROZEN' };
+    }
+
     if (!settings.enabled) {
       if (isInternalTx) await client.query('ROLLBACK');
       return { awarded: false, reason: 'REFERRAL_PROGRAM_DISABLED' };
+    }
+
+    // Require referee to have verified their email before referrer is eligible
+    const refereeUserRes = await client.query('SELECT "emailVerified" FROM "User" WHERE id = $1', [referral.referee_id]);
+    if (!refereeUserRes.rows[0]?.emailVerified) {
+      if (isInternalTx) await client.query('ROLLBACK');
+      return { awarded: false, reason: 'REFEREE_NOT_VERIFIED' };
     }
 
     // Check category allowance

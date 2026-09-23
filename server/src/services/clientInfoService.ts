@@ -47,10 +47,34 @@ export function maskDeviceId(deviceId?: string | null): string {
  * Clean and normalize client IP address behind Railway/Cloudflare proxy.
  */
 export function extractClientIp(req: Request): string {
+  // 1. Cloudflare True Client IP (Guaranteed and cryptographically authenticated by Cloudflare edge)
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) {
+    return normalizeIp(cfIp.trim());
+  }
+
+  // 2. Standard X-Real-IP
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return normalizeIp(realIp.trim());
+  }
+
+  // 3. X-Forwarded-For: Client IP is the leftmost entry
   const forwardedHeader = req.headers['x-forwarded-for'];
-  let rawIp = req.ip || (typeof forwardedHeader === 'string' ? forwardedHeader.split(',')[0]?.trim() : undefined) || req.socket?.remoteAddress || '127.0.0.1';
-  
-  let ip = String(rawIp || '127.0.0.1');
+  if (typeof forwardedHeader === 'string' && forwardedHeader.trim()) {
+    const clientHop = forwardedHeader.split(',')[0]?.trim();
+    if (clientHop) {
+      return normalizeIp(clientHop);
+    }
+  }
+
+  // 4. Express req.ip or socket remoteAddress fallback
+  const rawIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+  return normalizeIp(rawIp);
+}
+
+function normalizeIp(rawIp: string): string {
+  let ip = String(rawIp || '127.0.0.1').trim();
 
   // Normalize IPv6-mapped IPv4 (e.g. ::ffff:192.168.1.1)
   if (ip.startsWith('::ffff:')) {
