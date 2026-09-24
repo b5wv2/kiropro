@@ -846,3 +846,617 @@ export async function processReferralRewardOnOrder(
     if (isInternalTx) client.release();
   }
 }
+
+// ====================================================================
+// LEADERBOARD & ADVANCED STATS SYSTEM
+// ====================================================================
+
+export interface ReferralLeaderboardFilterParams {
+  page?: number | undefined;
+  limit?: number | undefined;
+  search?: string | undefined;
+  status?: ('ALL' | 'ACTIVE' | 'BANNED') | undefined;
+  minReferrals?: number | undefined;
+  hasDeposited?: ('ALL' | 'YES' | 'NO') | undefined;
+  sortBy?: ('qualified' | 'total' | 'paying' | 'revenue' | 'commission' | 'date') | undefined;
+  sortOrder?: ('ASC' | 'DESC') | undefined;
+  startDate?: string | undefined;
+  endDate?: string | undefined;
+}
+
+export interface ReferrerDetailsFilterParams {
+  page?: number | undefined;
+  limit?: number | undefined;
+  search?: string | undefined;
+  isQualified?: ('ALL' | 'YES' | 'NO') | undefined;
+  hasDeposited?: ('ALL' | 'YES' | 'NO') | undefined;
+}
+
+/**
+ * Top-level dynamic summary cards for Admin Referral Dashboard
+ */
+export async function getAdminReferralStats() {
+  const res = await pool.query(`
+    SELECT
+      COUNT(DISTINCT r.referrer_id)::int AS total_referrers,
+      COUNT(r.id)::int AS total_referrals,
+      COUNT(r.id) FILTER (
+        WHERE u_ref."emailVerified" = true 
+        AND NOT EXISTS (SELECT 1 FROM user_bans ub WHERE ub.user_id = u_ref.id AND ub.status = 'ACTIVE')
+      )::int AS qualified_referrals,
+      COUNT(DISTINCT r.referee_id) FILTER (
+        WHERE EXISTS (SELECT 1 FROM "Order" o WHERE o."userId" = r.referee_id AND o.status = 'COMPLETED')
+           OR EXISTS (SELECT 1 FROM "topup_requests" tr WHERE tr.user_id = r.referee_id AND tr.status = 'APPROVED')
+      )::int AS paying_referrals,
+      (
+        COALESCE((
+          SELECT SUM(o.amount)
+          FROM "Order" o
+          JOIN "referrals" ref ON ref.referee_id = o."userId"
+          WHERE o.status = 'COMPLETED'
+        ), 0) +
+        COALESCE((
+          SELECT SUM(tr.amount_sdg)
+          FROM "topup_requests" tr
+          JOIN "referrals" ref ON ref.referee_id = tr.user_id
+          WHERE tr.status = 'APPROVED'
+        ), 0)
+      )::numeric AS referral_revenue,
+      COALESCE(SUM(r.referrer_reward_amount) FILTER (WHERE r.referrer_reward_paid = true), 0)::numeric AS referral_commissions
+    FROM "referrals" r
+    JOIN "User" u_ref ON u_ref.id = r.referee_id
+  `);
+
+  const row = res.rows[0] || {};
+  return {
+    totalReferrers: Number(row.total_referrers || 0),
+    totalReferrals: Number(row.total_referrals || 0),
+    qualifiedReferrals: Number(row.qualified_referrals || 0),
+    payingReferrals: Number(row.paying_referrals || 0),
+    referralRevenue: Number(row.referral_revenue || 0),
+    referralCommissions: Number(row.referral_commissions || 0),
+    currency: 'SDG'
+  };
+}
+
+/**
+ * Admin Referral Leaderboard: High-Performance SQL Aggregation with Pagination and Filtering
+ */
+export async function getAdminReferralLeaderboard(params: ReferralLeaderboardFilterParams = {}) {
+  const page = Math.max(1, Number(params.page || 1));
+  const limit = Math.min(100, Math.max(5, Number(params.limit || 20)));
+  const offset = (page - 1) * limit;
+
+  const conditions: string[] = ['1=1'];
+  const values: any[] = [];
+  let paramIdx = 1;
+
+  if (params.search && params.search.trim()) {
+    const q = `%${params.search.trim().toLowerCase()}%`;
+    conditions.push(`(LOWER(u.name) LIKE $${paramIdx} OR LOWER(u.email) LIKE $${paramIdx} OR LOWER(u.referral_code) LIKE $${paramIdx})`);
+    values.push(q);
+    paramIdx++;
+  }
+
+  if (params.status && params.status !== 'ALL') {
+    if (params.status === 'BANNED') {
+      conditions.push(`EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE')`);
+    } else if (params.status === 'ACTIVE') {
+      conditions.push(`NOT EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE')`);
+    }
+  }
+
+  if (params.startDate) {
+    conditions.push(`r.created_at >= $${paramIdx}`);
+    values.push(params.startDate);
+    paramIdx++;
+  }
+
+  if (params.endDate) {
+    conditions.push(`r.created_at <= $${paramIdx}`);
+    values.push(params.endDate);
+    paramIdx++;
+  }
+
+  // Determine SQL ORDER BY
+  let sortColumn = 'qualified_referrals';
+  if (params.sortBy === 'total') sortColumn = 'total_referrals';
+  else if (params.sortBy === 'paying') sortColumn = 'paying_referrals';
+  else if (params.sortBy === 'revenue') sortColumn = 'referral_revenue';
+  else if (params.sortBy === 'commission') sortColumn = 'referral_commission';
+  else if (params.sortBy === 'date') sortColumn = 'last_referral_date';
+
+  const sortDirection = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
+  // Primary sort with rigorous tie-breaking:
+  // 1. Qualified Referrals DESC
+  // 2. Paying Referrals DESC
+  // 3. Referral Revenue DESC
+  // 4. First referral date ASC (Seniority)
+  const defaultOrderBy = `qualified_referrals DESC, paying_referrals DESC, referral_revenue DESC, first_referral_date ASC`;
+  const orderByClause = params.sortBy && params.sortBy !== 'qualified'
+    ? `${sortColumn} ${sortDirection}, ${defaultOrderBy}`
+    : `${defaultOrderBy}`;
+
+  // Having filters for aggregated fields
+  const havingConditions: string[] = ['1=1'];
+  if (params.minReferrals && Number(params.minReferrals) > 0) {
+    havingConditions.push(`COUNT(r.id) >= ${Number(params.minReferrals)}`);
+  }
+  if (params.hasDeposited && params.hasDeposited !== 'ALL') {
+    if (params.hasDeposited === 'YES') {
+      havingConditions.push(`COUNT(DISTINCT r.referee_id) FILTER (
+        WHERE EXISTS (SELECT 1 FROM "Order" o WHERE o."userId" = r.referee_id AND o.status = 'COMPLETED')
+           OR EXISTS (SELECT 1 FROM "topup_requests" tr WHERE tr.user_id = r.referee_id AND tr.status = 'APPROVED')
+      ) > 0`);
+    } else if (params.hasDeposited === 'NO') {
+      havingConditions.push(`COUNT(DISTINCT r.referee_id) FILTER (
+        WHERE EXISTS (SELECT 1 FROM "Order" o WHERE o."userId" = r.referee_id AND o.status = 'COMPLETED')
+           OR EXISTS (SELECT 1 FROM "topup_requests" tr WHERE tr.user_id = r.referee_id AND tr.status = 'APPROVED')
+      ) = 0`);
+    }
+  }
+
+  // Count total distinct referrers matching filter
+  const countQuery = `
+    SELECT COUNT(*)::int AS total_count FROM (
+      SELECT u.id
+      FROM "User" u
+      JOIN "referrals" r ON r.referrer_id = u.id
+      JOIN "User" ref_user ON ref_user.id = r.referee_id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY u.id
+      HAVING ${havingConditions.join(' AND ')}
+    ) sub
+  `;
+  const countRes = await pool.query(countQuery, values);
+  const totalCount = countRes.rows[0]?.total_count || 0;
+  const totalPages = Math.ceil(totalCount / limit) || 1;
+
+  // Fetch ranked page
+  const dataQuery = `
+    WITH ranked_stats AS (
+      SELECT 
+        u.id AS referrer_id,
+        u.name,
+        u.email,
+        u.referral_code,
+        u."createdAt" AS user_created_at,
+        EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE') AS is_banned,
+        COUNT(r.id)::int AS total_referrals,
+        COUNT(r.id) FILTER (
+          WHERE ref_user."emailVerified" = true 
+          AND NOT EXISTS (SELECT 1 FROM user_bans ub WHERE ub.user_id = ref_user.id AND ub.status = 'ACTIVE')
+        )::int AS qualified_referrals,
+        COUNT(DISTINCT r.referee_id) FILTER (
+          WHERE EXISTS (SELECT 1 FROM "Order" o WHERE o."userId" = r.referee_id AND o.status = 'COMPLETED')
+             OR EXISTS (SELECT 1 FROM "topup_requests" tr WHERE tr.user_id = r.referee_id AND tr.status = 'APPROVED')
+        )::int AS paying_referrals,
+        (
+          COALESCE((
+            SELECT SUM(o.amount)
+            FROM "Order" o
+            JOIN "referrals" r_sub ON r_sub.referee_id = o."userId"
+            WHERE r_sub.referrer_id = u.id AND o.status = 'COMPLETED'
+          ), 0) +
+          COALESCE((
+            SELECT SUM(tr.amount_sdg)
+            FROM "topup_requests" tr
+            JOIN "referrals" r_sub ON r_sub.referee_id = tr.user_id
+            WHERE r_sub.referrer_id = u.id AND tr.status = 'APPROVED'
+          ), 0)
+        )::numeric AS referral_revenue,
+        COALESCE(SUM(r.referrer_reward_amount) FILTER (WHERE r.referrer_reward_paid = true), 0)::numeric AS referral_commission,
+        MIN(r.created_at) AS first_referral_date,
+        MAX(r.created_at) AS last_referral_date
+      FROM "User" u
+      JOIN "referrals" r ON r.referrer_id = u.id
+      JOIN "User" ref_user ON ref_user.id = r.referee_id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY u.id, u.name, u.email, u.referral_code, u."createdAt"
+      HAVING ${havingConditions.join(' AND ')}
+    )
+    SELECT 
+      DENSE_RANK() OVER (ORDER BY ${orderByClause}) as rank,
+      *
+    FROM ranked_stats
+    ORDER BY rank ASC
+    LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+  `;
+
+  values.push(limit, offset);
+  const dataRes = await pool.query(dataQuery, values);
+
+  const items = dataRes.rows.map(row => ({
+    rank: Number(row.rank),
+    userId: row.referrer_id,
+    name: row.name || 'مستخدم بدون اسم',
+    email: row.email,
+    referralCode: row.referral_code,
+    isBanned: Boolean(row.is_banned),
+    accountStatus: row.is_banned ? 'BANNED' : 'ACTIVE',
+    totalReferrals: Number(row.total_referrals || 0),
+    qualifiedReferrals: Number(row.qualified_referrals || 0),
+    payingReferrals: Number(row.paying_referrals || 0),
+    referralRevenue: Number(row.referral_revenue || 0),
+    referralCommission: Number(row.referral_commission || 0),
+    firstReferralDate: row.first_referral_date,
+    lastReferralDate: row.last_referral_date,
+    userCreatedAt: row.user_created_at
+  }));
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages
+    }
+  };
+}
+
+/**
+ * Detailed Referee inspection for a specific Referrer (Used in Admin Modal)
+ * Includes fraud & risk signals (shared IP, shared device, rapid burst, mutual referral, unverified)
+ */
+export async function getAdminReferrerDetails(referrerId: string, params: ReferrerDetailsFilterParams = {}) {
+  const page = Math.max(1, Number(params.page || 1));
+  const limit = Math.min(100, Math.max(5, Number(params.limit || 20)));
+  const offset = (page - 1) * limit;
+
+  // 1. Fetch Referrer profile
+  const referrerRes = await pool.query(
+    'SELECT id, name, email, referral_code, referred_by_id, "createdAt" FROM "User" WHERE id = $1',
+    [referrerId]
+  );
+  const referrer = referrerRes.rows[0];
+  if (!referrer) throw new Error('الداعي غير موجود');
+
+  // 2. Build filters for referees
+  const conditions = ['r.referrer_id = $1'];
+  const values: any[] = [referrerId];
+  let paramIdx = 2;
+
+  if (params.search && params.search.trim()) {
+    const q = `%${params.search.trim().toLowerCase()}%`;
+    conditions.push(`(LOWER(u.name) LIKE $${paramIdx} OR LOWER(u.email) LIKE $${paramIdx})`);
+    values.push(q);
+    paramIdx++;
+  }
+
+  if (params.isQualified && params.isQualified !== 'ALL') {
+    if (params.isQualified === 'YES') {
+      conditions.push(`u."emailVerified" = true AND NOT EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE')`);
+    } else if (params.isQualified === 'NO') {
+      conditions.push(`(u."emailVerified" = false OR EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE'))`);
+    }
+  }
+
+  // Count total referees matching filter
+  const countRes = await pool.query(`
+    SELECT COUNT(*)::int AS total_count
+    FROM "referrals" r
+    JOIN "User" u ON u.id = r.referee_id
+    WHERE ${conditions.join(' AND ')}
+  `, values);
+  const totalCount = countRes.rows[0]?.total_count || 0;
+  const totalPages = Math.ceil(totalCount / limit) || 1;
+
+  // Fetch referee details with financial statistics and security flags
+  const dataQuery = `
+    SELECT 
+      r.id AS referral_id,
+      r.status AS referral_status,
+      r.created_at AS referral_date,
+      r.referrer_reward_amount,
+      r.referrer_reward_paid,
+      r.referee_reward_amount,
+      r.referee_reward_paid,
+      u.id AS referee_id,
+      u.name AS referee_name,
+      u.email AS referee_email,
+      u."emailVerified" AS email_verified,
+      u."createdAt" AS user_created_at,
+      EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE') AS is_banned,
+      (
+        SELECT COUNT(*)::int 
+        FROM "Order" o 
+        WHERE o."userId" = u.id AND o.status = 'COMPLETED'
+      ) AS orders_count,
+      (
+        SELECT COUNT(*)::int 
+        FROM "topup_requests" tr 
+        WHERE tr.user_id = u.id AND tr.status = 'APPROVED'
+      ) AS topups_count,
+      (
+        COALESCE((SELECT SUM(amount) FROM "Order" WHERE "userId" = u.id AND status = 'COMPLETED'), 0) +
+        COALESCE((SELECT SUM(amount_sdg) FROM "topup_requests" WHERE user_id = u.id AND status = 'APPROVED'), 0)
+      )::numeric AS total_spent,
+      -- Risk Signal 1: Mutual Referral (Referee is also the referrer's referrer)
+      (CASE WHEN u.referred_by_id = $1 OR (u.id = (SELECT "referred_by_id" FROM "User" WHERE id = $1)) THEN true ELSE false END) AS is_mutual_referral,
+      -- Risk Signal 2: Same IP as Referrer
+      EXISTS (
+        SELECT 1 
+        FROM "security_events" se_ref
+        JOIN "security_events" se_referee ON se_ref.ip_address = se_referee.ip_address
+        WHERE se_ref.user_id = $1 
+          AND se_referee.user_id = u.id 
+          AND se_ref.ip_address IS NOT NULL 
+          AND se_ref.ip_address NOT IN ('127.0.0.1', '::1', '')
+      ) AS shares_ip_with_referrer,
+      -- Risk Signal 3: Same Device ID as Referrer
+      EXISTS (
+        SELECT 1 
+        FROM "security_events" se_ref
+        JOIN "security_events" se_referee ON se_ref.device_id = se_referee.device_id
+        WHERE se_ref.user_id = $1 
+          AND se_referee.user_id = u.id 
+          AND se_ref.device_id IS NOT NULL
+      ) AS shares_device_with_referrer,
+      -- Risk Signal 4: Rapid Burst Registration (Registered within 2 mins of another referral under same code)
+      EXISTS (
+        SELECT 1 
+        FROM "referrals" r2 
+        WHERE r2.referrer_id = $1 
+          AND r2.id != r.id 
+          AND ABS(EXTRACT(EPOCH FROM (r2.created_at - r.created_at))) < 120
+      ) AS is_rapid_burst
+    FROM "referrals" r
+    JOIN "User" u ON u.id = r.referee_id
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY r.created_at DESC
+    LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+  `;
+
+  const fullValues = [...values, limit, offset];
+  const dataRes = await pool.query(dataQuery, fullValues);
+
+  const referees = dataRes.rows.map(row => {
+    const isQualified = Boolean(row.email_verified && !row.is_banned);
+    const hasDeposited = (Number(row.orders_count) > 0 || Number(row.topups_count) > 0);
+
+    // Build risk indicators array
+    const riskFlags: string[] = [];
+    if (!row.email_verified) riskFlags.push('UNVERIFIED_EMAIL');
+    if (row.is_banned) riskFlags.push('BANNED_ACCOUNT');
+    if (row.shares_ip_with_referrer) riskFlags.push('SAME_IP_AS_REFERRER');
+    if (row.shares_device_with_referrer) riskFlags.push('SAME_DEVICE_AS_REFERRER');
+    if (row.is_mutual_referral) riskFlags.push('MUTUAL_CROSS_REFERRAL');
+    if (row.is_rapid_burst) riskFlags.push('RAPID_BURST_REGISTRATION');
+
+    return {
+      referralId: row.referral_id,
+      refereeId: row.referee_id,
+      name: row.referee_name || 'بدون اسم',
+      email: row.referee_email,
+      referralCodeUsed: referrer.referral_code,
+      registeredAt: row.referral_date,
+      isQualified,
+      hasDeposited,
+      ordersCount: Number(row.orders_count || 0),
+      topupsCount: Number(row.topups_count || 0),
+      totalSpent: Number(row.total_spent || 0),
+      referrerRewardAmount: Number(row.referrer_reward_amount || 0),
+      referrerRewardPaid: Boolean(row.referrer_reward_paid),
+      refereeRewardAmount: Number(row.referee_reward_amount || 0),
+      refereeRewardPaid: Boolean(row.referee_reward_paid),
+      accountStatus: row.is_banned ? 'BANNED' : 'ACTIVE',
+      riskFlags
+    };
+  });
+
+  return {
+    referrer: {
+      userId: referrer.id,
+      name: referrer.name || 'بدون اسم',
+      email: referrer.email,
+      referralCode: referrer.referral_code
+    },
+    referees,
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages
+    }
+  };
+}
+
+/**
+ * Public Leaderboard for Customers:
+ * Strictly strips emails, user IDs, and sensitive data.
+ * Formats friendly masked display names and podium badges.
+ */
+export async function getPublicReferralLeaderboard(limitCount = 50) {
+  const safeLimit = Math.min(100, Math.max(10, limitCount));
+
+  const res = await pool.query(`
+    WITH ranked_stats AS (
+      SELECT 
+        u.id AS referrer_id,
+        u.name,
+        u.referral_code,
+        COUNT(r.id)::int AS total_referrals,
+        COUNT(r.id) FILTER (
+          WHERE ref_user."emailVerified" = true 
+          AND NOT EXISTS (SELECT 1 FROM user_bans ub WHERE ub.user_id = ref_user.id AND ub.status = 'ACTIVE')
+        )::int AS qualified_referrals,
+        COUNT(DISTINCT r.referee_id) FILTER (
+          WHERE EXISTS (SELECT 1 FROM "Order" o WHERE o."userId" = r.referee_id AND o.status = 'COMPLETED')
+             OR EXISTS (SELECT 1 FROM "topup_requests" tr WHERE tr.user_id = r.referee_id AND tr.status = 'APPROVED')
+        )::int AS paying_referrals,
+        (
+          COALESCE((
+            SELECT SUM(o.amount)
+            FROM "Order" o
+            JOIN "referrals" r_sub ON r_sub.referee_id = o."userId"
+            WHERE r_sub.referrer_id = u.id AND o.status = 'COMPLETED'
+          ), 0) +
+          COALESCE((
+            SELECT SUM(tr.amount_sdg)
+            FROM "topup_requests" tr
+            JOIN "referrals" r_sub ON r_sub.referee_id = tr.user_id
+            WHERE r_sub.referrer_id = u.id AND tr.status = 'APPROVED'
+          ), 0)
+        )::numeric AS referral_revenue,
+        MIN(r.created_at) AS first_referral_date
+      FROM "User" u
+      JOIN "referrals" r ON r.referrer_id = u.id
+      JOIN "User" ref_user ON ref_user.id = r.referee_id
+      WHERE NOT EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE')
+      GROUP BY u.id, u.name, u.referral_code
+      HAVING COUNT(r.id) FILTER (
+        WHERE ref_user."emailVerified" = true 
+        AND NOT EXISTS (SELECT 1 FROM user_bans ub WHERE ub.user_id = ref_user.id AND ub.status = 'ACTIVE')
+      ) > 0
+    )
+    SELECT 
+      DENSE_RANK() OVER (ORDER BY qualified_referrals DESC, paying_referrals DESC, referral_revenue DESC, first_referral_date ASC) as rank,
+      name,
+      referral_code,
+      total_referrals,
+      qualified_referrals
+    FROM ranked_stats
+    ORDER BY rank ASC
+    LIMIT $1
+  `, [safeLimit]);
+
+  return res.rows.map(row => {
+    const rankNum = Number(row.rank);
+    let badge: string | null = null;
+    if (rankNum === 1) badge = '🥇';
+    else if (rankNum === 2) badge = '🥈';
+    else if (rankNum === 3) badge = '🥉';
+
+    // Mask display name (e.g. "Ahmed M." or "Ali ***")
+    let displayName = 'صديق كيرو برو';
+    if (row.name && row.name.trim()) {
+      const parts = row.name.trim().split(/\s+/);
+      if (parts.length === 1) {
+        displayName = parts[0];
+      } else {
+        displayName = `${parts[0]} ${parts[1].charAt(0)}.`;
+      }
+    }
+
+    return {
+      rank: rankNum,
+      badge,
+      displayName,
+      referralCode: row.referral_code,
+      qualifiedReferrals: Number(row.qualified_referrals || 0),
+      totalReferrals: Number(row.total_referrals || 0)
+    };
+  });
+}
+
+/**
+ * Get logged-in user's position in the referral competition:
+ * - Current rank
+ * - Total referrals & Qualified referrals
+ * - Referral code
+ * - Number of qualified referrals needed to surpass previous rank
+ */
+export async function getUserLeaderboardRank(userId: string) {
+  // Fetch user code
+  const userRes = await pool.query('SELECT id, referral_code, name FROM "User" WHERE id = $1', [userId]);
+  const user = userRes.rows[0];
+  if (!user) throw new Error('المستخدم غير موجود');
+
+  // Compute full ranking
+  const rankingRes = await pool.query(`
+    WITH ranked_stats AS (
+      SELECT 
+        u.id AS referrer_id,
+        u.referral_code,
+        COUNT(r.id)::int AS total_referrals,
+        COUNT(r.id) FILTER (
+          WHERE ref_user."emailVerified" = true 
+          AND NOT EXISTS (SELECT 1 FROM user_bans ub WHERE ub.user_id = ref_user.id AND ub.status = 'ACTIVE')
+        )::int AS qualified_referrals,
+        COUNT(DISTINCT r.referee_id) FILTER (
+          WHERE EXISTS (SELECT 1 FROM "Order" o WHERE o."userId" = r.referee_id AND o.status = 'COMPLETED')
+             OR EXISTS (SELECT 1 FROM "topup_requests" tr WHERE tr.user_id = r.referee_id AND tr.status = 'APPROVED')
+        )::int AS paying_referrals,
+        (
+          COALESCE((
+            SELECT SUM(o.amount)
+            FROM "Order" o
+            JOIN "referrals" r_sub ON r_sub.referee_id = o."userId"
+            WHERE r_sub.referrer_id = u.id AND o.status = 'COMPLETED'
+          ), 0) +
+          COALESCE((
+            SELECT SUM(tr.amount_sdg)
+            FROM "topup_requests" tr
+            JOIN "referrals" r_sub ON r_sub.referee_id = tr.user_id
+            WHERE r_sub.referrer_id = u.id AND tr.status = 'APPROVED'
+          ), 0)
+        )::numeric AS referral_revenue,
+        MIN(r.created_at) AS first_referral_date
+      FROM "User" u
+      JOIN "referrals" r ON r.referrer_id = u.id
+      JOIN "User" ref_user ON ref_user.id = r.referee_id
+      WHERE NOT EXISTS(SELECT 1 FROM user_bans ub WHERE ub.user_id = u.id AND ub.status = 'ACTIVE')
+      GROUP BY u.id, u.referral_code
+    )
+    SELECT 
+      DENSE_RANK() OVER (ORDER BY qualified_referrals DESC, paying_referrals DESC, referral_revenue DESC, first_referral_date ASC) as rank,
+      referrer_id,
+      referral_code,
+      total_referrals,
+      qualified_referrals
+    FROM ranked_stats
+    ORDER BY rank ASC
+  `);
+
+  const allRanks = rankingRes.rows;
+  const userIdx = allRanks.findIndex(r => r.referrer_id === userId);
+
+  if (userIdx === -1) {
+    // User has 0 referrals yet
+    return {
+      hasRank: false,
+      currentRank: null,
+      totalReferrals: 0,
+      qualifiedReferrals: 0,
+      referralCode: user.referral_code,
+      neededToOvertake: 1,
+      targetRank: allRanks.length > 0 ? Number(allRanks[allRanks.length - 1].rank) : 1,
+      message: 'شارك كود الإحالة الخاص بك الآن مع أصدقائك وادخل قائمة المتصدرين!'
+    };
+  }
+
+  const currentUser = allRanks[userIdx];
+  const currentRank = Number(currentUser.rank);
+  const userQualified = Number(currentUser.qualified_referrals);
+
+  if (currentRank === 1) {
+    return {
+      hasRank: true,
+      currentRank: 1,
+      totalReferrals: Number(currentUser.total_referrals),
+      qualifiedReferrals: userQualified,
+      referralCode: currentUser.referral_code,
+      neededToOvertake: 0,
+      targetRank: null,
+      message: 'أنت تتصدر المركز الأول في مسابقة الإحالات! 🏆🔥'
+    };
+  }
+
+  // Find user ranked immediately above (at rank - 1)
+  const prevUser = allRanks.find(r => Number(r.rank) === currentRank - 1);
+  const prevQualified = prevUser ? Number(prevUser.qualified_referrals) : userQualified + 1;
+  const needed = Math.max(1, (prevQualified - userQualified) + 1);
+
+  return {
+    hasRank: true,
+    currentRank,
+    totalReferrals: Number(currentUser.total_referrals),
+    qualifiedReferrals: userQualified,
+    referralCode: currentUser.referral_code,
+    neededToOvertake: needed,
+    targetRank: currentRank - 1,
+    message: `تحتاج ${needed} إحالة مؤهلة لتتجاوز المركز #${currentRank - 1}`
+  };
+}

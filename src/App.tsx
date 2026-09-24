@@ -11,6 +11,7 @@ import { AccountPage } from './pages/Account/AccountPage';
 import { ReviewPage } from './pages/Review/ReviewPage';
 import { AllReviewsPage } from './pages/Review/AllReviewsPage';
 import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
+import { LeaderboardPage } from './pages/Leaderboard/LeaderboardPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 
@@ -24,6 +25,18 @@ const AppContent: React.FC = () => {
 
   if (maintenanceMode && !isAdmin) {
     return <MaintenancePage onCheckStatus={checkMaintenanceStatus} />;
+  }
+
+  const isLeaderboardPath = typeof window !== 'undefined' && (
+    window.location.pathname === '/leaderboard' || currentView === 'leaderboard'
+  );
+
+  if (isLeaderboardPath) {
+    return (
+      <MainLayout>
+        <LeaderboardPage />
+      </MainLayout>
+    );
   }
 
   const isUsdtPath = typeof window !== 'undefined' && (

@@ -12,8 +12,10 @@ import {
   Clock,
   UserCheck,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Trophy
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ReferralConfig, generateReferralCopy } from '../../utils/referralText';
 
@@ -49,6 +51,7 @@ interface UserReferralData {
 }
 
 export const ReferralCard: React.FC = () => {
+  const { navigateTo } = useAuth();
   const [data, setData] = useState<UserReferralData | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -160,7 +163,29 @@ export const ReferralCard: React.FC = () => {
           <Flame size={15} color="#f97316" />
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => navigateTo('leaderboard')}
+            style={{
+              background: 'linear-gradient(135deg, #FACC15 0%, #EAB308 100%)',
+              color: '#0B0F19',
+              border: 'none',
+              borderRadius: '999px',
+              padding: '6px 14px',
+              fontSize: '0.8rem',
+              fontWeight: 900,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              boxShadow: '0 2px 6px rgba(234, 179, 8, 0.3)'
+            }}
+          >
+            <Trophy size={14} />
+            <span>لوحة المتصدرين</span>
+          </button>
+
           {data?.hasReferrer && (
             <span style={{
               display: 'inline-flex',

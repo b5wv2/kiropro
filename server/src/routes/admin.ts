@@ -4,7 +4,12 @@ import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
-import { processReferralRewardOnOrder } from '../services/referralService';
+import { 
+  processReferralRewardOnOrder, 
+  getAdminReferralStats, 
+  getAdminReferralLeaderboard, 
+  getAdminReferrerDetails 
+} from '../services/referralService';
 import { getOrCreateOrderReviewToken, createGeneralReviewToken } from '../services/reviewTokenService';
 import { executeOrderWithProvider } from '../services/orderExecutionService';
 import { validatePlayerAccount } from '../services/playerValidationService';
@@ -2070,6 +2075,82 @@ router.get('/security/stats', requireAdmin, async (req: AuthRequest, res: Respon
   } catch (err: any) {
     console.error('Error fetching security stats:', err);
     res.status(500).json({ error: 'فشل تحميل إحصائيات الأمان.' });
+  }
+});
+
+// ====================================================================
+// REFERRAL LEADERBOARD & STATS (ADMIN)
+// ====================================================================
+
+// GET /api/admin/referrals/stats
+router.get('/referrals/stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const stats = await getAdminReferralStats();
+    res.json(stats);
+  } catch (err: any) {
+    console.error('[AdminReferrals] Failed to fetch referral stats:', err.message);
+    res.status(500).json({ error: 'تعذر جلب إحصائيات الإحالات' });
+  }
+});
+
+// GET /api/admin/referrals/leaderboard
+router.get('/referrals/leaderboard', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      page,
+      limit,
+      search,
+      status,
+      minReferrals,
+      hasDeposited,
+      sortBy,
+      sortOrder,
+      startDate,
+      endDate
+    } = req.query;
+
+    const data = await getAdminReferralLeaderboard({
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+      search: search ? String(search) : undefined,
+      status: status ? (status as any) : undefined,
+      minReferrals: minReferrals ? Number(minReferrals) : undefined,
+      hasDeposited: hasDeposited ? (hasDeposited as any) : undefined,
+      sortBy: sortBy ? (sortBy as any) : undefined,
+      sortOrder: sortOrder ? (sortOrder as any) : undefined,
+      startDate: startDate ? String(startDate) : undefined,
+      endDate: endDate ? String(endDate) : undefined
+    });
+
+    res.json(data);
+  } catch (err: any) {
+    console.error('[AdminReferrals] Failed to fetch leaderboard:', err.message);
+    res.status(500).json({ error: 'تعذر جلب جدول المتصدرين' });
+  }
+});
+
+// GET /api/admin/referrals/:userId or /api/admin/referrals/:userId/referees
+router.get('/referrals/:userId', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { page, limit, search, isQualified, hasDeposited } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'معرف المستخدم مطلوب' });
+    }
+
+    const data = await getAdminReferrerDetails(String(userId), {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+      search: search ? String(search) : undefined,
+      isQualified: isQualified ? (isQualified as any) : undefined,
+      hasDeposited: hasDeposited ? (hasDeposited as any) : undefined
+    });
+
+    res.json(data);
+  } catch (err: any) {
+    console.error('[AdminReferrals] Failed to fetch referrer details:', err.message);
+    res.status(500).json({ error: err.message || 'تعذر جلب تفاصيل المدعوين' });
   }
 });
 

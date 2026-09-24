@@ -16,13 +16,15 @@ import {
   CreditCard,
   Coins,
   Star,
-  ShieldCheck
+  ShieldCheck,
+  Trophy
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export type AdminTab = 
   | 'dashboard' 
   | 'customers' 
+  | 'referrals'
   | 'orders' 
   | 'crypto'
   | 'topups'
@@ -55,6 +57,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const navItems: { id: AdminTab; label: string; icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }> }[] = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
     { id: 'customers', label: 'العملاء', icon: Users },
+    { id: 'referrals', label: 'متصدرين الإحالات', icon: Trophy },
     { id: 'orders', label: 'الطلبات', icon: ShoppingCart },
     { id: 'crypto', label: 'إدارة USDT والتحويل', icon: Coins },
     { id: 'topups', label: 'طلبات الشحن البنكي', icon: ArrowDownCircle },

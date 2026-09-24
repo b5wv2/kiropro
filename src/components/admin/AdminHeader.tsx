@@ -20,6 +20,8 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
         return { title: 'لوحة التحكم الرئيسية', subtitle: 'نظرة عامة على أداء المنصة والإحصائيات الحية' };
       case 'customers':
         return { title: 'إدارة العملاء', subtitle: 'قائمة المستخدمين المسجلين، الأرصدة، وتفاصيل الحسابات' };
+      case 'referrals':
+        return { title: 'متصدرين الإحالات والمسابقات', subtitle: 'إحصائيات الإحالات، المتصدرين، وتدقيق المدعوين وعمليات الشحن' };
       case 'orders':
         return { title: 'إدارة الطلبات والشحن', subtitle: 'متابعة الطلبات المباشرة، التنفيذ اليدوي والاسترجاع' };
       case 'topups':

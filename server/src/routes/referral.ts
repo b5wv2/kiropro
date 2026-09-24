@@ -6,7 +6,12 @@ import {
   updateReferralSettings,
   getUserReferralDetails,
   bindReferralCode,
-  getReferralCopy
+  getReferralCopy,
+  getAdminReferralStats,
+  getAdminReferralLeaderboard,
+  getAdminReferrerDetails,
+  getPublicReferralLeaderboard,
+  getUserLeaderboardRank
 } from '../services/referralService';
 
 const router = Router();
@@ -179,4 +184,120 @@ router.patch('/admin/settings', requireAdmin, async (req: AuthRequest, res: Resp
   }
 });
 
+/**
+ * GET /api/referral/leaderboard
+ * Public customer leaderboard endpoint: safe, stripped of private data
+ */
+router.get('/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const leaderboard = await getPublicReferralLeaderboard(limit);
+    res.json(leaderboard);
+  } catch (err: any) {
+    console.error('[ReferralRoute] Failed to get public leaderboard:', err.message);
+    res.status(500).json({ error: 'تعذر جلب قائمة المتصدرين' });
+  }
+});
+
+/**
+ * GET /api/referral/my-rank
+ * Authenticated customer endpoint: retrieves user's position in the competition
+ */
+router.get('/my-rank', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'يرجى تسجيل الدخول أولاً' });
+    }
+
+    const rankData = await getUserLeaderboardRank(userId);
+    res.json(rankData);
+  } catch (err: any) {
+    console.error('[ReferralRoute] Failed to get user rank:', err.message);
+    res.status(500).json({ error: 'تعذر جلب ترتيبك في المسابقة' });
+  }
+});
+
+/**
+ * GET /api/referral/admin/leaderboard/stats
+ * Admin endpoint: retrieves dynamic summary stats cards
+ */
+router.get('/admin/leaderboard/stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const stats = await getAdminReferralStats();
+    res.json(stats);
+  } catch (err: any) {
+    console.error('[ReferralRoute] Failed to get admin referral stats:', err.message);
+    res.status(500).json({ error: 'تعذر جلب إحصائيات الإحالات للمشرف' });
+  }
+});
+
+/**
+ * GET /api/referral/admin/leaderboard
+ * Admin endpoint: retrieves full leaderboard with pagination and filters
+ */
+router.get('/admin/leaderboard', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      page,
+      limit,
+      search,
+      status,
+      minReferrals,
+      hasDeposited,
+      sortBy,
+      sortOrder,
+      startDate,
+      endDate
+    } = req.query;
+
+    const data = await getAdminReferralLeaderboard({
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+      search: search ? String(search) : undefined,
+      status: status ? (status as any) : undefined,
+      minReferrals: minReferrals ? Number(minReferrals) : undefined,
+      hasDeposited: hasDeposited ? (hasDeposited as any) : undefined,
+      sortBy: sortBy ? (sortBy as any) : undefined,
+      sortOrder: sortOrder ? (sortOrder as any) : undefined,
+      startDate: startDate ? String(startDate) : undefined,
+      endDate: endDate ? String(endDate) : undefined
+    });
+
+    res.json(data);
+  } catch (err: any) {
+    console.error('[ReferralRoute] Failed to get admin leaderboard:', err.message);
+    res.status(500).json({ error: 'تعذر جلب جدول المتصدرين للمشرف' });
+  }
+});
+
+/**
+ * GET /api/referral/admin/referrer/:referrerId/referees
+ * Admin endpoint: retrieves details of all referees under a specific referrer with fraud risk indicators
+ */
+router.get('/admin/referrer/:referrerId/referees', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { referrerId } = req.params;
+    const { page, limit, search, isQualified, hasDeposited } = req.query;
+
+    if (!referrerId) {
+      return res.status(400).json({ error: 'معرف الداعي مطلوب' });
+    }
+
+    const data = await getAdminReferrerDetails(String(referrerId), {
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+      search: search ? String(search) : undefined,
+      isQualified: isQualified ? (isQualified as any) : undefined,
+      hasDeposited: hasDeposited ? (hasDeposited as any) : undefined
+    });
+
+    res.json(data);
+  } catch (err: any) {
+    console.error('[ReferralRoute] Failed to get referrer details:', err.message);
+    res.status(500).json({ error: err.message || 'تعذر جلب تفاصيل المدعوين' });
+  }
+});
+
 export default router;
+
