@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Hero } from '../../components/Hero/Hero';
 import { GameCard } from '../../components/GameCard/GameCard';
 import { UsdtCard, UsdtCardConfig } from '../../components/GameCard/UsdtCard';
+import { VirtualNumberCard } from '../../components/GameCard/VirtualNumberCard';
 import { DealsBanner } from '../../components/Deals/DealsBanner';
 import { ReferralPromoBanner } from '../../components/Referral/ReferralPromoBanner';
 import { HowItWorks } from '../../components/HowItWorks/HowItWorks';
@@ -17,6 +18,7 @@ const CATEGORIES = [
   { id: 'all', name: 'الكل ✨' },
   { id: 'games', name: '🎮 الألعاب الإلكترونية' },
   { id: 'apps', name: '📱 تطبيقات البث والدردشة' },
+  { id: 'numbers', name: '📱 الأرقام الافتراضية' },
   { id: 'digital', name: '⭐ نجوم تيليجرام' },
   { id: 'subscriptions', name: '👑 الاشتراكات الرقمية' },
   { id: 'transfers', name: '⚡ تحويلات USDT' }
@@ -73,7 +75,7 @@ export const HomePage: React.FC = () => {
   // Filter games based on activeCategory and search
   const filteredGames = games.filter(game => {
     let matchesCat = activeCategory === 'all';
-    if (activeCategory === 'transfers') {
+    if (activeCategory === 'transfers' || activeCategory === 'numbers') {
       matchesCat = false;
     } else if (activeCategory === 'games') {
       // Strictly real gaming products! Exclude Likee and Telegram
@@ -121,6 +123,19 @@ export const HomePage: React.FC = () => {
     'polygon'.includes(searchQuery.toLowerCase());
 
   const showUsdtCard = matchesUsdtCategory && matchesUsdtSearch;
+
+  // Determine whether Virtual Numbers card should be displayed based on filters
+  const matchesNumbersCategory = activeCategory === 'all' || activeCategory === 'numbers' || activeCategory === 'apps';
+  const matchesNumbersSearch = searchQuery === '' ||
+    'أرقام'.includes(searchQuery) ||
+    'رقم'.includes(searchQuery) ||
+    'افتراضية'.includes(searchQuery) ||
+    'virtual'.includes(searchQuery.toLowerCase()) ||
+    'whatsapp'.includes(searchQuery.toLowerCase()) ||
+    'واتساب'.includes(searchQuery) ||
+    'otp'.includes(searchQuery.toLowerCase());
+
+  const showNumbersCard = matchesNumbersCategory && matchesNumbersSearch;
   const isDefaultOverview = activeCategory === 'all' && searchQuery.trim() === '';
 
   return (
@@ -241,7 +256,7 @@ export const HomePage: React.FC = () => {
               )}
 
               {/* SECTION 2: Digital Apps & Subscriptions */}
-              {(onlyDigitalAndAppsList.length > 0 || showUsdtCard) && (
+              {(onlyDigitalAndAppsList.length > 0 || showUsdtCard || showNumbersCard) && (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
@@ -255,7 +270,7 @@ export const HomePage: React.FC = () => {
                         </span>
                       </div>
                       <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-                        شحن ماسات Likee، نجوم تيليجرام Telegram Stars، واشتراكات بريميوم الرسمية
+                        شحن ماسات Likee، نجوم تيليجرام Telegram Stars، واشتراكات بريميوم والأرقام الافتراضية
                       </p>
                     </div>
                   </div>
@@ -266,6 +281,13 @@ export const HomePage: React.FC = () => {
                       <UsdtCard
                         config={usdtConfig}
                         onSelect={() => navigateTo('usdt')}
+                      />
+                    )}
+
+                    {/* Virtual Numbers Instant OTP Card */}
+                    {showNumbersCard && (
+                      <VirtualNumberCard
+                        onSelect={() => navigateTo('virtual-numbers')}
                       />
                     )}
 
@@ -280,7 +302,7 @@ export const HomePage: React.FC = () => {
                 </div>
               )}
             </div>
-          ) : (filteredGames.length > 0 || showUsdtCard) ? (
+          ) : (filteredGames.length > 0 || showUsdtCard || showNumbersCard) ? (
             /* FILTERED / SEARCH VIEW */
             <div className="games-grid">
               {/* USDT Instant Transfer Card */}
@@ -288,6 +310,13 @@ export const HomePage: React.FC = () => {
                 <UsdtCard
                   config={usdtConfig}
                   onSelect={() => navigateTo('usdt')}
+                />
+              )}
+
+              {/* Virtual Numbers Instant OTP Card */}
+              {showNumbersCard && (
+                <VirtualNumberCard
+                  onSelect={() => navigateTo('virtual-numbers')}
                 />
               )}
 

@@ -1,0 +1,698 @@
+/* ==========================================================================
+   KiroPro Virtual Numbers - High-Contrast Gaming Store Theme
+   ========================================================================== */
+
+.pageContainer {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+  direction: rtl;
+}
+
+/* Compact Header (Replaces Giant Hero) */
+.compactHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 28px;
+}
+
+.headerMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.headerTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerTitle {
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.headerBadge {
+  font-size: 0.75rem;
+  font-weight: 800;
+  background: var(--accent-yellow);
+  color: #0B0F19;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.headerSubtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* Subtle Promo / Balance Pill */
+.headerPills {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.promoPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #FEF3C7;
+  border: 1px solid #F59E0B;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #92400E;
+}
+
+.balancePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.balancePill strong {
+  color: #D97706;
+  font-weight: 900;
+}
+
+/* Steps Wrapper */
+.stepSection {
+  margin-bottom: 32px;
+}
+
+.stepHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stepTitleBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepNumber {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-yellow);
+  color: #0B0F19;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 0.9rem;
+}
+
+.stepTitle {
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.stepHint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Step 1: Countries Grid (Mobile 2 Columns)
+   ========================================================================== */
+.countriesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .countriesGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+}
+
+.countryCard {
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  text-align: center;
+}
+
+.countryCard:hover {
+  transform: translateY(-2px);
+  border-color: #CBD5E1;
+  box-shadow: var(--shadow-sm);
+}
+
+.countryCardActive {
+  background: #FFFDF0;
+  border-color: var(--accent-yellow);
+  box-shadow: 0 4px 16px rgba(255, 230, 0, 0.25), 0 0 0 1px var(--accent-yellow);
+}
+
+.countryFlag {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.countryName {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.countryCardActive .countryName {
+  color: #0B0F19;
+  font-weight: 900;
+}
+
+/* ==========================================================================
+   Step 2: Service Category Pills
+   ========================================================================== */
+.servicesWrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.servicePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.servicePill:hover {
+  background: #E2E8F0;
+  color: var(--text-primary);
+  border-color: #CBD5E1;
+}
+
+.servicePillActive {
+  background: var(--accent-yellow);
+  border-color: var(--accent-yellow);
+  color: #0B0F19;
+  box-shadow: 0 4px 14px rgba(255, 230, 0, 0.35);
+  font-weight: 900;
+}
+
+/* ==========================================================================
+   Step 3: Provider Cards (High Contrast, Bold, Clear)
+   ========================================================================== */
+.providersGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .providersGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.providerCard {
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.providerCard:hover {
+  transform: translateY(-3px);
+  border-color: #FBBF24;
+  box-shadow: var(--shadow-md);
+}
+
+.providerCardActive {
+  background: #FFFEF5;
+  border-color: #F59E0B;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25), 0 0 0 2px #F59E0B;
+}
+
+.providerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.providerTitleBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.providerIconBox {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #FEF3C7;
+  color: #D97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+}
+
+.providerName {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.radioIndicator {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #CBD5E1;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.providerCardActive .radioIndicator {
+  border-color: #F59E0B;
+  background: #F59E0B;
+}
+
+.radioDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0B0F19;
+}
+
+/* Provider Meta Attributes (High Contrast!) */
+.providerDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-primary);
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.providerMetaRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.metaLabel {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.metaValueSuccess {
+  color: #059669;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metaValueStock {
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.etaBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #92400E;
+  font-weight: 700;
+}
+
+/* Provider Footer & Price */
+.providerFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 14px;
+  gap: 12px;
+}
+
+.priceCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.priceLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.priceOriginalStriked {
+  text-decoration: line-through;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.priceValueMain {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  font-family: var(--font-latin), var(--font-arabic);
+}
+
+.currencyUnit {
+  font-size: 0.85rem;
+  color: #D97706;
+  margin-right: 4px;
+}
+
+.freeTag {
+  color: #059669;
+  font-weight: 900;
+  font-size: 1.25rem;
+}
+
+.selectBtn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 18px;
+  font-size: 0.9rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.selectBtnSelected {
+  background: var(--accent-yellow);
+  color: #0B0F19;
+  border-color: var(--accent-yellow);
+  box-shadow: 0 4px 12px rgba(255, 230, 0, 0.4);
+}
+
+/* ==========================================================================
+   Step 4: Active Order Card (Huge Numbers, Clear Status, Big Copy Buttons)
+   ========================================================================== */
+.activeOrderCard {
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent-yellow);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  margin-bottom: 32px;
+  box-shadow: var(--shadow-lg);
+}
+
+.activeOrderHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.activeOrderMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+/* Big Number Display */
+.numberDisplayBox {
+  background: #0F172A;
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  border: 1px solid #1E293B;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.4);
+}
+
+.numberLabel {
+  font-size: 0.9rem;
+  color: #94A3B8;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.numberText {
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #FFFFFF;
+  direction: ltr;
+  display: inline-block;
+  font-family: var(--font-latin), monospace;
+}
+
+@media (max-width: 640px) {
+  .numberText {
+    font-size: 1.6rem;
+  }
+}
+
+.copyBtn {
+  background: var(--accent-yellow);
+  color: #0B0F19;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(255, 230, 0, 0.35);
+}
+
+.copyBtnCopied {
+  background: #10B981;
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+}
+
+/* Glowing OTP Box when Code Arrives */
+.otpArrivedBox {
+  background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+  border: 2px solid #10B981;
+  border-radius: var(--radius-lg);
+  padding: 28px 20px;
+  text-align: center;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.25);
+}
+
+.otpTitle {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #065F46;
+  margin: 0 0 10px 0;
+}
+
+.otpCodeValue {
+  font-size: 3.2rem;
+  font-weight: 900;
+  color: #064E3B;
+  letter-spacing: 10px;
+  margin: 12px 0;
+  font-family: var(--font-latin), monospace;
+}
+
+@media (max-width: 640px) {
+  .otpCodeValue {
+    font-size: 2.4rem;
+    letter-spacing: 6px;
+  }
+}
+
+.copyOtpBtn {
+  background: #059669;
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 14px 36px;
+  font-size: 1.1rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 6px 18px rgba(5, 150, 105, 0.4);
+  transition: all 0.2s ease;
+}
+
+.copyOtpBtn:hover {
+  background: #047857;
+  transform: translateY(-2px);
+}
+
+/* Waiting State Timer Box */
+.waitingTimerBox {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+}
+
+.timerLabel {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #78350F;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timerDigits {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #B45309;
+  font-family: var(--font-latin), monospace;
+}
+
+.timerNote {
+  font-size: 0.85rem;
+  color: #92400E;
+}
+
+/* Sticky Action Bar */
+.bottomActionCard {
+  position: sticky;
+  bottom: 20px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent-yellow);
+  border-radius: var(--radius-lg);
+  padding: 16px 24px;
+  box-shadow: 0 12px 36px rgba(11, 15, 25, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  z-index: 40;
+}
+
+.actionSelectionSummary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.summaryPrice {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.orderSubmitBtn {
+  background: var(--accent-yellow);
+  color: #0B0F19;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 32px;
+  font-size: 1.05rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-yellow);
+}
+
+.orderSubmitBtn:hover:not(:disabled) {
+  background: var(--accent-yellow-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-yellow-hover);
+}
+
+.orderSubmitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
