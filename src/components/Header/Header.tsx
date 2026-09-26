@@ -91,6 +91,26 @@ export const Header: React.FC = () => {
           >
             العروض
           </a>
+          <button
+            type="button"
+            className={styles.navLink}
+            onClick={() => navigateTo('virtual-numbers')}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              color: 'var(--accent-yellow)',
+              fontWeight: 800,
+              padding: '4px 8px',
+              borderRadius: 6
+            }}
+          >
+            <span>الأرقام الافتراضية</span>
+            <span style={{ fontSize: '0.65rem', background: '#F59E0B', color: '#0B0F19', padding: '1px 5px', borderRadius: 4, fontWeight: 900 }}>جديد</span>
+          </button>
           <a
             href="#footer"
             className={styles.navLink}

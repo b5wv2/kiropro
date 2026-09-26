@@ -12,6 +12,7 @@ import { ReviewPage } from './pages/Review/ReviewPage';
 import { AllReviewsPage } from './pages/Review/AllReviewsPage';
 import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
 import { LeaderboardPage } from './pages/Leaderboard/LeaderboardPage';
+import { VirtualNumbersPage } from './pages/VirtualNumbers/VirtualNumbersPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 
@@ -35,6 +36,18 @@ const AppContent: React.FC = () => {
     return (
       <MainLayout>
         <LeaderboardPage />
+      </MainLayout>
+    );
+  }
+
+  const isVirtualNumbersPath = typeof window !== 'undefined' && (
+    window.location.pathname === '/virtual-numbers' || currentView === 'virtual-numbers'
+  );
+
+  if (isVirtualNumbersPath) {
+    return (
+      <MainLayout>
+        <VirtualNumbersPage />
       </MainLayout>
     );
   }
@@ -141,6 +154,7 @@ const AppContent: React.FC = () => {
         {currentView === 'forgot-password' && <ForgotPasswordPage />}
         {currentView === 'account' && <AccountPage />}
         {currentView === 'usdt' && <UsdtTransferPage />}
+        {currentView === 'virtual-numbers' && <VirtualNumbersPage />}
       </MainLayout>
     </>
   );

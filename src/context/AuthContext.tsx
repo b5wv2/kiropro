@@ -28,8 +28,8 @@ interface AuthContextType {
   quickLogin: () => Promise<AuthResult>;
   checkAdminSession: () => Promise<{ hasValidAdminSession: boolean; email?: string }>;
   logout: () => Promise<void>;
-  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard';
-  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard') => void;
+  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers';
+  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers') => void;
   isAccountMenuOpen: boolean;
   setIsAccountMenuOpen: (open: boolean) => void;
 }
@@ -63,7 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(getInitialMaintenanceMode);
   const [contactChannels, setContactChannels] = useState<ContactChannel[]>([]);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState<ContactChannel | null>(null);
-  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers'>('home');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
   const refreshContactChannels = async () => {
@@ -113,6 +113,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentView('usdt');
         } else if (window.location.pathname === '/leaderboard') {
           setCurrentView('leaderboard');
+        } else if (window.location.pathname === '/virtual-numbers') {
+          setCurrentView('virtual-numbers');
         }
 
         const [authData, settingsData] = await Promise.all([
@@ -152,6 +154,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentView('usdt');
           } else if (window.location.pathname === '/leaderboard') {
             setCurrentView('leaderboard');
+          } else if (window.location.pathname === '/virtual-numbers') {
+            setCurrentView('virtual-numbers');
           }
         } else {
           setUser(null);
@@ -173,7 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard') => {
+  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers') => {
     // Protected route check
     if (view === 'account' && !user) {
       setCurrentView('login');
@@ -198,6 +202,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         window.history.pushState(null, '', '/register');
       } else if (view === 'usdt') {
         window.history.pushState(null, '', '/usdt');
+      } else if (view === 'virtual-numbers') {
+        window.history.pushState(null, '', '/virtual-numbers');
       } else if (view === 'home') {
         window.history.pushState(null, '', '/');
       }

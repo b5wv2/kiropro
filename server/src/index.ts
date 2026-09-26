@@ -25,7 +25,10 @@ import cryptoRoutes from './routes/crypto';
 import adminCryptoRoutes from './routes/adminCrypto';
 import internalTelegramRoutes from './routes/internalTelegram';
 import referralRoutes from './routes/referral';
+import virtualNumbersRoutes from './routes/virtualNumbers';
+import adminVirtualNumbersRoutes from './routes/adminVirtualNumbers';
 import { orderPollingService } from './services/orderPollingService';
+import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
 import { catalogSyncService } from './services/catalogSyncService';
 import pool from './db';
@@ -232,6 +235,8 @@ app.use('/api/crypto/usdt', banCheckMiddleware, cryptoRoutes);
 app.use('/api/admin/crypto', adminCryptoRoutes);
 app.use('/api/internal/telegram', internalTelegramRoutes);
 app.use('/api/referral', banCheckMiddleware, referralRoutes);
+app.use('/api/virtual-numbers', banCheckMiddleware, virtualNumbersRoutes);
+app.use('/api/admin/virtual-numbers', adminVirtualNumbersRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {
@@ -318,6 +323,8 @@ const server = app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   // Start background order polling service (7-second interval)
   orderPollingService.start();
+  // Start background virtual number polling service (4-second interval)
+  virtualNumberPollingService.start();
 
   // Start embedded Telegram Bot service with error isolation
   try {
@@ -344,6 +351,12 @@ function gracefulShutdown(signal: string) {
     orderPollingService.stop();
   } catch (err: any) {
     console.warn('[Server] Error stopping orderPollingService:', err.message);
+  }
+
+  try {
+    virtualNumberPollingService.stop();
+  } catch (err: any) {
+    console.warn('[Server] Error stopping virtualNumberPollingService:', err.message);
   }
 
   try {

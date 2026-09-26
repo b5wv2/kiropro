@@ -15,12 +15,14 @@ import {
   Key,
   Coins,
   History,
-  Star
+  Star,
+  Smartphone
 } from 'lucide-react';
 import { PromoRedemptionCard } from '../../components/Promo/PromoRedemptionCard';
 import { ReferralCard } from '../../components/Referral/ReferralCard';
 import { ReviewModal } from '../../components/Modal/ReviewModal';
 import { fetchMyOrders, fetchOrderById } from '../../services/api';
+import { fetchMyVirtualNumberOrders, cancelVirtualNumberOrder, VirtualNumberOrder } from '../../services/virtualNumberApi';
 import { Order, WalletTransaction } from '../../types';
 
 export const AccountPage: React.FC = () => {
@@ -34,10 +36,14 @@ export const AccountPage: React.FC = () => {
     topupRequests 
   } = useWallet();
 
-  const [activeAccountTab, setActiveAccountTab] = useState<'orders' | 'topups' | 'transactions' | 'cashback' | 'reviews'>('orders');
+  const [activeAccountTab, setActiveAccountTab] = useState<'orders' | 'virtual-numbers' | 'topups' | 'transactions' | 'cashback' | 'reviews'>('orders');
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
   const [userOrders, setUserOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [virtualOrders, setVirtualOrders] = useState<VirtualNumberOrder[]>([]);
+  const [loadingVirtualOrders, setLoadingVirtualOrders] = useState(false);
+  const [copiedVnCode, setCopiedVnCode] = useState<string | null>(null);
+  const [copiedVnPhone, setCopiedVnPhone] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [userReviews, setUserReviews] = useState<any[]>([]);
@@ -189,9 +195,32 @@ export const AccountPage: React.FC = () => {
     }
   };
 
+  const loadVirtualOrders = async () => {
+    setLoadingVirtualOrders(true);
+    try {
+      const data = await fetchMyVirtualNumberOrders();
+      setVirtualOrders(data || []);
+    } catch (err) {
+      console.error('Failed to load virtual number orders:', err);
+    } finally {
+      setLoadingVirtualOrders(false);
+    }
+  };
+
+  const handleCancelVirtualOrder = async (orderId: string) => {
+    if (!window.confirm('هل أنت متأكد من إلغاء الطلب واستعادة المبلغ إلى محفظتك؟')) return;
+    try {
+      await cancelVirtualNumberOrder(orderId);
+      await loadVirtualOrders();
+    } catch (err: any) {
+      alert(err.message || 'فشل إلغاء الطلب.');
+    }
+  };
+
   useEffect(() => {
     loadCashbackSummary();
     loadUserReviews();
+    loadVirtualOrders();
   }, []);
 
   useEffect(() => {
@@ -203,7 +232,9 @@ export const AccountPage: React.FC = () => {
       };
     } else {
       stopPolling();
-      if (activeAccountTab === 'transactions') {
+      if (activeAccountTab === 'virtual-numbers') {
+        loadVirtualOrders();
+      } else if (activeAccountTab === 'transactions') {
         loadTransactions();
       } else if (activeAccountTab === 'cashback') {
         loadCashbackSummary();
@@ -420,6 +451,27 @@ export const AccountPage: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setActiveAccountTab('virtual-numbers')}
+                style={{
+                  background: activeAccountTab === 'virtual-numbers' ? '#0B0F19' : 'transparent',
+                  color: activeAccountTab === 'virtual-numbers' ? '#facc15' : '#64748b',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  fontWeight: 800,
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Smartphone size={15} />
+                <span>الأرقام الافتراضية ({virtualOrders.length})</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setActiveAccountTab('topups')}
                 style={{
                   background: activeAccountTab === 'topups' ? '#0B0F19' : 'transparent',
@@ -502,6 +554,12 @@ export const AccountPage: React.FC = () => {
                 <span>تقييماتي ({userReviews.length})</span>
               </button>
             </div>
+
+            {activeAccountTab === 'virtual-numbers' && (
+              <button className="btn btn-secondary btn-sm" onClick={() => navigateTo('virtual-numbers' as any)} type="button">
+                <span>+ طلب رقم جديد 📱</span>
+              </button>
+            )}
 
             {activeAccountTab === 'topups' && (
               <button className="btn btn-secondary btn-sm" onClick={openDepositModal} type="button">
@@ -863,6 +921,247 @@ export const AccountPage: React.FC = () => {
                           }}>
                             <Zap size={14} color="#0284c7" />
                             <span>طلبك قيد المعالجة والتنفيذ التلقائي. يتم تحديث الحالة تلقائياً كل 7 ثوانٍ وسيظهر المفتاح هنا فور اكتمال الطلب.</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* VIRTUAL NUMBERS CONTENT */}
+          {activeAccountTab === 'virtual-numbers' && (
+            <div>
+              {loadingVirtualOrders ? (
+                <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b' }}>
+                  <Smartphone size={36} className="animate-spin" style={{ margin: '0 auto 12px', opacity: 0.5 }} />
+                  <p style={{ margin: 0, fontWeight: 700 }}>جاري تحميل طلبات الأرقام الافتراضية...</p>
+                </div>
+              ) : virtualOrders.length === 0 ? (
+                <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b' }}>
+                  <Smartphone size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                  <p style={{ margin: 0, fontWeight: 700 }}>لم تقم بطلب أي رقم افتراضي بعد.</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => navigateTo('virtual-numbers' as any)}
+                    style={{ marginTop: '14px' }}
+                  >
+                    طلب رقم تفعيل الآن 🚀
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {virtualOrders.map((vn) => {
+                    const isCompleted = vn.status === 'COMPLETED' || Boolean(vn.smsCode);
+                    const isWaiting = ['WAITING_FOR_NUMBER', 'NUMBER_RECEIVED', 'WAITING_FOR_CODE', 'PENDING'].includes(vn.status) && !vn.smsCode;
+
+                    return (
+                      <div
+                        key={vn.id}
+                        style={{
+                          background: '#f8fafc',
+                          border: isCompleted ? '1.5px solid #86efac' : '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          padding: '20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 12
+                        }}
+                      >
+                        {/* Header Row */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                          <div>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                              طلب رقم: #{vn.id.slice(0, 8)} • {new Date(vn.createdAt).toLocaleString('ar-EG')}
+                            </span>
+                            <h4 style={{ margin: '2px 0 0', fontSize: '1.05rem', fontWeight: 900, color: '#0B0F19' }}>
+                              {vn.serviceNameAr} — {vn.countryNameAr}
+                            </h4>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{
+                              fontWeight: 900,
+                              fontSize: '0.95rem',
+                              color: vn.isFreeAttempt ? '#16a34a' : '#0B0F19'
+                            }}>
+                              {vn.isFreeAttempt ? 'مجاناً 🎁' : `${vn.chargedAmount} ${vn.chargedCurrency}`}
+                            </span>
+
+                            <span style={{
+                              padding: '4px 12px',
+                              borderRadius: 9999,
+                              fontSize: '0.75rem',
+                              fontWeight: 800,
+                              background:
+                                isCompleted ? '#dcfce7' :
+                                vn.status === 'CANCELED' || vn.status === 'REFUNDED' ? '#fee2e2' :
+                                vn.status === 'EXPIRED' ? '#f1f5f9' :
+                                '#fef3c7',
+                              color:
+                                isCompleted ? '#166534' :
+                                vn.status === 'CANCELED' || vn.status === 'REFUNDED' ? '#991b1b' :
+                                vn.status === 'EXPIRED' ? '#475569' :
+                                '#92400e'
+                            }}>
+                              {isCompleted ? 'مكتمل ✅' :
+                               vn.status === 'WAITING_FOR_CODE' ? 'في انتظار الرمز...' :
+                               vn.status === 'WAITING_FOR_NUMBER' ? 'جاري حجز الرقم...' :
+                               vn.status === 'CANCELED' ? 'تم الإلغاء' :
+                               vn.status === 'EXPIRED' ? 'منتهي' : vn.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Phone Number Display */}
+                        {vn.phoneNumber && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: '#0B0F19',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            flexWrap: 'wrap',
+                            gap: 8
+                          }}>
+                            <div>
+                              <span style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block' }}>
+                                الرقم الافتراضي:
+                              </span>
+                              <span style={{
+                                fontFamily: 'monospace',
+                                fontSize: '1.1rem',
+                                fontWeight: 900,
+                                color: '#facc15',
+                                direction: 'ltr',
+                                display: 'inline-block'
+                              }}>
+                                {vn.phoneNumber}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(vn.phoneNumber!);
+                                setCopiedVnPhone(vn.id);
+                                setTimeout(() => setCopiedVnPhone(null), 2000);
+                              }}
+                              style={{
+                                background: copiedVnPhone === vn.id ? '#10b981' : '#334155',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6
+                              }}
+                            >
+                              {copiedVnPhone === vn.id ? <Check size={14} /> : <Copy size={14} />}
+                              <span>{copiedVnPhone === vn.id ? 'تم النسخ!' : 'نسخ الرقم'}</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Received OTP Code Display */}
+                        {vn.smsCode && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: '#f0fdf4',
+                            border: '1.5px solid #86efac',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            flexWrap: 'wrap',
+                            gap: 8
+                          }}>
+                            <div>
+                              <span style={{ fontSize: '0.725rem', color: '#166534', display: 'block', fontWeight: 700 }}>
+                                رمز التحقق المستلم (Verification Code):
+                              </span>
+                              <span style={{
+                                fontFamily: 'monospace',
+                                fontSize: '1.3rem',
+                                fontWeight: 900,
+                                color: '#15803d',
+                                letterSpacing: 2,
+                                direction: 'ltr',
+                                display: 'inline-block'
+                              }}>
+                                {vn.smsCode}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(vn.smsCode!);
+                                setCopiedVnCode(vn.id);
+                                setTimeout(() => setCopiedVnCode(null), 2000);
+                              }}
+                              style={{
+                                background: copiedVnCode === vn.id ? '#10b981' : '#16a34a',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '8px 16px',
+                                fontSize: '0.8rem',
+                                fontWeight: 900,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6
+                              }}
+                            >
+                              {copiedVnCode === vn.id ? <Check size={14} /> : <Copy size={14} />}
+                              <span>{copiedVnCode === vn.id ? 'تم النسخ!' : 'نسخ رمز التحقق'}</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Waiting indicator & Cancel button */}
+                        {isWaiting && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: '#fffbeb',
+                            border: '1px dashed #fcd34d',
+                            borderRadius: '8px',
+                            padding: '10px 14px',
+                            flexWrap: 'wrap',
+                            gap: 10
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: '#92400e' }}>
+                              <Clock size={16} />
+                              <span>في انتظار وصول رمز التحقق... أدخل الرقم في التطبيق لإرسال الكود.</span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCancelVirtualOrder(vn.id)}
+                              style={{
+                                background: '#ef4444',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '6px 14px',
+                                fontSize: '0.8rem',
+                                fontWeight: 800,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              إلغاء واستعادة المبلغ
+                            </button>
                           </div>
                         )}
                       </div>

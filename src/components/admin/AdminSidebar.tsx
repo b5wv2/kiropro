@@ -17,7 +17,8 @@ import {
   Coins,
   Star,
   ShieldCheck,
-  Trophy
+  Trophy,
+  Smartphone
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -35,6 +36,7 @@ export type AdminTab =
   | 'products' 
   | 'reviews'
   | 'providers' 
+  | 'virtual-numbers'
   | 'audit' 
   | 'security'
   | 'settings';
@@ -59,6 +61,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'customers', label: 'العملاء', icon: Users },
     { id: 'referrals', label: 'متصدرين الإحالات', icon: Trophy },
     { id: 'orders', label: 'الطلبات', icon: ShoppingCart },
+    { id: 'virtual-numbers', label: 'الأرقام الافتراضية 📱', icon: Smartphone },
     { id: 'crypto', label: 'إدارة USDT والتحويل', icon: Coins },
     { id: 'topups', label: 'طلبات الشحن البنكي', icon: ArrowDownCircle },
     { id: 'payment-methods', label: 'طرق الدفع والحسابات', icon: CreditCard },

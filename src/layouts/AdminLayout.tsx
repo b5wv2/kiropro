@@ -14,6 +14,7 @@ import { AdminPromoCodes } from '../pages/Admin/AdminPromoCodes';
 import { AdminProducts } from '../pages/Admin/AdminProducts';
 import { AdminReviews } from '../pages/Admin/AdminReviews';
 import { AdminProviders } from '../pages/Admin/AdminProviders';
+import { AdminVirtualNumbers } from '../pages/Admin/AdminVirtualNumbers';
 import { AdminAudit } from '../pages/Admin/AdminAudit';
 import { AdminSecurityAudit } from '../pages/Admin/AdminSecurityAudit';
 import { AdminSettings } from '../pages/Admin/AdminSettings';
@@ -32,6 +33,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminReferralLeaderboard />;
       case 'orders':
         return <AdminOrders />;
+      case 'virtual-numbers':
+        return <AdminVirtualNumbers />;
       case 'crypto':
         return <AdminCrypto />;
       case 'topups':
