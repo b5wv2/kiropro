@@ -16,7 +16,8 @@ import {
   Coins,
   History,
   Star,
-  Smartphone
+  Smartphone,
+  RefreshCw
 } from 'lucide-react';
 import { PromoRedemptionCard } from '../../components/Promo/PromoRedemptionCard';
 import { ReferralCard } from '../../components/Referral/ReferralCard';
@@ -1441,6 +1442,220 @@ export const AccountPage: React.FC = () => {
                         <p style={{ margin: 0, fontSize: '0.85rem', color: '#475569', lineHeight: 1.6 }}>
                           "{rev.comment}"
                         </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* VIRTUAL NUMBERS ORDERS CONTENT */}
+          {activeAccountTab === 'virtual-numbers' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#0F172A', margin: '0 0 4px 0' }}>
+                    سجل طلبات الأرقام الافتراضية
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748B' }}>
+                    الأرقام ورموز التحقق محفوظة بصورة دائمة ولا تضيع عند تحديث الصفحة أو إغلاق المتصفح.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadVirtualOrders}
+                  style={{
+                    background: '#F1F5F9',
+                    color: '#475569',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: 8,
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <RefreshCw size={13} className={loadingVirtualOrders ? 'spin' : ''} />
+                  <span>تحديث</span>
+                </button>
+              </div>
+
+              {loadingVirtualOrders ? (
+                <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b' }}>
+                  <p style={{ margin: 0, fontWeight: 700 }}>جاري جلب طلبات الأرقام...</p>
+                </div>
+              ) : virtualOrders.length === 0 ? (
+                <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b', background: '#F8FAFC', borderRadius: 12, border: '1px dashed #CBD5E1' }}>
+                  <Smartphone size={36} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
+                  <p style={{ margin: 0, fontWeight: 800, color: '#0F172A' }}>لم تقم بطلب أي أرقام افتراضية بعد.</p>
+                  <p style={{ margin: '6px 0 16px 0', fontSize: '0.85rem', color: '#64748B' }}>
+                    احصل الآن على رقم حقيقي لاستلام رموز OTP لحساباتك.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('virtual-numbers')}
+                    className="btn btn-primary btn-sm"
+                  >
+                    طلب رقم افتراضي الآن 📱
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {virtualOrders.map(order => (
+                    <div
+                      key={order.id}
+                      style={{
+                        padding: 18,
+                        background: '#FFFFFF',
+                        borderRadius: 14,
+                        border: '1px solid #E2E8F0',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12
+                      }}
+                    >
+                      {/* Top Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontWeight: 900, color: '#0F172A', fontSize: '1rem' }}>
+                            {order.serviceNameAr} ({order.countryNameAr})
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: '#64748B', fontFamily: 'monospace' }}>
+                            #{order.id.slice(0, 8)}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            padding: '3px 10px',
+                            borderRadius: 12,
+                            fontSize: '0.75rem',
+                            fontWeight: 900,
+                            background:
+                              order.status === 'COMPLETED' ? '#DCFCE7' :
+                              order.status === 'WAITING_FOR_CODE' ? '#FEF3C7' :
+                              order.status === 'CANCELED' ? '#FEE2E2' : '#F1F5F9',
+                            color:
+                              order.status === 'COMPLETED' ? '#166534' :
+                              order.status === 'WAITING_FOR_CODE' ? '#92400E' :
+                              order.status === 'CANCELED' ? '#991B1B' : '#475569'
+                          }}>
+                            {order.status === 'COMPLETED' ? 'مكتمل وناجح ✓' :
+                             order.status === 'WAITING_FOR_CODE' ? 'في انتظار الكود...' :
+                             order.status === 'CANCELED' ? 'ملغي ومسترد' :
+                             order.status === 'EXPIRED' ? 'منتهي الصلاحية ومسترد' : order.status}
+                          </span>
+
+                          <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
+                            {new Date(order.createdAt).toLocaleDateString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Middle Details Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                        gap: 12,
+                        background: '#F8FAFC',
+                        padding: 14,
+                        borderRadius: 10
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>المزود المعتمد:</span>
+                          <strong style={{ color: '#0F172A', fontSize: '0.9rem' }}>
+                            {order.providerName || order.operator || '—'}
+                          </strong>
+                        </div>
+
+                        <div>
+                          <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>الرقم المخصص:</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, direction: 'ltr', justifyContent: 'flex-end' }}>
+                            <strong style={{ color: '#0F172A', fontSize: '1rem', fontFamily: 'monospace' }}>
+                              {order.phoneNumber || 'قيد التجهيز'}
+                            </strong>
+                            {order.phoneNumber && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(order.phoneNumber || '');
+                                  alert('تم نسخ الرقم بنجاح');
+                                }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+                                title="نسخ الرقم"
+                              >
+                                <Copy size={13} color="#64748B" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>السعر / المدفوع:</span>
+                          <strong style={{ color: order.isFreeAttempt ? '#166534' : '#0F172A', fontSize: '0.9rem' }}>
+                            {order.isFreeAttempt ? 'مجاناً (عرض ترويجي)' : `${order.chargedAmount} SDG`}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* OTP Code Box */}
+                      {order.smsCode && (
+                        <div style={{
+                          background: '#ECFDF5',
+                          border: '1.5px solid #86EFAC',
+                          borderRadius: 10,
+                          padding: '10px 14px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <div>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#166534', display: 'block' }}>
+                              رمز التحقق المستلم (OTP):
+                            </span>
+                            <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#065F46', letterSpacing: '4px', fontFamily: 'monospace' }}>
+                              {order.smsCode}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(order.smsCode || '');
+                              alert('تم نسخ كود التحقق بنجاح');
+                            }}
+                            className="btn btn-sm"
+                            style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontWeight: 800, fontSize: '0.8rem' }}
+                          >
+                            نسخ الرمز
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Cancel Button if cancellable */}
+                      {['WAITING_FOR_NUMBER', 'WAITING_FOR_CODE'].includes(order.status) && !order.smsCode && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 4 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelVirtualOrder(order.id)}
+                            style={{
+                              background: '#FEE2E2',
+                              color: '#DC2626',
+                              border: '1px solid #FCA5A5',
+                              borderRadius: 8,
+                              padding: '6px 14px',
+                              fontSize: '0.8rem',
+                              fontWeight: 800,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            إلغاء واستعادة المبلغ
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}

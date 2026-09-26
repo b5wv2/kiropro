@@ -107,38 +107,76 @@ router.put('/settings', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * 4. Admin: Get Products Matrix
+ * 4. Admin: Get Offers List (with Country & Service filter)
  */
-router.get('/products', async (_req: AuthRequest, res: Response) => {
+router.get('/offers', async (req: AuthRequest, res: Response) => {
   try {
-    const products = await virtualNumberService.getAdminProducts();
-    res.json(products);
+    const countryCode = req.query.countryCode ? String(req.query.countryCode) : undefined;
+    const serviceCode = req.query.serviceCode ? String(req.query.serviceCode) : undefined;
+    const offers = await virtualNumberService.getAdminOffers({ countryCode, serviceCode });
+    res.json(offers);
   } catch (err: any) {
-    console.error('[AdminVirtualNumbers] Products list error:', err.message);
-    res.status(500).json({ error: 'فشل جلب قائمة المنتجات.' });
+    console.error('[AdminVirtualNumbers] Offers list error:', err.message);
+    res.status(500).json({ error: 'فشل جلب قائمة عروض المزودين.' });
   }
 });
 
 /**
- * 5. Admin: Update Product Custom Price or Active state
+ * 5. Admin: Update Specific Offer
  */
-router.put('/products/:id', async (req: AuthRequest, res: Response) => {
+router.put('/offers/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const productId = String(req.params.id);
-    const { customPriceSdg, isActive } = req.body;
+    const offerId = String(req.params.id);
+    const { customerPriceSdg, supplierCost, providerName, isActive, deliveryRate, etaText } = req.body;
 
-    const updated = await virtualNumberService.updateProduct(productId, {
-      customPriceSdg: customPriceSdg !== undefined && customPriceSdg !== null && customPriceSdg !== '' ? Number(customPriceSdg) : null,
-      isActive: isActive !== undefined ? Boolean(isActive) : undefined
+    const updated = await virtualNumberService.updateAdminOffer(offerId, {
+      customerPriceSdg: customerPriceSdg !== undefined ? Number(customerPriceSdg) : undefined,
+      supplierCost: supplierCost !== undefined ? Number(supplierCost) : undefined,
+      providerName: providerName !== undefined ? String(providerName) : undefined,
+      isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+      deliveryRate: deliveryRate !== undefined ? Number(deliveryRate) : undefined,
+      etaText: etaText !== undefined ? String(etaText) : undefined
     });
 
     res.json({
-      message: 'تم تحديث تسعير المنتج بنجاح.',
-      product: updated
+      message: 'تم تحديث عرض المزود بنجاح.',
+      offer: updated
     });
   } catch (err: any) {
-    console.error('[AdminVirtualNumbers] Update product error:', err.message);
-    res.status(500).json({ error: 'فشل تحديث المنتج.' });
+    console.error('[AdminVirtualNumbers] Update offer error:', err.message);
+    res.status(500).json({ error: 'فشل تحديث العرض.' });
+  }
+});
+
+/**
+ * 6. Admin: Create New Provider Offer
+ */
+router.post('/offers', async (req: AuthRequest, res: Response) => {
+  try {
+    const { countryCode, serviceCode, providerId, providerName, supplierCost, customerPriceSdg, deliveryRate, etaText } = req.body;
+
+    if (!countryCode || !serviceCode || !providerId || !providerName || customerPriceSdg === undefined) {
+      return res.status(400).json({ error: 'جميع الحقول الأساسية مطلوبة (الدولة، الخدمة، معرف المزود، اسم المزود، وسعر العميل).' });
+    }
+
+    const created = await virtualNumberService.createAdminOffer({
+      countryCode: String(countryCode),
+      serviceCode: String(serviceCode),
+      providerId: String(providerId),
+      providerName: String(providerName),
+      supplierCost: Number(supplierCost) || 0,
+      customerPriceSdg: Number(customerPriceSdg),
+      deliveryRate: deliveryRate !== undefined ? Number(deliveryRate) : undefined,
+      etaText: etaText ? String(etaText) : undefined
+    });
+
+    res.status(201).json({
+      message: 'تم إنشاء عرض المزود بنجاح.',
+      offer: created
+    });
+  } catch (err: any) {
+    console.error('[AdminVirtualNumbers] Create offer error:', err.message);
+    res.status(400).json({ error: err.message || 'فشل إنشاء العرض.' });
   }
 });
 

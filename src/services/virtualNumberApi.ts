@@ -14,11 +14,20 @@ export interface AllowedService {
   icon: string;
 }
 
-export interface VirtualNumberProduct {
+export interface VirtualNumberProviderOffer {
+  id: string;
   countryCode: string;
   serviceCode: string;
-  priceSdg: number;
+  providerId: string;
+  providerName: string;
+  supplierCost: number;
+  supplierCurrency: string;
+  customerPriceSdg: number;
+  deliveryRate: number;
+  etaText: string;
   isActive: boolean;
+  displayOrder: number;
+  availableCount?: number;
 }
 
 export interface VirtualNumberCatalog {
@@ -29,7 +38,12 @@ export interface VirtualNumberCatalog {
   };
   allowedCountries: AllowedCountry[];
   allowedServices: AllowedService[];
-  products: VirtualNumberProduct[];
+  serviceStats?: Array<{
+    country_code: string;
+    service_code: string;
+    providers_count: string;
+    min_price: string;
+  }>;
 }
 
 export interface UserAttemptsInfo {
@@ -49,6 +63,13 @@ export interface VirtualNumberOrder {
   countryNameAr: string;
   serviceCode: string;
   serviceNameAr: string;
+  providerId?: string | null;
+  providerName?: string | null;
+  offerId?: string | null;
+  supplierCost?: number;
+  supplierCurrency?: string;
+  customerPrice?: number;
+  promotionType?: string | null;
   providerOrderId?: string | null;
   phoneNumber?: string | null;
   operator?: string | null;
@@ -64,6 +85,7 @@ export interface VirtualNumberOrder {
   failureReason?: string | null;
   expiresAt?: string | null;
   createdAt: string;
+  completedAt?: string | null;
   updatedAt: string;
 }
 
@@ -71,15 +93,21 @@ export async function fetchVirtualNumberCatalog(): Promise<VirtualNumberCatalog>
   return api.get<VirtualNumberCatalog>('/api/virtual-numbers/catalog');
 }
 
+export async function fetchProvidersForService(countryCode: string, serviceCode: string): Promise<VirtualNumberProviderOffer[]> {
+  return api.get<VirtualNumberProviderOffer[]>(`/api/virtual-numbers/providers?countryCode=${encodeURIComponent(countryCode)}&serviceCode=${encodeURIComponent(serviceCode)}`);
+}
+
 export async function fetchUserAttempts(): Promise<UserAttemptsInfo> {
   return api.get<UserAttemptsInfo>('/api/virtual-numbers/attempts');
 }
 
-export async function createVirtualNumberOrder(countryCode: string, serviceCode: string): Promise<VirtualNumberOrder> {
-  return api.post<VirtualNumberOrder>('/api/virtual-numbers/orders', {
-    countryCode,
-    serviceCode
-  });
+export async function createVirtualNumberOrder(params: {
+  countryCode: string;
+  serviceCode: string;
+  providerId: string;
+  offerId?: string;
+}): Promise<VirtualNumberOrder> {
+  return api.post<VirtualNumberOrder>('/api/virtual-numbers/orders', params);
 }
 
 export async function fetchVirtualNumberOrder(orderId: string): Promise<VirtualNumberOrder> {
@@ -99,13 +127,15 @@ export async function fetchAdminVirtualNumberOrders(params: {
   status?: string;
   countryCode?: string;
   serviceCode?: string;
+  providerId?: string;
   limit?: number;
   offset?: number;
-}): Promise<{ total: number; orders: VirtualNumberOrder[] }> {
+} = {}): Promise<{ total: number; orders: VirtualNumberOrder[] }> {
   const query = new URLSearchParams();
   if (params.status) query.append('status', params.status);
   if (params.countryCode) query.append('countryCode', params.countryCode);
   if (params.serviceCode) query.append('serviceCode', params.serviceCode);
+  if (params.providerId) query.append('providerId', params.providerId);
   if (params.limit) query.append('limit', String(params.limit));
   if (params.offset) query.append('offset', String(params.offset));
   const qs = query.toString() ? `?${query.toString()}` : '';
@@ -133,17 +163,34 @@ export async function updateAdminVirtualNumberSettings(body: {
   return api.put('/api/admin/virtual-numbers/settings', body);
 }
 
-export async function fetchAdminVirtualNumberProducts(): Promise<any[]> {
-  return api.get<any[]>('/api/admin/virtual-numbers/products');
+export async function fetchAdminVirtualNumberOffers(params: { countryCode?: string; serviceCode?: string } = {}): Promise<VirtualNumberProviderOffer[]> {
+  const query = new URLSearchParams();
+  if (params.countryCode) query.append('countryCode', params.countryCode);
+  if (params.serviceCode) query.append('serviceCode', params.serviceCode);
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  return api.get<VirtualNumberProviderOffer[]>(`/api/admin/virtual-numbers/offers${qs}`);
 }
 
-export async function updateAdminVirtualNumberProduct(id: string, body: {
-  customPriceSdg?: number | null;
+export async function updateAdminVirtualNumberOffer(id: string, body: {
+  customerPriceSdg?: number;
+  supplierCost?: number;
+  providerName?: string;
   isActive?: boolean;
+  deliveryRate?: number;
+  etaText?: string;
 }): Promise<any> {
-  return api.put(`/api/admin/virtual-numbers/products/${encodeURIComponent(id)}`, body);
+  return api.put(`/api/admin/virtual-numbers/offers/${encodeURIComponent(id)}`, body);
 }
 
-export async function fetchAdminProviderStatus(): Promise<any> {
-  return api.get('/api/admin/virtual-numbers/provider-status');
+export async function createAdminVirtualNumberOffer(body: {
+  countryCode: string;
+  serviceCode: string;
+  providerId: string;
+  providerName: string;
+  supplierCost: number;
+  customerPriceSdg: number;
+  deliveryRate?: number;
+  etaText?: string;
+}): Promise<any> {
+  return api.post('/api/admin/virtual-numbers/offers', body);
 }

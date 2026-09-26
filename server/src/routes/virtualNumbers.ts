@@ -27,25 +27,19 @@ const pollOrderLimiter = rateLimit({
 });
 
 /**
- * 1. Public / Authenticated: Get Virtual Numbers Catalog
+ * 1. Public / Authenticated: Get Virtual Numbers Catalog (Allowed Countries & Services Categories)
  */
 router.get('/catalog', async (_req, res: Response) => {
   try {
     const settings = await virtualNumberService.getSettings();
 
-    // Query active products from PostgreSQL
-    const productsRes = await pool.query(
-      `SELECT country_code, service_code, custom_price_sdg, is_active, display_order 
-       FROM virtual_number_products 
-       ORDER BY display_order ASC`
+    // Query active offers count per service category
+    const statsRes = await pool.query(
+      `SELECT country_code, service_code, count(*) as providers_count, min(customer_price_sdg) as min_price
+       FROM virtual_number_offers 
+       WHERE is_active = true 
+       GROUP BY country_code, service_code`
     );
-
-    const products = productsRes.rows.map(row => ({
-      countryCode: row.country_code,
-      serviceCode: row.service_code,
-      priceSdg: row.custom_price_sdg !== null ? Number(row.custom_price_sdg) : settings.default_paid_price_sdg,
-      isActive: Boolean(row.is_active)
-    }));
 
     res.json({
       settings: {
@@ -55,7 +49,7 @@ router.get('/catalog', async (_req, res: Response) => {
       },
       allowedCountries: Object.values(ALLOWED_COUNTRIES),
       allowedServices: Object.values(ALLOWED_SERVICES),
-      products
+      serviceStats: statsRes.rows
     });
   } catch (err: any) {
     console.error('[VirtualNumbersRoute] Error fetching catalog:', err.message);
@@ -64,7 +58,29 @@ router.get('/catalog', async (_req, res: Response) => {
 });
 
 /**
- * 2. Authenticated: Get User Attempts Status
+ * 2. Public / Authenticated: Get Providers / Offers for a selected Country + Service Category
+ * Flow: Country -> Service Category -> Providers List
+ */
+router.get('/providers', async (req, res: Response) => {
+  try {
+    const countryCode = String(req.query.countryCode || req.query.country || '');
+    const serviceCode = String(req.query.serviceCode || req.query.service || '');
+
+    if (!countryCode || !serviceCode) {
+      return res.status(400).json({ error: 'يرجى تحديد الدولة وفئة الخدمة لعرض المزودين المتاحين.' });
+    }
+
+    const providers = await virtualNumberService.getProvidersForService(countryCode, serviceCode);
+    res.json(providers);
+  } catch (err: any) {
+    const msg = err.message || '';
+    const cleanMessage = msg.includes(': ') ? msg.split(': ')[1] : msg;
+    res.status(400).json({ error: cleanMessage });
+  }
+});
+
+/**
+ * 3. Authenticated: Get User Attempts Status
  */
 router.get('/attempts', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -78,21 +94,29 @@ router.get('/attempts', requireAuth, async (req: AuthRequest, res: Response) => 
 });
 
 /**
- * 3. Authenticated: Create Virtual Number Order
+ * 4. Authenticated: Create Virtual Number Order
+ * STRICT VALIDATION: providerId is mandatory and cannot be ANY.
  */
 router.post('/orders', createOrderLimiter, requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { countryCode, serviceCode } = req.body;
+    const { countryCode, serviceCode, providerId, offerId } = req.body;
+
     if (!countryCode || !serviceCode) {
-      return res.status(400).json({ error: 'يرجى تحديد الدولة والخدمة المطلوبة.' });
+      return res.status(400).json({ error: 'يرجى تحديد الدولة وفئة الخدمة المطلوبة.' });
+    }
+
+    if (!providerId) {
+      return res.status(400).json({ error: 'يجب اختيار مزود الرقم أولاً قبل بدء الطلب.' });
     }
 
     const order = await virtualNumberService.createOrder({
       userId: req.user.id,
       countryCode: String(countryCode),
-      serviceCode: String(serviceCode)
+      serviceCode: String(serviceCode),
+      providerId: String(providerId),
+      offerId: offerId ? String(offerId) : undefined
     });
 
     res.status(201).json(order);
@@ -101,8 +125,10 @@ router.post('/orders', createOrderLimiter, requireAuth, async (req: AuthRequest,
     if (
       msg.includes('INVALID_COUNTRY') ||
       msg.includes('INVALID_SERVICE') ||
+      msg.includes('PROVIDER_REQUIRED') ||
+      msg.includes('FORBIDDEN_PROVIDER') ||
+      msg.includes('OFFER_NOT_AVAILABLE') ||
       msg.includes('INSUFFICIENT_BALANCE') ||
-      msg.includes('PRODUCT_DISABLED') ||
       msg.includes('DUPLICATE_ORDER') ||
       msg.includes('SYSTEM_INACTIVE') ||
       msg.includes('no free phones') ||
@@ -118,7 +144,7 @@ router.post('/orders', createOrderLimiter, requireAuth, async (req: AuthRequest,
 });
 
 /**
- * 4. Authenticated: Get Specific Order Details (with fresh check tick)
+ * 5. Authenticated: Get Specific Order Details (with live check tick)
  */
 router.get('/orders/:id', pollOrderLimiter, requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -148,7 +174,7 @@ router.get('/orders/:id', pollOrderLimiter, requireAuth, async (req: AuthRequest
 });
 
 /**
- * 5. Authenticated: Cancel Order & Refund
+ * 6. Authenticated: Cancel Order & Refund
  */
 router.post('/orders/:id/cancel', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -158,23 +184,27 @@ router.post('/orders/:id/cancel', requireAuth, async (req: AuthRequest, res: Res
     const canceled = await virtualNumberService.cancelOrder(orderId, req.user.id);
     res.json({
       success: true,
-      message: 'تم إلغاء الطلب واستعادة الرصيد بنجاح.',
+      message: 'تم إلغاء الطلب بنجاح واستعادة الرصيد للمحفظة.',
       order: canceled
     });
   } catch (err: any) {
     const msg = err.message || '';
-    if (msg.includes('CANNOT_CANCEL') || msg.includes('ORDER_NOT_FOUND') || msg.includes('FORBIDDEN')) {
+    if (
+      msg.includes('CANNOT_CANCEL') ||
+      msg.includes('ORDER_NOT_FOUND') ||
+      msg.includes('FORBIDDEN')
+    ) {
       const cleanMessage = msg.includes(': ') ? msg.split(': ')[1] : msg;
       return res.status(400).json({ error: cleanMessage });
     }
 
     console.error('[VirtualNumbersRoute] Cancel order error:', msg);
-    res.status(500).json({ error: 'فشل إلغاء الطلب.' });
+    res.status(500).json({ error: 'حدث خطأ أثناء محاولة إلغاء الطلب.' });
   }
 });
 
 /**
- * 6. Authenticated: Get My Virtual Number Orders (For "طلباتي")
+ * 7. Authenticated: Get Current User's Orders ("طلباتي")
  */
 router.get('/my-orders', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -182,8 +212,8 @@ router.get('/my-orders', requireAuth, async (req: AuthRequest, res: Response) =>
     const orders = await virtualNumberService.getUserOrders(req.user.id);
     res.json(orders);
   } catch (err: any) {
-    console.error('[VirtualNumbersRoute] Fetch my-orders error:', err.message);
-    res.status(500).json({ error: 'فشل جلب قائمة طلباتك.' });
+    console.error('[VirtualNumbersRoute] Fetch my orders error:', err.message);
+    res.status(500).json({ error: 'فشل جلب سجل طلباتك.' });
   }
 });
 

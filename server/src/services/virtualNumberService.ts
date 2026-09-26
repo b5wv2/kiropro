@@ -23,6 +23,22 @@ export const ALLOWED_SERVICES: Record<string, { code: string; nameAr: string; na
   'paypal': { code: 'paypal', nameAr: 'PayPal', nameEn: 'PayPal', icon: 'paypal' },
 };
 
+export interface VirtualNumberOfferDTO {
+  id: string;
+  countryCode: string;
+  serviceCode: string;
+  providerId: string;
+  providerName: string;
+  supplierCost: number;
+  supplierCurrency: string;
+  customerPriceSdg: number;
+  deliveryRate: number;
+  etaText: string;
+  isActive: boolean;
+  displayOrder: number;
+  availableCount?: number | undefined;
+}
+
 export interface VirtualNumberOrderDTO {
   id: string;
   userId: string;
@@ -30,6 +46,13 @@ export interface VirtualNumberOrderDTO {
   countryNameAr: string;
   serviceCode: string;
   serviceNameAr: string;
+  providerId?: string | null | undefined;
+  providerName?: string | null | undefined;
+  offerId?: string | null | undefined;
+  supplierCost?: number | undefined;
+  supplierCurrency?: string | undefined;
+  customerPrice?: number | undefined;
+  promotionType?: string | null | undefined;
   providerOrderId?: string | null | undefined;
   phoneNumber?: string | null | undefined;
   operator?: string | null | undefined;
@@ -42,9 +65,12 @@ export interface VirtualNumberOrderDTO {
   chargedAmount: number;
   chargedCurrency: string;
   isRefunded: boolean;
+  refundAmount?: number | undefined;
+  refundTxId?: string | null | undefined;
   failureReason?: string | null | undefined;
   expiresAt?: string | null | undefined;
   createdAt: string;
+  completedAt?: string | null | undefined;
   updatedAt: string;
 }
 
@@ -75,6 +101,24 @@ export class VirtualNumberService {
     }
 
     return { country, service };
+  }
+
+  /**
+   * Validate Provider / Operator
+   * STRICT RULE: ANY, AUTO, RANDOM, DEFAULT_PROVIDER, FIRST_AVAILABLE are strictly forbidden.
+   */
+  public validateProvider(providerId?: string | null): string {
+    if (!providerId || typeof providerId !== 'string') {
+      throw new Error('PROVIDER_REQUIRED: يجب اختيار مزود الرقم أولاً قبل بدء الطلب.');
+    }
+
+    const clean = providerId.trim().toLowerCase();
+    const forbidden = ['any', 'auto', 'random', 'default_provider', 'first_available', 'none', ''];
+    if (forbidden.includes(clean)) {
+      throw new Error('FORBIDDEN_PROVIDER: اختيار المزود التلقائي (ANY) محظور تماماً في KiroPro. يرجى اختيار مزود محدد ومعلن.');
+    }
+
+    return clean;
   }
 
   /**
@@ -130,72 +174,131 @@ export class VirtualNumberService {
   }
 
   /**
-   * Resolve authoritative price for a specific Country + Service
+   * Get Available Providers & Offers for a specific Country + Service Category
+   * SERVICE = CATEGORY flow: Returns the explicit list of providers/offers
    */
-  public async resolveProductPrice(countryCode: string, serviceCode: string): Promise<{ priceSdg: number; isActive: boolean }> {
-    const settings = await this.getSettings();
-    if (!settings.is_system_active) {
-      throw new Error('SYSTEM_INACTIVE: خدمة الأرقام الافتراضية معطلة حالياً للصيانة.');
-    }
+  public async getProvidersForService(countryCode: string, serviceCode: string): Promise<VirtualNumberOfferDTO[]> {
+    const { country, service } = this.validateInput(countryCode, serviceCode);
 
-    const prodRes = await pool.query(
-      `SELECT custom_price_sdg, is_active 
-       FROM virtual_number_products 
-       WHERE country_code = $1 AND service_code = $2`,
-      [countryCode, serviceCode]
+    // 1. Fetch configured offers from Database
+    const offersRes = await pool.query(
+      `SELECT * FROM virtual_number_offers 
+       WHERE country_code = $1 
+         AND service_code = $2 
+         AND is_active = true 
+       ORDER BY display_order ASC, customer_price_sdg ASC`,
+      [country.code, service.code]
     );
 
-    if (prodRes.rows.length === 0) {
-      return { priceSdg: settings.default_paid_price_sdg, isActive: true };
+    const offers = offersRes.rows;
+
+    // 2. Try fetching live 5SIM prices for live stock and delivery rate (with 2.5s safe timeout)
+    let livePrices: any = null;
+    try {
+      const pricePromise = fiveSimClient.getPrices(country.code, service.code);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 2500));
+      livePrices = await Promise.race([pricePromise, timeoutPromise]);
+    } catch {
+      // Graceful fallback: database defaults will be used
+      livePrices = null;
     }
 
-    const row = prodRes.rows[0];
-    const customPrice = row.custom_price_sdg !== null ? Number(row.custom_price_sdg) : null;
-    const effectivePrice = customPrice !== null && !isNaN(customPrice) ? customPrice : settings.default_paid_price_sdg;
+    const countryData = livePrices?.[country.code] || {};
+    const serviceData = countryData?.[service.code] || {};
 
-    return {
-      priceSdg: effectivePrice,
-      isActive: Boolean(row.is_active)
-    };
+    return offers.map(row => {
+      const liveOperator = serviceData?.[row.provider_id];
+      const availableCount = liveOperator?.count !== undefined ? Number(liveOperator.count) : undefined;
+      const liveRate = liveOperator?.rate !== undefined ? Number(liveOperator.rate) : Number(row.delivery_rate);
+
+      return {
+        id: row.id,
+        countryCode: row.country_code,
+        serviceCode: row.service_code,
+        providerId: row.provider_id,
+        providerName: row.provider_name,
+        supplierCost: Number(row.supplier_cost),
+        supplierCurrency: row.supplier_currency || 'USD',
+        customerPriceSdg: Number(row.customer_price_sdg),
+        deliveryRate: liveRate,
+        etaText: row.eta_text || 'صلاحية الرقم 15 دقيقة (مهلة الكود 5 دقائق)',
+        isActive: Boolean(row.is_active),
+        displayOrder: Number(row.display_order) || 0,
+        availableCount: availableCount !== undefined ? availableCount : 99
+      };
+    });
   }
 
   /**
    * Create & Initiate a Virtual Number Order
+   * STRICT REQUIREMENT: providerId must be explicitly provided and cannot be ANY.
    */
   public async createOrder(params: {
     userId: string;
     countryCode: string;
     serviceCode: string;
+    providerId: string;
+    offerId?: string | undefined;
   }): Promise<VirtualNumberOrderDTO> {
-    const { userId, countryCode, serviceCode } = params;
+    const { userId, countryCode, serviceCode, providerId, offerId } = params;
 
-    // 1. Strict Allowlist Validation
+    // 1. Strict Allowlist Validation for Country and Service Category
     const { country, service } = this.validateInput(countryCode, serviceCode);
 
-    // 2. Resolve Price & Availability from DB (Authoritative, Client cannot manipulate)
-    const { priceSdg, isActive } = await this.resolveProductPrice(country.code, service.code);
-    if (!isActive) {
-      throw new Error('PRODUCT_DISABLED: هذه الخدمة معطلة حالياً لهذه الدولة.');
+    // 2. Strict Provider Validation (Rejects ANY, AUTO, etc.)
+    const cleanProvider = this.validateProvider(providerId);
+
+    // 3. System Active Check
+    const settings = await this.getSettings();
+    if (!settings.is_system_active) {
+      throw new Error('SYSTEM_INACTIVE: خدمة الأرقام الافتراضية معطلة حالياً للصيانة.');
     }
 
-    // 3. Duplicate Order Protection (reject same request within 4 seconds)
+    // 4. Resolve Offer from DB (Source of Truth for Customer Price and Supplier Cost)
+    let offerQuery = `SELECT * FROM virtual_number_offers WHERE country_code = $1 AND service_code = $2 AND provider_id = $3 AND is_active = true`;
+    let queryParams: any[] = [country.code, service.code, cleanProvider];
+
+    if (offerId) {
+      offerQuery = `SELECT * FROM virtual_number_offers WHERE id = $1 AND is_active = true`;
+      queryParams = [offerId];
+    }
+
+    const offerRes = await pool.query(offerQuery, queryParams);
+    if (offerRes.rows.length === 0) {
+      throw new Error('OFFER_NOT_AVAILABLE: المزود أو العرض المختار غير متاح حالياً لهذه الخدمة.');
+    }
+
+    const offer = offerRes.rows[0];
+
+    // Double check that the offer's provider is NOT 'any'
+    if (offer.provider_id.toLowerCase() === 'any') {
+      throw new Error('FORBIDDEN_PROVIDER: اختيار المزود التلقائي (ANY) محظور.');
+    }
+
+    // 5. Duplicate Order Protection (reject exact same request within 4 seconds)
     const dupCheck = await pool.query(
       `SELECT id FROM virtual_number_orders 
        WHERE user_id = $1 
          AND country_code = $2 
          AND service_code = $3 
+         AND provider_id = $4
          AND created_at >= NOW() - INTERVAL '4 seconds' 
        LIMIT 1`,
-      [userId, country.code, service.code]
+      [userId, country.code, service.code, offer.provider_id]
     );
     if (dupCheck.rows.length > 0) {
       throw new Error('DUPLICATE_ORDER: تم استلام طلب مماثل للتو. يرجى الانتظار بضع ثوانٍ.');
     }
 
-    // 4. Calculate Attempt & Authoritative Charge Amount
+    // 6. Pricing & Promotion Logic
+    const customerPrice = Number(offer.customer_price_sdg);
+    const supplierCost = Number(offer.supplier_cost || 0);
+    const supplierCurrency = offer.supplier_currency || 'USD';
+
     const attemptsInfo = await this.getUserAttemptsInfo(userId);
     const isFree = attemptsInfo.isNextFree;
-    const effectiveChargeAmount = isFree ? 0 : priceSdg;
+    const effectiveChargeAmount = isFree ? 0 : customerPrice;
+    const promotionType = isFree ? 'FREE_ATTEMPT' : null;
     const attemptNumber = attemptsInfo.usedAttempts + 1;
 
     const orderId = uuidv4();
@@ -204,7 +307,7 @@ export class VirtualNumberService {
     try {
       await client.query('BEGIN');
 
-      // 5. Wallet Balance Check & Hold (Atomic)
+      // 7. Wallet Balance Check & Hold (Atomic)
       let wallet: any = null;
       let balanceBefore = 0;
       let balanceAfter = 0;
@@ -237,7 +340,7 @@ export class VirtualNumberService {
             uuidv4(),
             wallet.id,
             effectiveChargeAmount,
-            `طلب رقم افتراضي: ${service.nameAr} (${country.nameAr})`,
+            `طلب رقم افتراضي: ${service.nameAr} (${country.nameAr}) - مزود: ${offer.provider_name}`,
             wallet.currency || 'SDG',
             balanceBefore,
             balanceAfter,
@@ -246,12 +349,23 @@ export class VirtualNumberService {
         );
       }
 
-      // 6. Insert Order in PENDING / WAITING_FOR_NUMBER state
+      // 8. Insert Order in PENDING / WAITING_FOR_NUMBER state with full Snapshot
       await client.query(
         `INSERT INTO virtual_number_orders (
           id, user_id, country_code, country_name_ar, service_code, service_name_ar,
-          status, attempt_number, is_free_attempt, charged_amount, charged_currency
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'WAITING_FOR_NUMBER', $7, $8, $9, 'SDG')`,
+          provider_id, provider_name, offer_id,
+          supplier_cost, supplier_currency,
+          customer_price, charged_amount, charged_currency,
+          is_free_attempt, promotion_type, attempt_number,
+          operator, status
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9,
+          $10, $11,
+          $12, $13, 'SDG',
+          $14, $15, $16,
+          $17, 'WAITING_FOR_NUMBER'
+        )`,
         [
           orderId,
           userId,
@@ -259,9 +373,17 @@ export class VirtualNumberService {
           country.nameAr,
           service.code,
           service.nameAr,
-          attemptNumber,
+          offer.provider_id,
+          offer.provider_name,
+          offer.id,
+          supplierCost,
+          supplierCurrency,
+          customerPrice,
+          effectiveChargeAmount,
           isFree,
-          effectiveChargeAmount
+          promotionType,
+          attemptNumber,
+          offer.provider_id
         ]
       );
 
@@ -273,10 +395,11 @@ export class VirtualNumberService {
       client.release();
     }
 
-    // 7. Request Activation Number from 5SIM
+    // 9. Request Activation Number from 5SIM with the SPECIFIC provider/operator
     let providerOrder: FiveSimOrderResponse;
     try {
-      providerOrder = await fiveSimClient.buyActivation(country.code, 'any', service.code);
+      // NOTE: offer.provider_id is passed as the operator! NEVER 'any'!
+      providerOrder = await fiveSimClient.buyActivation(country.code, offer.provider_id, service.code);
     } catch (providerErr: any) {
       // Upstream failed or returned "no free phones"
       // Immediately release wallet hold idempotently
@@ -284,8 +407,8 @@ export class VirtualNumberService {
       throw new Error(providerErr.message || 'تعذر الحصول على رقم من مزود الخدمة حالياً.');
     }
 
-    // 8. Number received successfully from 5SIM!
-    const expiresAt = providerOrder.expires ? new Date(providerOrder.expires) : new Date(Date.now() + 5 * 60 * 1000);
+    // 10. Number received successfully from 5SIM!
+    const expiresAt = providerOrder.expires ? new Date(providerOrder.expires) : new Date(Date.now() + 15 * 60 * 1000);
 
     const updateRes = await pool.query(
       `UPDATE virtual_number_orders 
@@ -300,7 +423,7 @@ export class VirtualNumberService {
       [
         String(providerOrder.id),
         providerOrder.phone,
-        providerOrder.operator || 'any',
+        providerOrder.operator || offer.provider_id,
         expiresAt,
         orderId
       ]
@@ -413,11 +536,9 @@ export class VirtualNumberService {
         try {
           await fiveSimClient.cancelOrder(order.provider_order_id);
         } catch (provErr: any) {
-          // If 5SIM returns "order has sms", we must check order and cannot cancel!
           if (provErr.message && provErr.message.includes('has sms')) {
             throw new Error('CANNOT_CANCEL: وصل رمز التحقق للرقم من المزود، لا يمكن الإلغاء.');
           }
-          // Log without leaking secrets
           console.warn('[VirtualNumber] Notice during 5SIM cancel call:', provErr.message);
         }
       }
@@ -504,7 +625,7 @@ export class VirtualNumberService {
       return this.mapOrderRowToDTO(order);
     }
 
-    // Check timeout: if 5 minutes passed, mark as EXPIRED and refund
+    // Check timeout: if expired, mark as EXPIRED and refund
     const now = new Date();
     if (order.expires_at && now > new Date(order.expires_at)) {
       return await this.expireOrder(order.id);
@@ -529,13 +650,14 @@ export class VirtualNumberService {
             console.warn('[VirtualNumber] 5SIM finishOrder notice:', finishErr.message);
           }
 
-          // Update DB to COMPLETED
+          // Update DB to COMPLETED with snapshot completion timestamp
           const completedRes = await pool.query(
             `UPDATE virtual_number_orders 
              SET status = 'COMPLETED',
                  sms_code = $1,
                  sms_text = $2,
                  sms_received_at = $3,
+                 completed_at = CURRENT_TIMESTAMP,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $4
              RETURNING *`,
@@ -610,7 +732,7 @@ export class VirtualNumberService {
             `INSERT INTO "WalletTransaction" (
               id, "walletId", amount, type, description, currency, 
               "balanceBefore", "balanceAfter", "referenceType", "referenceId", "createdBy", "created_by_type"
-            ) VALUES ($1, $2, $3, 'REFUND', $4, $5, $6, $7, 'VIRTUAL_NUMBER_EXPIRED', $8, NULL, 'SYSTEM')`,
+            ) VALUES ($1, $2, $3, 'REFUND', $4, $5, $6, $7, 'VIRTUAL_NUMBER_CANCEL', $8, NULL, 'SYSTEM')`,
             [
               refundTxId,
               wallet.id,
@@ -665,7 +787,7 @@ export class VirtualNumberService {
   }
 
   /**
-   * Get Specific Order by ID with User Check
+   * Get Specific Order by ID with User Check (IDOR Protection)
    */
   public async getOrderById(orderId: string, userId?: string): Promise<VirtualNumberOrderDTO | null> {
     const query = userId
@@ -685,10 +807,11 @@ export class VirtualNumberService {
     status?: string | undefined;
     countryCode?: string | undefined;
     serviceCode?: string | undefined;
+    providerId?: string | undefined;
     limit?: number | undefined;
     offset?: number | undefined;
   }) {
-    const { status, countryCode, serviceCode, limit = 50, offset = 0 } = params;
+    const { status, countryCode, serviceCode, providerId, limit = 50, offset = 0 } = params;
 
     const conditions: string[] = [];
     const values: any[] = [];
@@ -705,6 +828,10 @@ export class VirtualNumberService {
     if (serviceCode) {
       conditions.push(`o.service_code = $${idx++}`);
       values.push(serviceCode);
+    }
+    if (providerId) {
+      conditions.push(`o.provider_id = $${idx++}`);
+      values.push(providerId);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -732,6 +859,147 @@ export class VirtualNumberService {
         userName: r.userName
       }))
     };
+  }
+
+  /**
+   * Admin: Get all configured Offers
+   */
+  public async getAdminOffers(params: { countryCode?: string | undefined; serviceCode?: string | undefined } = {}) {
+    const conditions: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (params.countryCode) {
+      conditions.push(`country_code = $${idx++}`);
+      values.push(params.countryCode);
+    }
+    if (params.serviceCode) {
+      conditions.push(`service_code = $${idx++}`);
+      values.push(params.serviceCode);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const res = await pool.query(
+      `SELECT * FROM virtual_number_offers ${where} ORDER BY country_code ASC, service_code ASC, display_order ASC, customer_price_sdg ASC`,
+      values
+    );
+
+    return res.rows.map(r => ({
+      id: r.id,
+      countryCode: r.country_code,
+      serviceCode: r.service_code,
+      providerId: r.provider_id,
+      providerName: r.provider_name,
+      supplierCost: Number(r.supplier_cost),
+      supplierCurrency: r.supplier_currency,
+      customerPriceSdg: Number(r.customer_price_sdg),
+      deliveryRate: Number(r.delivery_rate),
+      etaText: r.eta_text,
+      isActive: Boolean(r.is_active),
+      displayOrder: Number(r.display_order),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  /**
+   * Admin: Update offer pricing, cost, or active state
+   */
+  public async updateAdminOffer(id: string, params: {
+    customerPriceSdg?: number | undefined;
+    supplierCost?: number | undefined;
+    providerName?: string | undefined;
+    isActive?: boolean | undefined;
+    deliveryRate?: number | undefined;
+    etaText?: string | undefined;
+  }) {
+    const updates: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (params.customerPriceSdg !== undefined) {
+      updates.push(`customer_price_sdg = $${idx++}`);
+      values.push(params.customerPriceSdg);
+    }
+    if (params.supplierCost !== undefined) {
+      updates.push(`supplier_cost = $${idx++}`);
+      values.push(params.supplierCost);
+    }
+    if (params.providerName !== undefined) {
+      updates.push(`provider_name = $${idx++}`);
+      values.push(params.providerName);
+    }
+    if (params.isActive !== undefined) {
+      updates.push(`is_active = $${idx++}`);
+      values.push(params.isActive);
+    }
+    if (params.deliveryRate !== undefined) {
+      updates.push(`delivery_rate = $${idx++}`);
+      values.push(params.deliveryRate);
+    }
+    if (params.etaText !== undefined) {
+      updates.push(`eta_text = $${idx++}`);
+      values.push(params.etaText);
+    }
+
+    if (updates.length === 0) {
+      const current = await pool.query('SELECT * FROM virtual_number_offers WHERE id = $1', [id]);
+      return current.rows[0];
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+
+    const res = await pool.query(
+      `UPDATE virtual_number_offers SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    return res.rows[0];
+  }
+
+  /**
+   * Admin: Create New Offer
+   */
+  public async createAdminOffer(data: {
+    countryCode: string;
+    serviceCode: string;
+    providerId: string;
+    providerName: string;
+    supplierCost: number;
+    customerPriceSdg: number;
+    deliveryRate?: number | undefined;
+    etaText?: string | undefined;
+  }) {
+    const { country, service } = this.validateInput(data.countryCode, data.serviceCode);
+    const cleanProvider = this.validateProvider(data.providerId);
+
+    const res = await pool.query(
+      `INSERT INTO virtual_number_offers (
+        country_code, service_code, provider_id, provider_name,
+        supplier_cost, customer_price_sdg, delivery_rate, eta_text
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (country_code, service_code, provider_id) DO UPDATE SET
+        provider_name = EXCLUDED.provider_name,
+        supplier_cost = EXCLUDED.supplier_cost,
+        customer_price_sdg = EXCLUDED.customer_price_sdg,
+        delivery_rate = EXCLUDED.delivery_rate,
+        eta_text = EXCLUDED.eta_text,
+        is_active = true,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *`,
+      [
+        country.code,
+        service.code,
+        cleanProvider,
+        data.providerName,
+        data.supplierCost,
+        data.customerPriceSdg,
+        data.deliveryRate || 99.00,
+        data.etaText || 'صلاحية الرقم 15 دقيقة (مهلة الكود 5 دقائق)'
+      ]
+    );
+
+    return res.rows[0];
   }
 
   /**
@@ -768,56 +1036,6 @@ export class VirtualNumberService {
   }
 
   /**
-   * Admin: Get all configured products
-   */
-  public async getAdminProducts() {
-    const res = await pool.query(
-      `SELECT * FROM virtual_number_products ORDER BY display_order ASC, country_code ASC, service_code ASC`
-    );
-    return res.rows;
-  }
-
-  /**
-   * Admin: Update product custom price or active state
-   */
-  public async updateProduct(id: string, params: {
-    customPriceSdg?: number | null | undefined;
-    isActive?: boolean | undefined;
-    custom_price_sdg?: number | null | undefined;
-    is_active?: boolean | undefined;
-  }) {
-    const customPriceVal = params.customPriceSdg !== undefined ? params.customPriceSdg : params.custom_price_sdg;
-    const isActiveVal = params.isActive !== undefined ? params.isActive : params.is_active;
-
-    const updates: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-
-    if (customPriceVal !== undefined) {
-      updates.push("custom_price_sdg = $" + (idx++));
-      values.push(customPriceVal);
-    }
-    if (isActiveVal !== undefined) {
-      updates.push("is_active = $" + (idx++));
-      values.push(isActiveVal);
-    }
-
-    if (updates.length === 0) {
-      const current = await pool.query('SELECT * FROM virtual_number_products WHERE id = $1', [id]);
-      return current.rows[0];
-    }
-
-    updates.push('updated_at = CURRENT_TIMESTAMP');
-    values.push(id);
-
-    const res = await pool.query(
-      "UPDATE virtual_number_products SET " + updates.join(', ') + " WHERE id = $" + idx + " RETURNING *",
-      values
-    );
-    return res.rows[0];
-  }
-
-  /**
    * Safe DTO Mapper (Removes internal secrets, formats types)
    */
   private mapOrderRowToDTO(row: any): VirtualNumberOrderDTO {
@@ -828,6 +1046,13 @@ export class VirtualNumberService {
       countryNameAr: row.country_name_ar,
       serviceCode: row.service_code,
       serviceNameAr: row.service_name_ar,
+      providerId: row.provider_id || row.operator,
+      providerName: row.provider_name || row.operator,
+      offerId: row.offer_id,
+      supplierCost: row.supplier_cost !== null && row.supplier_cost !== undefined ? Number(row.supplier_cost) : undefined,
+      supplierCurrency: row.supplier_currency || 'USD',
+      customerPrice: row.customer_price !== null && row.customer_price !== undefined ? Number(row.customer_price) : undefined,
+      promotionType: row.promotion_type,
       providerOrderId: row.provider_order_id,
       phoneNumber: row.phone_number,
       operator: row.operator,
@@ -840,9 +1065,12 @@ export class VirtualNumberService {
       chargedAmount: Number(row.charged_amount) || 0,
       chargedCurrency: row.charged_currency || 'SDG',
       isRefunded: Boolean(row.is_refunded),
+      refundAmount: row.refund_amount !== null && row.refund_amount !== undefined ? Number(row.refund_amount) : undefined,
+      refundTxId: row.refund_tx_id,
       failureReason: row.failure_reason,
       expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : undefined,
       createdAt: new Date(row.created_at).toISOString(),
+      completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : undefined,
       updatedAt: new Date(row.updated_at).toISOString()
     };
   }
