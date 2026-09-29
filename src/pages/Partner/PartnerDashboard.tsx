@@ -114,7 +114,7 @@ export const PartnerDashboard: React.FC = () => {
 
         <div style={{ display: 'flex', gap: 12 }}>
           <button
-            onClick={() => setActiveTab('quick-buy')}
+            onClick={() => setActiveTab('buy')}
             className="btn-partner-primary"
             style={{ fontSize: '1.05rem', padding: '12px 24px' }}
           >
@@ -287,7 +287,7 @@ export const PartnerDashboard: React.FC = () => {
         gap: 16
       }}>
         <div 
-          onClick={() => setActiveTab('quick-buy')}
+          onClick={() => setActiveTab('buy')}
           className="partner-card"
           style={{
             cursor: 'pointer',

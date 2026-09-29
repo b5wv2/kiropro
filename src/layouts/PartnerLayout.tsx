@@ -12,7 +12,8 @@ import {
   Menu, 
   X, 
   Lock, 
-  Key
+  Key,
+  User
 } from 'lucide-react';
 
 interface PartnerLayoutProps {
@@ -33,10 +34,11 @@ export const PartnerLayout: React.FC<PartnerLayoutProps> = ({ children }) => {
 
   const navItems: { id: PartnerTab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18} /> },
-    { id: 'quick-buy', label: 'شحن سريع', icon: <Zap size={18} /> },
+    { id: 'buy', label: 'شحن سريع', icon: <Zap size={18} /> },
     { id: 'deposits', label: 'الإيداعات والرصيد', icon: <Wallet size={18} /> },
     { id: 'ledger', label: 'القيود المالية', icon: <History size={18} /> },
     { id: 'orders', label: 'سجل الطلبات', icon: <ShoppingBag size={18} /> },
+    { id: 'profile', label: 'الملف التجاري', icon: <User size={18} /> },
   ];
 
   const handleTabClick = (tabId: PartnerTab) => {

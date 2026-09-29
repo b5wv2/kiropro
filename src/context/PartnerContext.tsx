@@ -34,7 +34,18 @@ export interface NextLevelInfo {
   progressPercent?: number;
 }
 
-export type PartnerTab = 'dashboard' | 'quick-buy' | 'deposits' | 'ledger' | 'orders';
+export type PartnerTab = 'dashboard' | 'buy' | 'deposits' | 'ledger' | 'orders' | 'profile';
+
+const getInitialTab = (): PartnerTab => {
+  if (typeof window === 'undefined') return 'dashboard';
+  const path = window.location.pathname;
+  if (path.includes('/buy') || path.includes('/quick-buy')) return 'buy';
+  if (path.includes('/deposits')) return 'deposits';
+  if (path.includes('/ledger')) return 'ledger';
+  if (path.includes('/orders')) return 'orders';
+  if (path.includes('/profile')) return 'profile';
+  return 'dashboard';
+};
 
 interface PartnerContextType {
   partner: PartnerProfile | null;
@@ -68,7 +79,26 @@ export const PartnerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [wallet, setWallet] = useState<PartnerWallet | null>(null);
   const [nextLevel, setNextLevel] = useState<NextLevelInfo | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<PartnerTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<PartnerTab>(getInitialTab);
+
+  const setActiveTab = (tab: PartnerTab) => {
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined') {
+      const subpath = tab === 'dashboard' ? '' : `/${tab}`;
+      const targetUrl = `/partner${subpath}`;
+      if (window.location.pathname !== targetUrl) {
+        window.history.pushState(null, '', targetUrl);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTabState(getInitialTab());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const setStoredToken = (newToken: string | null) => {
     try {

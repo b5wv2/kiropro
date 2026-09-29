@@ -102,7 +102,13 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (currentView === 'admin') {
+  const isAdminPath = typeof window !== 'undefined' && (
+    window.location.pathname === '/admin' ||
+    window.location.pathname.startsWith('/admin/') ||
+    currentView === 'admin'
+  );
+
+  if (isAdminPath) {
     if (user?.role !== 'ADMIN') {
       return <HomePage />;
     }
@@ -161,24 +167,211 @@ const AppContent: React.FC = () => {
   );
 };
 
-export const App: React.FC = () => {
-  const isPartnerPortal = typeof window !== 'undefined' && (
-    window.location.hostname === 'partner.kiropro.store' ||
-    window.location.hostname.startsWith('partner.') ||
-    window.location.pathname.startsWith('/partner')
+const CustomerPartnerBlocker: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: '#0B0F19',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      direction: 'rtl',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      <div style={{
+        maxWidth: 480,
+        width: '100%',
+        background: '#111827',
+        border: '1px solid rgba(239, 68, 68, 0.25)',
+        borderRadius: 20,
+        padding: 32,
+        textAlign: 'center',
+        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)'
+      }}>
+        <div style={{
+          width: 72,
+          height: 72,
+          borderRadius: 20,
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.2)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#EF4444',
+          fontSize: '2rem',
+          marginBottom: 20
+        }}>
+          🛡️
+        </div>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#FFFFFF', margin: '0 0 10px 0' }}>
+          منطقة مخصصة للشركاء فقط
+        </h2>
+        <p style={{ color: '#9CA3AF', fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 24px 0' }}>
+          عذراً، أنت مسجل حالياً بحساب عميل عادي (<span style={{ color: '#F59E0B', fontWeight: 700 }}>CUSTOMER</span>). 
+          بوابة الشركاء متاحة فقط لحسابات التجار والموزعين المعتمدين من إدارة KIROPRO.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <a
+            href="/"
+            style={{
+              display: 'block',
+              background: '#F59E0B',
+              color: '#0B0F19',
+              fontWeight: 800,
+              padding: '12px 20px',
+              borderRadius: 12,
+              textDecoration: 'none',
+              fontSize: '0.95rem'
+            }}
+          >
+            العودة إلى المتجر الرئيسي
+          </a>
+          <button
+            type="button"
+            onClick={onLogout}
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: '#9CA3AF',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              fontWeight: 600,
+              padding: '10px 20px',
+              borderRadius: 12,
+              cursor: 'pointer',
+              fontSize: '0.85rem'
+            }}
+          >
+            تسجيل الخروج للدخول بحساب شريك
+          </button>
+        </div>
+      </div>
+    </div>
   );
+};
+
+const AdminPartnerChoice: React.FC<{ onGoToAdmin: () => void; onProceed: () => void }> = ({ onGoToAdmin, onProceed }) => {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: '#0B0F19',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      direction: 'rtl',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      <div style={{
+        maxWidth: 480,
+        width: '100%',
+        background: '#111827',
+        border: '1px solid rgba(245, 158, 11, 0.25)',
+        borderRadius: 20,
+        padding: 32,
+        textAlign: 'center',
+        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)'
+      }}>
+        <div style={{
+          width: 72,
+          height: 72,
+          borderRadius: 20,
+          background: 'rgba(245, 158, 11, 0.1)',
+          border: '1px solid rgba(245, 158, 11, 0.2)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#F59E0B',
+          fontSize: '2rem',
+          marginBottom: 20
+        }}>
+          👑
+        </div>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#FFFFFF', margin: '0 0 10px 0' }}>
+          تنبيه: حساب مسؤول (ADMIN)
+        </h2>
+        <p style={{ color: '#9CA3AF', fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 24px 0' }}>
+          أنت مسجل حالياً كمسؤول للنظام. مكانك الأساسي هو لوحة تحكم الإدارة لإدارة الشركاء والطلبات والأسعار.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <button
+            type="button"
+            onClick={onGoToAdmin}
+            style={{
+              background: '#F59E0B',
+              color: '#0B0F19',
+              fontWeight: 800,
+              padding: '12px 20px',
+              borderRadius: 12,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '0.95rem'
+            }}
+          >
+            الانتقال إلى لوحة تحكم الإدارة
+          </button>
+          <button
+            type="button"
+            onClick={onProceed}
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: '#D1D5DB',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              fontWeight: 600,
+              padding: '10px 20px',
+              borderRadius: 12,
+              cursor: 'pointer',
+              fontSize: '0.85rem'
+            }}
+          >
+            معاينة بوابة الشركاء
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AppRouter: React.FC = () => {
+  const { user, logout } = useAuth();
+  const [adminBypassPartner, setAdminBypassPartner] = React.useState(false);
+
+  const isPartnerPortal = typeof window !== 'undefined' && window.location.pathname.startsWith('/partner');
 
   if (isPartnerPortal) {
+    // If logged in as normal CUSTOMER on storefront, block access to Partner Portal
+    if (user?.role === 'CUSTOMER') {
+      return <CustomerPartnerBlocker onLogout={() => logout()} />;
+    }
+
+    // If logged in as ADMIN on storefront, do not redirect automatically to partner portal; allow choice
+    if (user?.role === 'ADMIN' && !adminBypassPartner) {
+      return (
+        <AdminPartnerChoice
+          onGoToAdmin={() => {
+            window.location.href = '/admin';
+          }}
+          onProceed={() => setAdminBypassPartner(true)}
+        />
+      );
+    }
+
+    // Otherwise (unauthenticated or PARTNER role): render Partner Portal
     return <PartnerApp />;
   }
 
   return (
+    <OverlayProvider>
+      <WalletProvider>
+        <AppContent />
+      </WalletProvider>
+    </OverlayProvider>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
     <AuthProvider>
-      <OverlayProvider>
-        <WalletProvider>
-          <AppContent />
-        </WalletProvider>
-      </OverlayProvider>
+      <AppRouter />
     </AuthProvider>
   );
 };

@@ -1298,7 +1298,7 @@ export async function sendPartnerWelcomeEmail(params: SendPartnerWelcomeEmailPar
             معلومات الدخول والأمان:
           </p>
           <ul style="margin: 0; padding-right: 20px; color: #475569; font-size: 14px; line-height: 1.8;">
-            <li>رابط البوابة: <a href="https://partner.kiropro.store" style="color: #D97706; font-weight: 700; text-decoration: none;">partner.kiropro.store</a></li>
+            <li>رابط البوابة: <a href="https://kiropro.store/partner" style="color: #D97706; font-weight: 700; text-decoration: none;">kiropro.store/partner</a></li>
             <li>البريد الإلكتروني المعتمد: <strong>${to}</strong></li>
             <li>صلاحية رابط الإعداد: <strong>${expiresHours} ساعة</strong> للاستخدام لمرة واحدة فقط.</li>
             <li>لا تشارك هذا الرابط مع أي شخص لحماية رصيدك وحسابك التجاري.</li>
@@ -1373,7 +1373,7 @@ export async function sendPartnerDepositApprovedEmail(params: SendPartnerDeposit
     </table>
 
     <div style="text-align: center; margin: 24px 0;">
-      ${renderEmailButton('الانتقال لبوابة الشحن السريع', 'https://partner.kiropro.store', false)}
+      ${renderEmailButton('الانتقال لبوابة الشحن السريع', 'https://kiropro.store/partner', false)}
     </div>
   `;
 
@@ -1433,7 +1433,7 @@ export async function sendPartnerDepositRejectedEmail(params: SendPartnerDeposit
     </table>
 
     <div style="text-align: center; margin: 24px 0;">
-      ${renderEmailButton('مراجعة المحفظة وتقديم طلب جديد', 'https://partner.kiropro.store', true)}
+      ${renderEmailButton('مراجعة المحفظة وتقديم طلب جديد', 'https://kiropro.store/partner', true)}
     </div>
   `;
 

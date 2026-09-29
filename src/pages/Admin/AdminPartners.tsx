@@ -420,7 +420,7 @@ export const AdminPartners: React.FC = () => {
           <h1 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0B0F19', margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>🤝 بوابة الشركاء والتجار</span>
             <span style={{ fontSize: '0.8rem', background: '#FEF3C7', color: '#92400E', padding: '3px 10px', borderRadius: 8, border: '1px solid #FCD34D' }}>
-              partner.kiropro.store
+              kiropro.store/partner
             </span>
           </h1>
           <p style={{ color: '#64748B', margin: 0, fontSize: '0.95rem' }}>
@@ -480,11 +480,16 @@ export const AdminPartners: React.FC = () => {
         </div>
 
         <div style={{ background: '#FFFFFF', padding: 20, borderRadius: 14, border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ color: '#64748B', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>نطاق المنصة الرئيسي</div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#D97706', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>partner.kiropro.store</span>
+          <div style={{ color: '#64748B', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>رابط المنصة للشركاء</div>
+          <a 
+            href="/partner" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style={{ fontSize: '1.05rem', fontWeight: 900, color: '#D97706', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}
+          >
+            <span>kiropro.store/partner</span>
             <ExternalLink size={16} />
-          </div>
+          </a>
         </div>
       </div>
 

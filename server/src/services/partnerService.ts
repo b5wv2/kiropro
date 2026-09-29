@@ -101,9 +101,9 @@ export class PartnerService {
       await client.query('COMMIT');
 
       // 8. Construct Setup Link
-      // Primary: partner.kiropro.store
+      // Primary: https://kiropro.store/partner
       const isProd = process.env.NODE_ENV === 'production';
-      const baseUrl = isProd ? 'https://partner.kiropro.store' : 'http://localhost:5173/partner';
+      const baseUrl = isProd ? 'https://kiropro.store/partner' : 'http://localhost:5173/partner';
       const setupUrl = `${baseUrl}/setup-password?token=${rawToken}`;
 
       // 9. Send Welcome Email via Resend asynchronously

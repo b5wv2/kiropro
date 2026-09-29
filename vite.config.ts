@@ -10,7 +10,6 @@ const envHosts = (process.env.VITE_ALLOWED_HOSTS || '')
 const allowedHosts = [
   'kiropro.store',
   'www.kiropro.store',
-  'partner.kiropro.store',
   ...envHosts,
   ...(process.env.RAILWAY_PUBLIC_DOMAIN ? [process.env.RAILWAY_PUBLIC_DOMAIN] : []),
   ...(process.env.RAILWAY_STATIC_URL ? [process.env.RAILWAY_STATIC_URL] : [])

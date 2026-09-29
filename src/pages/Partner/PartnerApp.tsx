@@ -6,6 +6,7 @@ import { PartnerQuickBuy } from './PartnerQuickBuy';
 import { PartnerDeposits } from './PartnerDeposits';
 import { PartnerLedger } from './PartnerLedger';
 import { PartnerOrders } from './PartnerOrders';
+import { PartnerProfilePage } from './PartnerProfile';
 import { PartnerLogin } from './PartnerLogin';
 import { PartnerSetupPassword } from './PartnerSetupPassword';
 import { RefreshCw } from 'lucide-react';
@@ -21,6 +22,11 @@ const PartnerPortalContent: React.FC = () => {
 
   if (isSetupPasswordRoute) {
     return <PartnerSetupPassword />;
+  }
+
+  // Explicit login subroute
+  if (window.location.pathname.includes('/login') && !isAuthenticated) {
+    return <PartnerLogin />;
   }
 
   if (isLoading) {
@@ -62,10 +68,11 @@ const PartnerPortalContent: React.FC = () => {
   return (
     <PartnerLayout>
       {activeTab === 'dashboard' && <PartnerDashboard />}
-      {activeTab === 'quick-buy' && <PartnerQuickBuy />}
+      {activeTab === 'buy' && <PartnerQuickBuy />}
       {activeTab === 'deposits' && <PartnerDeposits />}
       {activeTab === 'ledger' && <PartnerLedger />}
       {activeTab === 'orders' && <PartnerOrders />}
+      {activeTab === 'profile' && <PartnerProfilePage />}
     </PartnerLayout>
   );
 };

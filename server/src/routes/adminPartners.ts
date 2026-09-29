@@ -319,7 +319,7 @@ router.post('/partners/:id/resend-setup-link', requireAdmin, async (req: AuthReq
     );
 
     const isProd = process.env.NODE_ENV === 'production';
-    const baseUrl = isProd ? 'https://partner.kiropro.store' : 'http://localhost:5173/partner';
+    const baseUrl = isProd ? 'https://kiropro.store/partner' : 'http://localhost:5173/partner';
     const setupUrl = `${baseUrl}/setup-password?token=${rawToken}`;
 
     sendPartnerWelcomeEmail({

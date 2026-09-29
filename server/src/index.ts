@@ -65,7 +65,6 @@ const envFrontendUrls = (process.env.FRONTEND_URL || '')
 const allowedOrigins = [
   'https://kiropro.store',
   'https://www.kiropro.store',
-  'https://partner.kiropro.store',
   ...envFrontendUrls,
   ...(process.env.NODE_ENV !== 'production'
     ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
