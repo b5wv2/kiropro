@@ -138,6 +138,7 @@ export const AdminPartners: React.FC = () => {
   // Levels State
   const [levels, setLevels] = useState<PartnerLevel[]>([]);
   const [levelsLoading, setLevelsLoading] = useState(false);
+  const [levelsError, setLevelsError] = useState<string | null>(null);
   const [editingLevel, setEditingLevel] = useState<PartnerLevel | null>(null);
 
   // Rate History State
@@ -187,10 +188,23 @@ export const AdminPartners: React.FC = () => {
   const fetchLevels = async () => {
     try {
       setLevelsLoading(true);
+      setLevelsError(null);
       const data = await api.get('/api/admin/partner-levels');
-      setLevels(data);
-    } catch (err) {
+      const list = Array.isArray(data) ? data : [];
+      setLevels(list);
+      if (list.length > 0) {
+        setCreateForm(prev => ({
+          ...prev,
+          levelId: prev.levelId || list[0].id
+        }));
+      } else {
+        setLevelsError('لم يتم العثور على أي مستويات شركاء في قاعدة البيانات.');
+      }
+      return list;
+    } catch (err: any) {
       console.error('Failed to load levels', err);
+      setLevelsError(err?.message || 'فشل الاتصال بالخادم لجلب مستويات الشركاء.');
+      return [];
     } finally {
       setLevelsLoading(false);
     }
@@ -210,6 +224,7 @@ export const AdminPartners: React.FC = () => {
 
   useEffect(() => {
     fetchPartners();
+    fetchLevels();
   }, []);
 
   useEffect(() => {
@@ -237,7 +252,11 @@ export const AdminPartners: React.FC = () => {
 
     try {
       setCreateSubmitting(true);
-      const res = await api.post('/api/admin/partners', createForm);
+      const payload = {
+        ...createForm,
+        levelId: createForm.levelId || levels[0]?.id || undefined
+      };
+      const res = await api.post('/api/admin/partners', payload);
       setCreatedResult({
         name: res.partner.name,
         email: res.partner.email,
@@ -429,14 +448,18 @@ export const AdminPartners: React.FC = () => {
         </div>
 
         <button
-          onClick={() => {
+          onClick={async () => {
             setCreatedResult(null);
+            let currentLevels = levels;
+            if (currentLevels.length === 0) {
+              currentLevels = await fetchLevels();
+            }
             setCreateForm({
               name: '',
               email: '',
               phone: '',
               businessName: '',
-              levelId: levels[0]?.id || '',
+              levelId: currentLevels[0]?.id || '',
               status: 'ACTIVE',
               notes: ''
             });
@@ -990,7 +1013,12 @@ export const AdminPartners: React.FC = () => {
                 borderRadius: 8,
                 border: '1px solid #CBD5E1',
                 fontWeight: 700,
-                minWidth: 260
+                minWidth: 260,
+                background: '#FFFFFF',
+                color: '#0F172A',
+                height: 42,
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
               {partners.map(p => (
@@ -1230,7 +1258,7 @@ export const AdminPartners: React.FC = () => {
       {/* MODAL 1: CREATE PARTNER */}
       {showCreateModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: 16 }}>
-          <div style={{ background: '#FFFFFF', borderRadius: 16, width: '100%', maxWidth: 540, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+          <div style={{ background: '#FFFFFF', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: '92vh', overflowY: 'auto', padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
             <h2 style={{ fontSize: '1.3rem', fontWeight: 900, color: '#0F172A', margin: '0 0 16px 0' }}>
               إنشاء شريك / تاجر جديد
             </h2>
@@ -1296,91 +1324,192 @@ export const AdminPartners: React.FC = () => {
               </div>
             ) : (
               <form onSubmit={handleCreatePartner}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>اسم الشريك *</label>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>اسم الشريك *</label>
                     <input
                       type="text"
                       required
                       placeholder="مثال: أحمد محمد"
                       value={createForm.name}
                       onChange={e => setCreateForm({ ...createForm, name: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0F172A', outline: 'none', height: 42, fontSize: '0.9rem' }}
                     />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>اسم المتجر / النشاط</label>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>اسم المتجر / النشاط</label>
                     <input
                       type="text"
                       placeholder="مثال: متجر النخبة للشحن"
                       value={createForm.businessName}
                       onChange={e => setCreateForm({ ...createForm, businessName: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0F172A', outline: 'none', height: 42, fontSize: '0.9rem' }}
                     />
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>البريد الإلكتروني *</label>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>البريد الإلكتروني *</label>
                     <input
                       type="email"
                       required
                       placeholder="partner@example.com"
                       value={createForm.email}
                       onChange={e => setCreateForm({ ...createForm, email: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0F172A', outline: 'none', height: 42, fontSize: '0.9rem' }}
                     />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>رقم الهاتف (واتساب)</label>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>رقم الهاتف (واتساب)</label>
                     <input
                       type="text"
                       placeholder="مثال: +249912345678"
                       value={createForm.phone}
                       onChange={e => setCreateForm({ ...createForm, phone: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0F172A', outline: 'none', height: 42, fontSize: '0.9rem' }}
                     />
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>المستوى الأولي</label>
-                    <select
-                      value={createForm.levelId}
-                      onChange={e => setCreateForm({ ...createForm, levelId: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
-                    >
-                      {levels.map(l => (
-                        <option key={l.id} value={l.id}>{l.arabic_name} ({l.discount_percent}%)</option>
-                      ))}
-                    </select>
+                    <label htmlFor="create-partner-level-select" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>
+                      المستوى الأولي *
+                    </label>
+                    {levelsLoading && levels.length === 0 ? (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        border: '1px solid #CBD5E1',
+                        background: '#F8FAFC',
+                        color: '#64748B',
+                        fontSize: '0.88rem',
+                        height: 42
+                      }}>
+                        <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                        جارٍ تحميل المستويات...
+                      </div>
+                    ) : levels.length === 0 ? (
+                      <div>
+                        <div style={{
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          background: '#FEF2F2',
+                          border: '1px solid #FCA5A5',
+                          color: '#991B1B',
+                          fontSize: '0.82rem',
+                          lineHeight: 1.4
+                        }}>
+                          ⚠️ {levelsError || 'لا توجد مستويات شركاء متاحة في قاعدة البيانات.'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => fetchLevels()}
+                          style={{
+                            marginTop: 6,
+                            background: 'none',
+                            border: 'none',
+                            color: '#2563EB',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4
+                          }}
+                        >
+                          <RefreshCw size={12} /> إعادة المحاولة
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        id="create-partner-level-select"
+                        required
+                        value={createForm.levelId || levels[0]?.id || ''}
+                        onChange={e => setCreateForm({ ...createForm, levelId: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 8,
+                          border: '1px solid #CBD5E1',
+                          background: '#FFFFFF',
+                          color: '#0F172A',
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          height: 42,
+                          outline: 'none',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          appearance: 'auto',
+                          WebkitAppearance: 'menulist'
+                        }}
+                      >
+                        {levels.map(l => (
+                          <option
+                            key={l.id}
+                            value={l.id}
+                            style={{
+                              background: '#FFFFFF',
+                              color: '#0F172A',
+                              padding: '8px'
+                            }}
+                          >
+                            {l.arabic_name} ({l.name}) — خصم {Number(l.discount_percent)}%
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>حالة الحساب</label>
+                    <label htmlFor="create-partner-status-select" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>
+                      حالة الحساب *
+                    </label>
                     <select
+                      id="create-partner-status-select"
                       value={createForm.status}
                       onChange={e => setCreateForm({ ...createForm, status: e.target.value as any })}
-                      style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        border: '1px solid #CBD5E1',
+                        background: '#FFFFFF',
+                        color: '#0F172A',
+                        fontSize: '0.9rem',
+                        fontWeight: 600,
+                        height: 42,
+                        outline: 'none',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                        appearance: 'auto',
+                        WebkitAppearance: 'menulist'
+                      }}
                     >
-                      <option value="ACTIVE">نشط (جاهز للشحن فور تعيين كلمة المرور)</option>
-                      <option value="SUSPENDED">معطل مؤقتاً</option>
+                      <option value="ACTIVE" style={{ background: '#FFFFFF', color: '#0F172A' }}>
+                        نشط (جاهز للشحن فور تعيين كلمة المرور)
+                      </option>
+                      <option value="SUSPENDED" style={{ background: '#FFFFFF', color: '#0F172A' }}>
+                        معطل مؤقتاً
+                      </option>
                     </select>
                   </div>
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4 }}>ملاحظات داخلية (اختياري)</label>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>ملاحظات داخلية (اختياري)</label>
                   <textarea
                     rows={2}
                     placeholder="ملاحظات للإدارة حول هذا التاجر..."
                     value={createForm.notes}
                     onChange={e => setCreateForm({ ...createForm, notes: e.target.value })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #CBD5E1' }}
+                    style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.9rem' }}
                   />
                 </div>
 
