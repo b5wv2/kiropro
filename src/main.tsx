@@ -9,6 +9,7 @@ import './styles/components.css';
 import './styles/layout.css';
 import './styles/animations.css';
 import './styles/admin.css';
+import './styles/partner.css';
 
 const rootElement = document.getElementById('root');
 

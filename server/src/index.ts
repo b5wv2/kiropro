@@ -27,6 +27,8 @@ import internalTelegramRoutes from './routes/internalTelegram';
 import referralRoutes from './routes/referral';
 import virtualNumbersRoutes from './routes/virtualNumbers';
 import adminVirtualNumbersRoutes from './routes/adminVirtualNumbers';
+import partnerRoutes from './routes/partner';
+import adminPartnersRoutes from './routes/adminPartners';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
@@ -63,6 +65,7 @@ const envFrontendUrls = (process.env.FRONTEND_URL || '')
 const allowedOrigins = [
   'https://kiropro.store',
   'https://www.kiropro.store',
+  'https://partner.kiropro.store',
   ...envFrontendUrls,
   ...(process.env.NODE_ENV !== 'production'
     ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
@@ -237,6 +240,8 @@ app.use('/api/internal/telegram', internalTelegramRoutes);
 app.use('/api/referral', banCheckMiddleware, referralRoutes);
 app.use('/api/virtual-numbers', banCheckMiddleware, virtualNumbersRoutes);
 app.use('/api/admin/virtual-numbers', adminVirtualNumbersRoutes);
+app.use('/api/partner', banCheckMiddleware, partnerRoutes);
+app.use('/api/admin', adminPartnersRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

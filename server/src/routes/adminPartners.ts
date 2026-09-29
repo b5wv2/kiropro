@@ -1,0 +1,693 @@
+import { Router, Response } from 'express';
+import crypto from 'crypto';
+import pool from '../db';
+import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { v4 as uuidv4 } from 'uuid';
+import { partnerService } from '../services/partnerService';
+import { partnerLedgerService } from '../services/partnerLedgerService';
+import { 
+  sendPartnerWelcomeEmail, 
+  sendPartnerDepositApprovedEmail, 
+  sendPartnerDepositRejectedEmail 
+} from '../services/emailService';
+
+const router = Router();
+
+const getParam = (val: any): string => (Array.isArray(val) ? val[0] : String(val || ''));
+
+// ==========================================
+// 1. GET ALL PARTNERS
+// ==========================================
+router.get('/partners', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const query = `
+      SELECT 
+        p.id, p.user_id as "userId", u.name, u.email,
+        p.business_name as "businessName", p.phone, p.status,
+        p.total_points as "totalPoints",
+        COALESCE(w.balance, 0.0000) as balance,
+        w.currency,
+        pl.name as "levelName",
+        pl.arabic_name as "levelArabicName",
+        pl.badge_color as "badgeColor",
+        pl.discount_percent as "discountPercent",
+        (SELECT COUNT(*) FROM partner_orders o WHERE o.partner_id = p.id)::int as "ordersCount",
+        (SELECT COALESCE(SUM(o.partner_price_usd), 0) FROM partner_orders o WHERE o.partner_id = p.id AND o.status = 'COMPLETED') as "totalPurchasesUsd",
+        p.created_at as "createdAt"
+      FROM partner_profiles p
+      JOIN "User" u ON p.user_id = u.id
+      LEFT JOIN partner_wallets w ON w.partner_id = p.id
+      LEFT JOIN partner_levels pl ON p.level_id = pl.id
+      ORDER BY p.created_at DESC
+    `;
+
+    const result = await pool.query(query);
+    const partners = result.rows.map(r => ({
+      ...r,
+      balance: Number(r.balance),
+      totalPoints: Number(r.totalPoints),
+      totalPurchasesUsd: Number(r.totalPurchasesUsd)
+    }));
+
+    res.json(partners);
+  } catch (err: any) {
+    console.error('[AdminPartners] Error fetching partners:', err);
+    res.status(500).json({ error: 'فشل جلب قائمة الشركاء.' });
+  }
+});
+
+// ==========================================
+// 2. CREATE PARTNER (WITH ONE-TIME SETUP TOKEN)
+// ==========================================
+router.post('/partners', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { name, email, phone, businessName, levelId, status, notes } = req.body;
+  const adminId = req.user?.id;
+
+  if (!name || !email) {
+    return res.status(400).json({ error: 'الاسم والبريد الإلكتروني حقول مطلوبة.' });
+  }
+
+  try {
+    const result = await partnerService.createPartnerAccount({
+      name,
+      email,
+      phone,
+      businessName,
+      levelId,
+      status: status || 'ACTIVE',
+      notes
+    });
+
+    // Record in AuditLog
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, "targetUserId", reason)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        uuidv4(),
+        adminId,
+        'CREATE_PARTNER',
+        result.userId,
+        `إنشاء حساب تاجر جديد: ${name} (${email})`
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'تم إنشاء حساب الشريك بنجاح وإرسال رابط تعيين كلمة المرور إلى بريده الإلكتروني.',
+      partner: result
+    });
+  } catch (err: any) {
+    console.error('[AdminPartners] Error creating partner:', err);
+    res.status(400).json({ error: err.message || 'فشل إنشاء حساب الشريك.' });
+  }
+});
+
+// ==========================================
+// 3. GET PARTNER DETAILS
+// ==========================================
+router.get('/partners/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+
+  try {
+    const details = await partnerService.getPartnerDetails(id);
+    if (!details) {
+      return res.status(404).json({ error: 'الشريك غير موجود.' });
+    }
+
+    // Fetch recent 10 ledger entries
+    const ledgerRes = await pool.query(
+      `SELECT * FROM partner_ledger WHERE partner_id = $1 ORDER BY created_at DESC LIMIT 10`,
+      [id]
+    );
+
+    // Fetch recent 10 orders
+    const ordersRes = await pool.query(
+      `SELECT * FROM partner_orders WHERE partner_id = $1 ORDER BY created_at DESC LIMIT 10`,
+      [id]
+    );
+
+    // Fetch recent 5 deposits
+    const depositsRes = await pool.query(
+      `SELECT d.*, pm.name as "paymentMethodName" 
+       FROM partner_deposits d 
+       LEFT JOIN payment_methods pm ON d.payment_method_id = pm.id
+       WHERE d.partner_id = $1 
+       ORDER BY d.created_at DESC LIMIT 5`,
+      [id]
+    );
+
+    res.json({
+      ...details,
+      recentLedger: ledgerRes.rows,
+      recentOrders: ordersRes.rows,
+      recentDeposits: depositsRes.rows
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب تفاصيل الشريك.' });
+  }
+});
+
+// ==========================================
+// 4. UPDATE PARTNER STATUS (ACTIVATE / SUSPEND)
+// ==========================================
+router.patch('/partners/:id/status', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const { status, reason } = req.body;
+  const adminId = req.user?.id;
+
+  if (status !== 'ACTIVE' && status !== 'SUSPENDED') {
+    return res.status(400).json({ error: 'حالة غير صالحة. القيم المسموحة: ACTIVE أو SUSPENDED.' });
+  }
+
+  try {
+    const updateRes = await pool.query(
+      `UPDATE partner_profiles 
+       SET status = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 
+       RETURNING user_id`,
+      [status, id]
+    );
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({ error: 'الشريك غير موجود.' });
+    }
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, "targetUserId", reason)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        uuidv4(),
+        adminId,
+        'UPDATE_PARTNER_STATUS',
+        updateRes.rows[0].user_id,
+        `تغيير حالة الشريك إلى ${status}. السبب: ${reason || 'إجراء إداري'}`
+      ]
+    );
+
+    res.json({ success: true, message: `تم تحديث حالة الشريك إلى ${status === 'ACTIVE' ? 'نشط' : 'معطل'} بنجاح.` });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل تحديث حالة الشريك.' });
+  }
+});
+
+// ==========================================
+// 5. MANUAL WALLET ADJUSTMENT (CREDIT / DEBIT)
+// ==========================================
+router.post('/partners/:id/wallet/credit', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const { amount, reason } = req.body;
+  const adminId = req.user?.id;
+
+  const numAmount = Number(amount);
+  if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
+    return res.status(400).json({ error: 'المبلغ يجب أن يكون رقماً موجباً.' });
+  }
+
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'سبب الإضافة المالي إلزامي للتدقيق المحاسبي.' });
+  }
+
+  try {
+    const result = await partnerLedgerService.credit({
+      partnerId: id,
+      type: 'MANUAL_CREDIT',
+      amount: numAmount,
+      currency: 'USD',
+      referenceType: 'ADMIN_ADJUSTMENT',
+      actorId: adminId || null,
+      actorType: 'ADMIN',
+      description: `شحن يدوي من الإدارة: ${reason.trim()}`
+    });
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
+       VALUES ($1, $2, 'PARTNER_MANUAL_CREDIT', $3, $4)`,
+      [uuidv4(), adminId, numAmount, `إضافة $${numAmount} لمحفظة الشريك ${id}. السبب: ${reason}`]
+    );
+
+    res.json({
+      success: true,
+      message: `تمت إضافة $${numAmount.toFixed(2)} بنجاح إلى رصيد الشريك.`,
+      newBalance: result.balanceAfter
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'فشل شحن رصيد الشريك.' });
+  }
+});
+
+router.post('/partners/:id/wallet/debit', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const { amount, reason } = req.body;
+  const adminId = req.user?.id;
+
+  const numAmount = Number(amount);
+  if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
+    return res.status(400).json({ error: 'المبلغ يجب أن يكون رقماً موجباً.' });
+  }
+
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'سبب الخصم المالي إلزامي للتدقيق المحاسبي.' });
+  }
+
+  try {
+    const result = await partnerLedgerService.debit({
+      partnerId: id,
+      type: 'MANUAL_DEBIT',
+      amount: numAmount,
+      currency: 'USD',
+      referenceType: 'ADMIN_ADJUSTMENT',
+      actorId: adminId || null,
+      actorType: 'ADMIN',
+      description: `خصم يدوي من الإدارة: ${reason.trim()}`
+    });
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
+       VALUES ($1, $2, 'PARTNER_MANUAL_DEBIT', $3, $4)`,
+      [uuidv4(), adminId, numAmount, `خصم $${numAmount} من محفظة الشريك ${id}. السبب: ${reason}`]
+    );
+
+    res.json({
+      success: true,
+      message: `تم خصم $${numAmount.toFixed(2)} بنجاح من رصيد الشريك.`,
+      newBalance: result.balanceAfter
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'فشل خصم رصيد الشريك.' });
+  }
+});
+
+// ==========================================
+// 6. RESEND ONE-TIME SETUP LINK
+// ==========================================
+router.post('/partners/:id/resend-setup-link', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const adminId = req.user?.id;
+
+  try {
+    const partnerRes = await pool.query(
+      `SELECT p.id, u.email, u.name 
+       FROM partner_profiles p 
+       JOIN "User" u ON p.user_id = u.id 
+       WHERE p.id = $1`,
+      [id]
+    );
+
+    if (partnerRes.rows.length === 0) {
+      return res.status(404).json({ error: 'الشريك غير موجود.' });
+    }
+
+    const { email, name } = partnerRes.rows[0];
+
+    // Invalidate existing unused tokens
+    await pool.query(
+      `UPDATE partner_setup_tokens 
+       SET used_at = CURRENT_TIMESTAMP 
+       WHERE partner_id = $1 AND used_at IS NULL`,
+      [id]
+    );
+
+    // Generate new token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+
+    await pool.query(
+      `INSERT INTO partner_setup_tokens (id, partner_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [uuidv4(), id, tokenHash, expiresAt]
+    );
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const baseUrl = isProd ? 'https://partner.kiropro.store' : 'http://localhost:5173/partner';
+    const setupUrl = `${baseUrl}/setup-password?token=${rawToken}`;
+
+    sendPartnerWelcomeEmail({
+      to: email,
+      partnerName: name,
+      setupUrl,
+      expiresHours: 72
+    }).catch(() => {});
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, reason)
+       VALUES ($1, $2, 'RESEND_PARTNER_SETUP_LINK', $3)`,
+      [uuidv4(), adminId, `إعادة إرسال رابط تعيين كلمة المرور للشريك ${name} (${email})`]
+    );
+
+    res.json({
+      success: true,
+      message: 'تم توليد رابط إعداد جديد وإرساله بنجاح إلى البريد الإلكتروني.',
+      setupUrl
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل إعادة إرسال الرابط.' });
+  }
+});
+
+// ==========================================
+// 7. GET & SET PARTNER PRODUCT PRICING (UNIQUE partner_id + product_id)
+// ==========================================
+router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+
+  try {
+    const query = `
+      SELECT 
+        p.id as "productId",
+        p."productName",
+        p."offerName",
+        p."arabicName",
+        p."supplierCostUsd" as "costPriceUsd",
+        p."customerPriceUsd" as "retailPriceUsd",
+        p."defaultPartnerPriceUsd" as "defaultPartnerPriceUsd",
+        ppp.partner_price_usd as "customPartnerPriceUsd",
+        ppp.is_available as "customIsAvailable",
+        p."isActive"
+      FROM "Product" p
+      LEFT JOIN partner_product_pricing ppp ON ppp.product_id = p.id AND ppp.partner_id = $1
+      WHERE p."isActive" = true
+      ORDER BY p."productName" ASC
+    `;
+
+    const result = await pool.query(query, [id]);
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب قائمة أسعار الشريك.' });
+  }
+});
+
+router.put('/partners/:id/pricing/:productId', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const partnerId = getParam(req.params.id);
+  const productId = getParam(req.params.productId);
+  const { partnerPriceUsd, isAvailable } = req.body;
+  const adminId = req.user?.id;
+
+  const numPrice = Number(partnerPriceUsd);
+  if (!numPrice || isNaN(numPrice) || numPrice <= 0) {
+    return res.status(400).json({ error: 'سعر الشريك يجب أن يكون رقماً موجباً أكبر من الصفر.' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO partner_product_pricing (
+        id, partner_id, product_id, partner_price_usd, is_available, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+      ON CONFLICT ("partner_id", "product_id") DO UPDATE SET
+        partner_price_usd = EXCLUDED.partner_price_usd,
+        is_available = EXCLUDED.is_available,
+        updated_at = CURRENT_TIMESTAMP`,
+      [uuidv4(), partnerId, productId, numPrice, isAvailable !== false]
+    );
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
+       VALUES ($1, $2, 'UPDATE_PARTNER_PRICING', $3, $4)`,
+      [uuidv4(), adminId, numPrice, `تحديث سعر الشريك للمنتج ${productId} إلى $${numPrice}`]
+    );
+
+    res.json({ success: true, message: 'تم حفظ سعر الشريك للمنتج بنجاح.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل حفظ السعر.' });
+  }
+});
+
+router.delete('/partners/:id/pricing/:productId', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const partnerId = getParam(req.params.id);
+  const productId = getParam(req.params.productId);
+
+  try {
+    await pool.query(
+      `DELETE FROM partner_product_pricing WHERE partner_id = $1 AND product_id = $2`,
+      [partnerId, productId]
+    );
+    res.json({ success: true, message: 'تم حذف التسعير المخصص واستعادة السعر الافتراضي.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل حذف التسعير المخصص.' });
+  }
+});
+
+// ==========================================
+// 8. PARTNER DEPOSITS MANAGEMENT
+// ==========================================
+router.get('/partner-deposits', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const status = req.query.status as string;
+
+  try {
+    let statusFilter = '';
+    const values: any[] = [];
+    if (status && status !== 'ALL') {
+      statusFilter = 'WHERE d.status = $1';
+      values.push(status);
+    }
+
+    const query = `
+      SELECT 
+        d.id, d.partner_id as "partnerId",
+        u.name as "partnerName", u.email as "partnerEmail",
+        p.business_name as "businessName",
+        d.amount_usd as "amountUsd",
+        d.exchange_rate as "exchangeRate",
+        d.amount_local as "amountLocal",
+        d.currency_local as "currencyLocal",
+        d.status, d.partner_notes as "partnerNotes",
+        d.rejection_reason as "rejectionReason",
+        d.created_at as "createdAt",
+        d.reviewed_at as "reviewedAt",
+        pm.name as "paymentMethodName"
+      FROM partner_deposits d
+      JOIN partner_profiles p ON d.partner_id = p.id
+      JOIN "User" u ON p.user_id = u.id
+      LEFT JOIN payment_methods pm ON d.payment_method_id = pm.id
+      ${statusFilter}
+      ORDER BY d.created_at DESC
+    `;
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب طلبات إيداع الشركاء.' });
+  }
+});
+
+// Approve Deposit: Strict transaction, locks request, checks status, credits wallet, sends email
+router.post('/partner-deposits/:id/approve', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const adminId = req.user?.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Lock deposit row for update
+    const depositRes = await client.query(
+      `SELECT d.*, u.email, u.name 
+       FROM partner_deposits d
+       JOIN partner_profiles p ON d.partner_id = p.id
+       JOIN "User" u ON p.user_id = u.id
+       WHERE d.id = $1 
+       FOR UPDATE`,
+      [id]
+    );
+
+    if (depositRes.rows.length === 0) {
+      throw new Error('طلب الإيداع غير موجود.');
+    }
+
+    const deposit = depositRes.rows[0];
+
+    // Idempotency guard: only PENDING can be approved
+    if (deposit.status !== 'PENDING') {
+      throw new Error(`لا يمكن اعتماد هذا الطلب لأن حالته الحالية هي: ${deposit.status}`);
+    }
+
+    const amountUsd = Number(deposit.amount_usd);
+
+    // 2. Mark deposit as APPROVED
+    await client.query(
+      `UPDATE partner_deposits 
+       SET status = 'APPROVED', 
+           reviewed_by = $1, 
+           reviewed_at = CURRENT_TIMESTAMP, 
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2`,
+      [adminId, id]
+    );
+
+    // 3. Credit wallet via partnerLedgerService under the same transaction
+    const creditResult = await partnerLedgerService.credit({
+      partnerId: deposit.partner_id,
+      type: 'DEPOSIT',
+      amount: amountUsd,
+      currency: 'USD',
+      referenceId: id,
+      referenceType: 'DEPOSIT',
+      actorId: adminId || null,
+      actorType: 'ADMIN',
+      description: `إيداع معتمد #${id.slice(0, 8)} (${deposit.amount_local} ${deposit.currency_local})`
+    }, client);
+
+    await client.query('COMMIT');
+
+    // 4. Send Approval Email asynchronously
+    sendPartnerDepositApprovedEmail({
+      to: deposit.email,
+      partnerName: deposit.name,
+      amountUsd,
+      newBalanceUsd: creditResult.balanceAfter,
+      depositId: id
+    }).catch(() => {});
+
+    // Log to AuditLog
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
+       VALUES ($1, $2, 'APPROVE_PARTNER_DEPOSIT', $3, $4)`,
+      [uuidv4(), adminId, amountUsd, `الموافقة على طلب إيداع التاجر ${deposit.name} بقيمة $${amountUsd}`]
+    );
+
+    res.json({
+      success: true,
+      message: `تم اعتماد الإيداع بنجاح وإضافة $${amountUsd.toFixed(2)} إلى محفظة التاجر.`,
+      newBalance: creditResult.balanceAfter
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ error: err.message || 'فشل اعتماد الإيداع.' });
+  } finally {
+    client.release();
+  }
+});
+
+// Reject Deposit
+router.post('/partner-deposits/:id/reject', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const { reason } = req.body;
+  const adminId = req.user?.id;
+
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'سبب الرفض إلزامي لإشعار التاجر.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const depositRes = await client.query(
+      `SELECT d.*, u.email, u.name 
+       FROM partner_deposits d
+       JOIN partner_profiles p ON d.partner_id = p.id
+       JOIN "User" u ON p.user_id = u.id
+       WHERE d.id = $1 
+       FOR UPDATE`,
+      [id]
+    );
+
+    if (depositRes.rows.length === 0) {
+      throw new Error('طلب الإيداع غير موجود.');
+    }
+
+    const deposit = depositRes.rows[0];
+    if (deposit.status !== 'PENDING') {
+      throw new Error(`لا يمكن رفض هذا الطلب لأن حالته الحالية هي: ${deposit.status}`);
+    }
+
+    await client.query(
+      `UPDATE partner_deposits 
+       SET status = 'REJECTED', 
+           rejection_reason = $1, 
+           reviewed_by = $2, 
+           reviewed_at = CURRENT_TIMESTAMP, 
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $3`,
+      [reason.trim(), adminId, id]
+    );
+
+    await client.query('COMMIT');
+
+    sendPartnerDepositRejectedEmail({
+      to: deposit.email,
+      partnerName: deposit.name,
+      amountUsd: Number(deposit.amount_usd),
+      reason: reason.trim(),
+      depositId: id
+    }).catch(() => {});
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, reason)
+       VALUES ($1, $2, 'REJECT_PARTNER_DEPOSIT', $3)`,
+      [uuidv4(), adminId, `رفض طلب إيداع التاجر ${deposit.name}. السبب: ${reason}`]
+    );
+
+    res.json({ success: true, message: 'تم رفض طلب الإيداع وإشعار التاجر بنجاح.' });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ error: err.message || 'فشل رفض الإيداع.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ==========================================
+// 9. PARTNER LEVELS MANAGEMENT
+// ==========================================
+router.get('/partner-levels', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const levelsRes = await pool.query(
+      `SELECT * FROM partner_levels ORDER BY display_order ASC, min_points ASC`
+    );
+    res.json(levelsRes.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب المستويات.' });
+  }
+});
+
+router.put('/partner-levels/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const id = getParam(req.params.id);
+  const { arabicName, minPoints, maxPoints, discountPercent, badgeColor, perksDescription } = req.body;
+
+  try {
+    await pool.query(
+      `UPDATE partner_levels 
+       SET arabic_name = COALESCE($1, arabic_name),
+           min_points = COALESCE($2, min_points),
+           max_points = $3,
+           discount_percent = COALESCE($4, discount_percent),
+           badge_color = COALESCE($5, badge_color),
+           perks_description = COALESCE($6, perks_description),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $7`,
+      [
+        arabicName,
+        minPoints !== undefined ? Number(minPoints) : undefined,
+        maxPoints !== undefined && maxPoints !== null && maxPoints !== '' ? Number(maxPoints) : null,
+        discountPercent !== undefined ? Number(discountPercent) : undefined,
+        badgeColor,
+        perksDescription,
+        id
+      ]
+    );
+
+    res.json({ success: true, message: 'تم تحديث إعدادات المستوى بنجاح.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل تحديث المستوى.' });
+  }
+});
+
+// ==========================================
+// 10. EXCHANGE RATE HISTORY
+// ==========================================
+router.get('/exchange-rate-history', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const historyRes = await pool.query(
+      `SELECT h.*, u.name as "adminName", u.email as "adminEmail"
+       FROM exchange_rate_history h
+       LEFT JOIN "User" u ON h.changed_by = u.id
+       ORDER BY h.created_at DESC LIMIT 50`
+    );
+    res.json(historyRes.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب سجل تغييرات سعر الصرف.' });
+  }
+});
+
+export default router;

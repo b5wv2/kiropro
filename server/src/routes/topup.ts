@@ -791,6 +791,10 @@ router.patch('/admin/settings/exchange-rate', requireAdmin, async (req: AuthRequ
       max_topup: max_topup !== undefined ? parseFloat(max_topup) : 500
     };
 
+    // Fetch previous rate for audit history
+    const prevRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
+    const prevRate = Number(prevRes.rows[0]?.value?.rate) || numRate;
+
     await pool.query(
       `INSERT INTO "platform_settings" ("key", "value", "updated_at", "updated_by") 
        VALUES ('exchange_rate', $1, CURRENT_TIMESTAMP, $2)
@@ -799,6 +803,21 @@ router.patch('/admin/settings/exchange-rate', requireAdmin, async (req: AuthRequ
          "updated_at" = CURRENT_TIMESTAMP, 
          "updated_by" = EXCLUDED.updated_by`,
       [JSON.stringify(updatedValue), adminId]
+    );
+
+    // Record in exchange_rate_history
+    await pool.query(
+      `INSERT INTO exchange_rate_history (id, old_rate, new_rate, base_currency, quote_currency, changed_by, reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        uuidv4(),
+        prevRate,
+        numRate,
+        updatedValue.base_currency,
+        updatedValue.quote_currency,
+        adminId || null,
+        `تحديث سعر الصرف من ${prevRate} إلى ${numRate} ${updatedValue.quote_currency}`
+      ]
     );
 
     await pool.query(

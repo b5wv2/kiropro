@@ -9,17 +9,12 @@ import {
   RefreshCw, 
   Eye, 
   X, 
-  Calendar, 
   CheckCircle2, 
   XCircle, 
-  AlertTriangle, 
   Copy, 
   Check, 
-  ArrowUpDown, 
   ChevronRight, 
-  ChevronLeft,
-  Flame,
-  ShieldAlert
+  ChevronLeft
 } from 'lucide-react';
 import { api } from '../../lib/api';
 

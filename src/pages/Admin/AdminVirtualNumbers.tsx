@@ -5,7 +5,6 @@ import {
   updateAdminVirtualNumberSettings,
   fetchAdminVirtualNumberOffers,
   updateAdminVirtualNumberOffer,
-  createAdminVirtualNumberOffer,
   VirtualNumberOrder,
   VirtualNumberProviderOffer
 } from '../../services/virtualNumberApi';
@@ -13,16 +12,8 @@ import { api } from '../../lib/api';
 import {
   RefreshCw,
   Save,
-  Check,
   AlertTriangle,
-  Server,
-  Layers,
-  Search,
-  Plus,
-  Edit2,
-  DollarSign,
-  TrendingUp,
-  Percent
+  Edit2
 } from 'lucide-react';
 
 export const AdminVirtualNumbers: React.FC = () => {

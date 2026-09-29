@@ -15,6 +15,7 @@ import { LeaderboardPage } from './pages/Leaderboard/LeaderboardPage';
 import { VirtualNumbersPage } from './pages/VirtualNumbers/VirtualNumbersPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
+import { PartnerApp } from './pages/Partner/PartnerApp';
 
 const AppContent: React.FC = () => {
   const { currentView, user, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
@@ -161,6 +162,16 @@ const AppContent: React.FC = () => {
 };
 
 export const App: React.FC = () => {
+  const isPartnerPortal = typeof window !== 'undefined' && (
+    window.location.hostname === 'partner.kiropro.store' ||
+    window.location.hostname.startsWith('partner.') ||
+    window.location.pathname.startsWith('/partner')
+  );
+
+  if (isPartnerPortal) {
+    return <PartnerApp />;
+  }
+
   return (
     <AuthProvider>
       <OverlayProvider>

@@ -18,6 +18,7 @@ import { AdminVirtualNumbers } from '../pages/Admin/AdminVirtualNumbers';
 import { AdminAudit } from '../pages/Admin/AdminAudit';
 import { AdminSecurityAudit } from '../pages/Admin/AdminSecurityAudit';
 import { AdminSettings } from '../pages/Admin/AdminSettings';
+import { AdminPartners } from '../pages/Admin/AdminPartners';
 
 export const AdminLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -57,6 +58,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminAudit />;
       case 'security':
         return <AdminSecurityAudit />;
+      case 'partners':
+        return <AdminPartners />;
       case 'settings':
         return <AdminSettings />;
       default:

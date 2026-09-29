@@ -5,6 +5,8 @@ import { awardOrderCashback, reverseOrderCashback } from './cashbackService';
 import { processReferralRewardOnOrder } from './referralService';
 import { sendOrderCompletedEmail } from './emailService';
 import { getOrCreateOrderReviewToken } from './reviewTokenService';
+import { partnerLedgerService } from './partnerLedgerService';
+import { partnerService } from './partnerService';
 
 /**
  * Background Order Polling Service for GamesDrop
@@ -80,6 +82,9 @@ class OrderPollingService {
         for (const order of claimedOrders) {
           await this.pollSingleOrder(order);
         }
+
+        // Process partner orders
+        await this.pollActivePartnerOrders();
       } catch (err) {
         await client.query('ROLLBACK');
         console.error('[OrderPollingService] Error claiming orders:', err);
@@ -265,6 +270,72 @@ class OrderPollingService {
       console.error(`[OrderPollingService] Error polling order ${order.id}:`, err?.message || err);
     }
   }
+
+  /**
+   * Poll active processing partner orders and trigger idempotent auto-refund if failed upstream
+   */
+  public async pollActivePartnerOrders(): Promise<void> {
+    try {
+      const ordersRes = await pool.query(`
+        SELECT 
+          id, partner_id, provider_order_id, partner_price_usd, package_name
+        FROM partner_orders
+        WHERE status = 'PROCESSING'
+          AND provider_order_id IS NOT NULL
+        ORDER BY created_at ASC
+        LIMIT 5
+      `);
+
+      for (const order of ordersRes.rows) {
+        await this.pollSinglePartnerOrder(order);
+      }
+    } catch (err: any) {
+      console.error('[OrderPollingService] Error in partner polling cycle:', err.message);
+    }
+  }
+
+  private async pollSinglePartnerOrder(order: any): Promise<void> {
+    const providerOrderId = Number(order.provider_order_id);
+    if (!providerOrderId || isNaN(providerOrderId)) return;
+
+    try {
+      const statusRes = await gamesDropProvider.getOrderStatus(providerOrderId);
+      const rawStatus = statusRes.status;
+      const mappedStatus = mapGamesDropStatus(rawStatus);
+
+      if (mappedStatus === 'COMPLETED') {
+        const key = statusRes.key || null;
+        await pool.query(`
+          UPDATE partner_orders 
+          SET status = 'COMPLETED',
+              provider_status = $1,
+              fulfillment_key = COALESCE($2, fulfillment_key),
+              completed_at = NOW()
+          WHERE id = $3
+        `, [rawStatus, key, order.id]);
+
+        // Award points
+        await partnerService.awardPointsAndCheckPromotion(order.partner_id, Number(order.partner_price_usd));
+      } else if (mappedStatus === 'FAILED' || mappedStatus === 'REFUNDED') {
+        console.log(`[OrderPollingService] Partner order ${order.id} ended in ${mappedStatus}. Executing safe refund...`);
+        await partnerLedgerService.executeSafeOrderRefund({
+          orderId: order.id,
+          partnerId: order.partner_id,
+          refundAmountUsd: Number(order.partner_price_usd),
+          reason: statusRes.message || `Provider returned status: ${rawStatus}`
+        });
+      } else {
+        await pool.query(`
+          UPDATE partner_orders 
+          SET provider_status = $1 
+          WHERE id = $2
+        `, [rawStatus, order.id]);
+      }
+    } catch (err: any) {
+      console.error(`[OrderPollingService] Error polling partner order ${order.id}:`, err?.message || err);
+    }
+  }
 }
 
 export const orderPollingService = new OrderPollingService();
+

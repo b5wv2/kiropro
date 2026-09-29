@@ -235,7 +235,8 @@ async function recordAndSendEmail(params: {
   userId?: string | null | undefined;
   orderId?: string | null | undefined;
   topupId?: string | null | undefined;
-  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED';
+  partnerDepositId?: string | null | undefined;
+  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED' | 'PARTNER_WELCOME' | 'PARTNER_DEPOSIT_APPROVED' | 'PARTNER_DEPOSIT_REJECTED';
   recipient: string;
   subject: string;
   html: string;
@@ -1267,6 +1268,194 @@ ${greeting}
   });
 }
 
+export interface SendPartnerWelcomeEmailParams {
+  to: string;
+  partnerName: string;
+  setupUrl: string;
+  expiresHours?: number;
+}
+
+export async function sendPartnerWelcomeEmail(params: SendPartnerWelcomeEmailParams): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, partnerName, setupUrl, expiresHours = 72 } = params;
+  const subject = `مرحباً بك في منصة KIROPRO Partner | قم بتعيين كلمة المرور`;
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="font-size: 24px; font-weight: 900; color: #1E293B; margin: 0 0 10px 0;">
+        مرحباً بك كشريك معتمد! 🤝
+      </h1>
+      <p style="font-size: 15px; line-height: 1.6; color: #64748B; margin: 0;">
+        أهلاً بك <strong>${partnerName}</strong> في منصة التجار <strong>KIROPRO Partner</strong>.<br>
+        تم إنشاء حسابك التجاري بنجاح من قبل الإدارة. يرجى الضغط على الزر أدناه لتعيين كلمة المرور الخاصة بك والبدء في شحن الألعاب لعملائك بأفضل الأسعار.
+      </p>
+    </div>
+
+    <!-- Security Information Box -->
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 14px; padding: 20px; margin-bottom: 24px;">
+      <tr>
+        <td>
+          <p style="margin: 0 0 10px 0; font-size: 14px; color: #0F172A; font-weight: 700;">
+            معلومات الدخول والأمان:
+          </p>
+          <ul style="margin: 0; padding-right: 20px; color: #475569; font-size: 14px; line-height: 1.8;">
+            <li>رابط البوابة: <a href="https://partner.kiropro.store" style="color: #D97706; font-weight: 700; text-decoration: none;">partner.kiropro.store</a></li>
+            <li>البريد الإلكتروني المعتمد: <strong>${to}</strong></li>
+            <li>صلاحية رابط الإعداد: <strong>${expiresHours} ساعة</strong> للاستخدام لمرة واحدة فقط.</li>
+            <li>لا تشارك هذا الرابط مع أي شخص لحماية رصيدك وحسابك التجاري.</li>
+          </ul>
+        </td>
+      </tr>
+    </table>
+
+    <div style="text-align: center; margin: 30px 0;">
+      ${renderEmailButton('تعيين كلمة المرور وبدء العمل الآن', setupUrl, false)}
+    </div>
+
+    <p style="text-align: center; font-size: 13px; color: #94A3B8; margin-top: 24px;">
+      إذا واجهتك أي صعوبة في الضغط على الزر أعلاه، يمكنك نسخ الرابط التالي ولصقه في متصفحك مباشرة:<br>
+      <span style="display: inline-block; word-break: break-all; color: #64748B; font-size: 12px; margin-top: 6px;">${setupUrl}</span>
+    </p>
+  `;
+
+  const text = `
+KIROPRO Partner - تفعيل حساب الشريك
+مرحباً بك ${partnerName}
+تم إنشاء حسابك بنجاح في منصة التجار KIROPRO Partner.
+رابط تعيين كلمة المرور: ${setupUrl}
+صلاحية الرابط: ${expiresHours} ساعة لمرة واحدة فقط.
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `مرحباً بك في KIROPRO Partner - تفعيل الحساب`);
+
+  return recordAndSendEmail({
+    eventType: 'PARTNER_WELCOME',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
+export interface SendPartnerDepositApprovedEmailParams {
+  to: string;
+  partnerName: string;
+  amountUsd: number;
+  newBalanceUsd: number;
+  depositId: string;
+}
+
+export async function sendPartnerDepositApprovedEmail(params: SendPartnerDepositApprovedEmailParams): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, partnerName, amountUsd, newBalanceUsd, depositId } = params;
+  const subject = `تمت الموافقة على طلب الإيداع بقيمة $${amountUsd.toFixed(2)} | KIROPRO Partner`;
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="font-size: 24px; font-weight: 900; color: #166534; margin: 0 0 10px 0;">
+        تمت إضافة الرصيد بنجاح! 💰
+      </h1>
+      <p style="font-size: 15px; line-height: 1.6; color: #64748B; margin: 0;">
+        مرحباً <strong>${partnerName}</strong>،<br>
+        تمت مراجعة واعتماد طلب الإيداع الخاص بك، وتمت إضافة المبلغ إلى محفظتك بالدولار USD بنجاح.
+      </p>
+    </div>
+
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 14px; padding: 20px; margin-bottom: 24px;">
+      <tr>
+        <td>
+          <div style="font-size: 14px; color: #166534; font-weight: 700; margin-bottom: 8px;">
+            المبلغ المضاف: $${amountUsd.toFixed(2)} USD
+          </div>
+          <div style="font-size: 16px; color: #0F172A; font-weight: 800; padding-top: 10px; border-top: 1px dashed #86EFAC;">
+            الرصيد الحالي بالمحفظة: $${newBalanceUsd.toFixed(2)} USD
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <div style="text-align: center; margin: 24px 0;">
+      ${renderEmailButton('الانتقال لبوابة الشحن السريع', 'https://partner.kiropro.store', false)}
+    </div>
+  `;
+
+  const text = `
+KIROPRO Partner - اعتماد الإيداع
+مرحباً ${partnerName}
+تمت إضافة $${amountUsd.toFixed(2)} USD إلى رصيد محفظتك.
+الرصيد الحالي: $${newBalanceUsd.toFixed(2)} USD
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `تم اعتماد إيداع $${amountUsd.toFixed(2)} بنجاح`);
+
+  return recordAndSendEmail({
+    partnerDepositId: depositId,
+    eventType: 'PARTNER_DEPOSIT_APPROVED',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
+export interface SendPartnerDepositRejectedEmailParams {
+  to: string;
+  partnerName: string;
+  amountUsd: number;
+  reason?: string;
+  depositId: string;
+}
+
+export async function sendPartnerDepositRejectedEmail(params: SendPartnerDepositRejectedEmailParams): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, partnerName, amountUsd, reason, depositId } = params;
+  const subject = `تحديث بخصوص طلب الإيداع بقيمة $${amountUsd.toFixed(2)} | KIROPRO Partner`;
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="font-size: 22px; font-weight: 900; color: #991B1B; margin: 0 0 10px 0;">
+        تعذر اعتماد طلب الإيداع
+      </h1>
+      <p style="font-size: 15px; line-height: 1.6; color: #64748B; margin: 0;">
+        مرحباً <strong>${partnerName}</strong>،<br>
+        نأسف لإبلاغك بأنه تعذر قبول طلب الإيداع بقيمة <strong>$${amountUsd.toFixed(2)} USD</strong>.
+      </p>
+    </div>
+
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 14px; padding: 20px; margin-bottom: 24px;">
+      <tr>
+        <td>
+          <p style="margin: 0 0 8px 0; font-size: 14px; color: #991B1B; font-weight: 700;">
+            سبب الرفض:
+          </p>
+          <p style="margin: 0; font-size: 14px; color: #1E293B;">
+            ${reason || 'لم يتم مطابقة الإشعار البنكي بالحساب أو البيانات غير واضحة. يرجى التواصل مع الإدارة أو رفع إشعار جديد.'}
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <div style="text-align: center; margin: 24px 0;">
+      ${renderEmailButton('مراجعة المحفظة وتقديم طلب جديد', 'https://partner.kiropro.store', true)}
+    </div>
+  `;
+
+  const text = `
+KIROPRO Partner - تعذر اعتماد طلب الإيداع
+مرحباً ${partnerName}
+تعذر قبول طلب الإيداع بقيمة $${amountUsd.toFixed(2)} USD.
+السبب: ${reason || 'يرجى مراجعة الإدارة'}
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `تعذر اعتماد طلب الإيداع بقيمة $${amountUsd.toFixed(2)}`);
+
+  return recordAndSendEmail({
+    partnerDepositId: depositId,
+    eventType: 'PARTNER_DEPOSIT_REJECTED',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
 export default {
   sendVerificationOtpEmail,
   sendPasswordResetOtpEmail,
@@ -1278,10 +1467,14 @@ export default {
   sendOrderCompletedEmail,
   sendUsdtOrderCompletedEmail,
   sendUsdtOrderCanceledEmail,
+  sendPartnerWelcomeEmail,
+  sendPartnerDepositApprovedEmail,
+  sendPartnerDepositRejectedEmail,
   renderEmailBrand,
   renderEmailLayout,
   renderEmailStatusBadge,
   renderEmailButton,
   buildVerificationOtpEmailTemplate
 };
+
 
