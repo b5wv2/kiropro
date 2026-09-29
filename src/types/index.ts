@@ -85,6 +85,8 @@ export interface Order {
   providerPrice?: number;
   promoCode?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
+  orderType?: 'DIRECT_TOPUP' | 'DIGITAL_ACCOUNT' | string;
+  credentials?: { email: string; password?: string };
   fulfillmentKey?: string;
   key?: string;
   failureReason?: string;
@@ -210,4 +212,25 @@ export interface AdminCatalogResponse {
     activeCount: number;
     inactiveCount: number;
   };
+}
+
+export interface DigitalAccount {
+  id: string;
+  productId: string;
+  productName?: string;
+  email: string;
+  status: 'AVAILABLE' | 'RESERVED' | 'SOLD' | 'DISABLED';
+  orderId?: string | null;
+  assignedToUserId?: string | null;
+  assignedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DigitalAccountStats {
+  total: number;
+  available: number;
+  reserved: number;
+  sold: number;
+  disabled: number;
 }

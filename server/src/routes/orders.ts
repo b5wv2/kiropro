@@ -10,6 +10,7 @@ import { processReferralRewardOnOrder } from '../services/referralService';
 import { sendOrderProcessingEmail, sendOrderCompletedEmail } from '../services/emailService';
 import { getOrCreateOrderReviewToken } from '../services/reviewTokenService';
 import { getGeneralSettings } from './admin';
+import { decryptPassword } from '../utils/cryptoAccount';
 
 const router = Router();
 
@@ -63,37 +64,43 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       return res.status(400).json({ error: 'تسعير المنتج غير مهيأ حالياً. يرجى مراجعة إدارة المنصة.' });
     }
 
-    const providerOfferId = Number(localProduct.offerId || localProduct.providerOfferId);
-    if (!providerOfferId || isNaN(providerOfferId)) {
-      return res.status(400).json({ error: 'معرف مزود الخدمة للمنتج غير صالح.' });
-    }
+    const isDigitalAccount = localProduct.productType === 'DIGITAL_ACCOUNT' || localProduct.category === 'DIGITAL_ACCOUNT' || localProduct.provider === 'INTERNAL';
 
-    // Server ID validation strictly based on localProduct.requiresGameServerId
+    let providerOfferId = 0;
     let effectiveServerId: string | null = null;
-    if (localProduct.requiresGameServerId) {
-      const cleanServerId = serverId ? String(serverId).trim() : '';
-      if (!cleanServerId) {
-        return res.status(400).json({ error: 'يرجى اختيار سيرفر اللعبة (Server ID) لإتمام الطلب.' });
+
+    if (!isDigitalAccount) {
+      providerOfferId = Number(localProduct.offerId || localProduct.providerOfferId);
+      if (!providerOfferId || isNaN(providerOfferId)) {
+        return res.status(400).json({ error: 'معرف مزود الخدمة للمنتج غير صالح.' });
       }
 
-      // Validate that the server belongs to GamesDrop allowed list
-      try {
-        const serversRecord = await gamesDropProvider.getServers(providerOfferId);
-        if (serversRecord && typeof serversRecord === 'object') {
-          const allowedKeys = Object.keys(serversRecord);
-          const allowedValues = Object.values(serversRecord);
-          const isValidServer = allowedKeys.includes(cleanServerId) || allowedValues.includes(cleanServerId);
-          if (!isValidServer && allowedKeys.length > 0) {
-            return res.status(400).json({ error: 'خادم اللعبة المحدد غير صالح.' });
-          }
+      // Server ID validation strictly based on localProduct.requiresGameServerId
+      if (localProduct.requiresGameServerId) {
+        const cleanServerId = serverId ? String(serverId).trim() : '';
+        if (!cleanServerId) {
+          return res.status(400).json({ error: 'يرجى اختيار سيرفر اللعبة (Server ID) لإتمام الطلب.' });
         }
-      } catch (serverErr: any) {
-        console.warn('[Orders] Could not verify server list upstream:', serverErr.message);
+
+        // Validate that the server belongs to GamesDrop allowed list
+        try {
+          const serversRecord = await gamesDropProvider.getServers(providerOfferId);
+          if (serversRecord && typeof serversRecord === 'object') {
+            const allowedKeys = Object.keys(serversRecord);
+            const allowedValues = Object.values(serversRecord);
+            const isValidServer = allowedKeys.includes(cleanServerId) || allowedValues.includes(cleanServerId);
+            if (!isValidServer && allowedKeys.length > 0) {
+              return res.status(400).json({ error: 'خادم اللعبة المحدد غير صالح.' });
+            }
+          }
+        } catch (serverErr: any) {
+          console.warn('[Orders] Could not verify server list upstream:', serverErr.message);
+        }
+        effectiveServerId = cleanServerId;
+      } else {
+        // Product does NOT require game server: ignore any submitted serverId completely!
+        effectiveServerId = null;
       }
-      effectiveServerId = cleanServerId;
-    } else {
-      // Product does NOT require game server: ignore any submitted serverId completely!
-      effectiveServerId = null;
     }
 
     // Section 3: User Preferred Currency & Central Exchange Rate
@@ -113,67 +120,73 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     }
 
     // Resolve Player / Game User ID (Special Handling for Telegram @username resolution)
-    let deliveryGameUserId = (playerId || user.id || '').trim();
-    if (localProduct.requiresGameUserId) {
-      if (!playerId || !playerId.trim()) {
-        return res.status(400).json({ error: 'معرّف الحساب مطلوب لإتمام هذا الطلب.' });
-      }
+    let deliveryGameUserId = (playerId || user.email || user.id || '').trim();
+    let latestProviderPrice = 0;
+    let providerCurrency = 'USD';
 
-      const isTelegramProduct = 
-        (localProduct.productName || '').toLowerCase().includes('telegram') ||
-        (localProduct.gameCategoryId || '').toLowerCase().includes('telegram');
-
-      if (isTelegramProduct) {
-        if (/^\d+$/.test(playerId.trim())) {
-          deliveryGameUserId = playerId.trim();
-        } else {
-          // Resolve @username via GamesDrop aggregator
-          const resolved = await gamesDropProvider.resolveTelegramUser(playerId.trim());
-          if (!resolved.valid || !resolved.userId) {
-            return res.status(400).json({
-              error: resolved.message || 'تعذر التحقق من معرّف تيليجرام. يرجى إدخال المعرف الرقمي (User ID) مباشرة.'
-            });
-          }
-          deliveryGameUserId = String(resolved.userId);
+    if (!isDigitalAccount) {
+      if (localProduct.requiresGameUserId) {
+        if (!playerId || !playerId.trim()) {
+          return res.status(400).json({ error: 'معرّف الحساب مطلوب لإتمام هذا الطلب.' });
         }
-      } else {
-        deliveryGameUserId = playerId.trim();
+
+        const isTelegramProduct = 
+          (localProduct.productName || '').toLowerCase().includes('telegram') ||
+          (localProduct.gameCategoryId || '').toLowerCase().includes('telegram');
+
+        if (isTelegramProduct) {
+          if (/^\d+$/.test(playerId.trim())) {
+            deliveryGameUserId = playerId.trim();
+          } else {
+            // Resolve @username via GamesDrop aggregator
+            const resolved = await gamesDropProvider.resolveTelegramUser(playerId.trim());
+            if (!resolved.valid || !resolved.userId) {
+              return res.status(400).json({
+                error: resolved.message || 'تعذر التحقق من معرّف تيليجرام. يرجى إدخال المعرف الرقمي (User ID) مباشرة.'
+              });
+            }
+            deliveryGameUserId = String(resolved.userId);
+          }
+        } else {
+          deliveryGameUserId = playerId.trim();
+        }
       }
+
+      // Fetch latest authoritative provider price from GamesDrop before creating order (find-one)
+      let latestOffer: any;
+      try {
+        latestOffer = await gamesDropProvider.findOffer(providerOfferId);
+      } catch (err: any) {
+        console.error(`[Internal Provider Error] Failed to query upstream find-one(${providerOfferId}):`, err.message);
+        const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
+        return res.status(502).json({ 
+          error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
+        });
+      }
+
+      latestProviderPrice = Number(latestOffer.price);
+      if (!Number.isFinite(latestProviderPrice) || latestProviderPrice <= 0) {
+        return res.status(502).json({ 
+          error: 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
+        });
+      }
+
+      // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
+      const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
+      if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
+        // Upstream cost increased by more than 5%: prevent under-pricing loss
+        await pool.query(
+          `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
+          [latestProviderPrice, localProduct.id]
+        );
+        return res.status(409).json({
+          error: 'تغير سعر المنتج لدى المزود. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
+        });
+      }
+
+      providerCurrency = latestOffer.currency || 'USD';
     }
 
-    // Fetch latest authoritative provider price from GamesDrop before creating order (find-one)
-    let latestOffer: any;
-    try {
-      latestOffer = await gamesDropProvider.findOffer(providerOfferId);
-    } catch (err: any) {
-      console.error(`[Internal Provider Error] Failed to query upstream find-one(${providerOfferId}):`, err.message);
-      const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
-      return res.status(502).json({ 
-        error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
-      });
-    }
-
-    const latestProviderPrice = Number(latestOffer.price);
-    if (!Number.isFinite(latestProviderPrice) || latestProviderPrice <= 0) {
-      return res.status(502).json({ 
-        error: 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
-      });
-    }
-
-    // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
-    const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
-    if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
-      // Upstream cost increased by more than 5%: prevent under-pricing loss
-      await pool.query(
-        `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
-        [latestProviderPrice, localProduct.id]
-      );
-      return res.status(409).json({
-        error: 'تغير سعر المنتج لدى المزود. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
-      });
-    }
-
-    const providerCurrency = latestOffer.currency || 'USD';
     const effectivePackageName = packageName || localProduct.arabicName || localProduct.offerName || 'منتج رقمي';
 
     // Database Transaction: Validate Promo, Check & Lock Wallet, Insert Order, Debit Balance
@@ -182,22 +195,51 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     let finalChargeAmount = basePriceInUserCurrency;
     let discountApplied = 0;
     let promoRecord: any = null;
+    let assignedInventoryAccount: any = null;
 
     try {
       await client.query('BEGIN');
 
-      // Duplicate Order Protection: Reject identical purchases made within 5 seconds
-      const duplicateCheck = await client.query(
-        `SELECT id FROM "Order" 
-         WHERE "userId" = $1 
-           AND "packageId" = $2 
-           AND "playerId" = $3 
-           AND "createdAt" >= NOW() - INTERVAL '5 seconds'
-         LIMIT 1`,
-        [user.id, localProduct.id, playerId || user.email]
-      );
-      if (duplicateCheck.rows.length > 0) {
-        throw new Error('تم استلام طلب مطابق للتو. يرجى الانتظار بضع ثوانٍ قبل تقديم طلب جديد لمنع التكرار.');
+      if (isDigitalAccount) {
+        // 1. Strict Anti-Duplicate Purchase Rule (Server-Side)
+        const previousPurchase = await client.query(
+          `SELECT id FROM digital_product_accounts 
+           WHERE product_id = $1 AND assigned_to_user_id = $2 AND status = 'SOLD' 
+           LIMIT 1`,
+          [localProduct.id, user.id]
+        );
+        if (previousPurchase.rows.length > 0) {
+          throw new Error('أنت استلمت هذا المنتج من قبل، ولا يمكن شراء حساب إضافي من نفس المنتج.');
+        }
+
+        // 2. Select & Lock Inventory Account Atomically (FOR UPDATE SKIP LOCKED)
+        const accLockRes = await client.query(
+          `SELECT id, email, password_encrypted 
+           FROM digital_product_accounts 
+           WHERE product_id = $1 AND status = 'AVAILABLE' 
+           ORDER BY created_at ASC 
+           LIMIT 1 
+           FOR UPDATE SKIP LOCKED`,
+          [localProduct.id]
+        );
+        assignedInventoryAccount = accLockRes.rows[0];
+        if (!assignedInventoryAccount) {
+          throw new Error('نفد مخزون هذا المنتج حالياً، يرجى المحاولة لاحقاً.');
+        }
+      } else {
+        // Duplicate Order Protection: Reject identical purchases made within 5 seconds
+        const duplicateCheck = await client.query(
+          `SELECT id FROM "Order" 
+           WHERE "userId" = $1 
+             AND "packageId" = $2 
+             AND "playerId" = $3 
+             AND "createdAt" >= NOW() - INTERVAL '5 seconds'
+           LIMIT 1`,
+          [user.id, localProduct.id, playerId || user.email]
+        );
+        if (duplicateCheck.rows.length > 0) {
+          throw new Error('تم استلام طلب مطابق للتو. يرجى الانتظار بضع ثوانٍ قبل تقديم طلب جديد لمنع التكرار.');
+        }
       }
 
       // Section 4 & 5: Promo Code Validation & Authoritative Server Discount Calculation
@@ -275,41 +317,85 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         throw new Error('الرصيد غير كافٍ');
       }
 
-      // Section 11: Create Initial Order record with authoritative pricing & locked exchange rate
-      await client.query(
-        `INSERT INTO "Order" (
-          id, "userId", "gameId", "packageId", "packageName", "playerId", 
-          "serverId", "playerName",
-          amount, "originalAmount", "discountAmount", "promoCode", 
-          status, provider, "providerOfferId", "providerPrice", "providerCurrency", 
-          "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount", 
-          "chargedCurrency", "exchangeRateUsed", "cashbackAmount"
-        ) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PROCESSING', 'GAMESDROP', $13, $14, $15, $16, $17, $18, $19, $20, $21, 0.0)`,
-        [
-          orderId, 
-          user.id, 
-          gameId || localProduct.gameCategoryId || 'game', 
-          localProduct.id, 
-          effectivePackageName, 
-          playerId || user.email,
-          effectiveServerId,
-          playerName ? String(playerName).trim() : null,
-          finalChargeAmount, 
-          basePriceInUserCurrency, 
-          discountApplied, 
-          promoRecord ? promoRecord.code : null,
-          providerOfferId,
-          latestProviderPrice,
-          providerCurrency,
-          authoritativeCustomerPriceUsd,
-          finalChargeAmount,
-          authoritativeCustomerPriceUsd,
-          finalChargeAmount,
-          userCurrency,
-          exchangeRate
-        ]
-      );
+      if (isDigitalAccount) {
+        // Insert Completed Order directly for DIGITAL_ACCOUNT
+        await client.query(
+          `INSERT INTO "Order" (
+            id, "userId", "gameId", "packageId", "packageName", "playerId", 
+            amount, "originalAmount", "discountAmount", "promoCode", 
+            status, provider, "orderType",
+            "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount", 
+            "chargedCurrency", "exchangeRateUsed", "cashbackAmount", "completedAt"
+          ) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'COMPLETED', 'INTERNAL', 'DIGITAL_ACCOUNT', $11, $12, $13, $14, $15, $16, 0.0, CURRENT_TIMESTAMP)`,
+          [
+            orderId,
+            user.id,
+            localProduct.gameCategoryId || 'google-play-points',
+            localProduct.id,
+            effectivePackageName,
+            assignedInventoryAccount.email,
+            finalChargeAmount,
+            basePriceInUserCurrency,
+            discountApplied,
+            promoRecord ? promoRecord.code : null,
+            authoritativeCustomerPriceUsd,
+            finalChargeAmount,
+            authoritativeCustomerPriceUsd,
+            finalChargeAmount,
+            userCurrency,
+            exchangeRate
+          ]
+        );
+
+        // Mark account as SOLD and associate with order and user
+        await client.query(
+          `UPDATE digital_product_accounts 
+           SET status = 'SOLD', 
+               order_id = $1, 
+               assigned_to_user_id = $2, 
+               assigned_at = CURRENT_TIMESTAMP, 
+               updated_at = CURRENT_TIMESTAMP 
+           WHERE id = $3`,
+          [orderId, user.id, assignedInventoryAccount.id]
+        );
+      } else {
+        // Section 11: Create Initial Order record with authoritative pricing & locked exchange rate
+        await client.query(
+          `INSERT INTO "Order" (
+            id, "userId", "gameId", "packageId", "packageName", "playerId", 
+            "serverId", "playerName",
+            amount, "originalAmount", "discountAmount", "promoCode", 
+            status, provider, "providerOfferId", "providerPrice", "providerCurrency", 
+            "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount", 
+            "chargedCurrency", "exchangeRateUsed", "cashbackAmount"
+          ) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PROCESSING', 'GAMESDROP', $13, $14, $15, $16, $17, $18, $19, $20, $21, 0.0)`,
+          [
+            orderId, 
+            user.id, 
+            gameId || localProduct.gameCategoryId || 'game', 
+            localProduct.id, 
+            effectivePackageName, 
+            playerId || user.email,
+            effectiveServerId,
+            playerName ? String(playerName).trim() : null,
+            finalChargeAmount, 
+            basePriceInUserCurrency, 
+            discountApplied, 
+            promoRecord ? promoRecord.code : null,
+            providerOfferId,
+            latestProviderPrice,
+            providerCurrency,
+            authoritativeCustomerPriceUsd,
+            finalChargeAmount,
+            authoritativeCustomerPriceUsd,
+            finalChargeAmount,
+            userCurrency,
+            exchangeRate
+          ]
+        );
+      }
 
       // Section 7: Debit wallet and create WalletTransaction
       const txId = uuidv4();
@@ -358,12 +444,44 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         );
       }
 
+      // Check remaining stock for DIGITAL_ACCOUNT and mark out of stock if 0 available
+      if (isDigitalAccount) {
+        const remainingStock = await client.query(
+          `SELECT COUNT(*)::int as count FROM digital_product_accounts WHERE product_id = $1 AND status = 'AVAILABLE'`,
+          [localProduct.id]
+        );
+        if ((remainingStock.rows[0]?.count || 0) === 0) {
+          await client.query(`UPDATE "Product" SET "inStock" = false WHERE id = $1`, [localProduct.id]);
+        }
+      }
+
       await client.query('COMMIT');
     } catch (err: any) {
       await client.query('ROLLBACK');
       throw err;
     } finally {
       client.release();
+    }
+
+    // Immediate Delivery for DIGITAL_ACCOUNT (No upstream GamesDrop dispatch needed)
+    if (isDigitalAccount) {
+      try { await awardOrderCashback(orderId); } catch (e) { console.error('[Orders] Digital account cashback error:', e); }
+      try { await processReferralRewardOnOrder(orderId); } catch (e) { console.error('[Orders] Digital account referral error:', e); }
+
+      const decryptedPassword = decryptPassword(assignedInventoryAccount.password_encrypted);
+
+      return res.status(201).json({
+        success: true,
+        orderId,
+        status: 'COMPLETED',
+        isDigitalAccount: true,
+        packageName: effectivePackageName,
+        account: {
+          email: assignedInventoryAccount.email,
+          password: decryptedPassword
+        },
+        message: 'تم تنفيذ طلبك بنجاح 🎉'
+      });
     }
 
     // Section 8 & 9: Dispatch Order to GamesDrop API with provider's price
@@ -552,12 +670,68 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     if (error.message === 'الرصيد غير كافٍ' || 
         error.message?.includes('كود') || 
         error.message?.includes('لمنع التكرار') ||
-        error.message === 'تم استخدام هذا الكود مسبقاً') {
-      res.status(400).json({ error: error.message });
+        error.message?.includes('أنت استلمت هذا المنتج من قبل') ||
+        error.message?.includes('نفد مخزون هذا المنتج') ||
+        error.message === 'تم استخدام هذا الكود مسبقاً' ||
+        error.code === '23505') {
+      const userMsg = error.code === '23505'
+        ? 'أنت استلمت هذا المنتج من قبل، ولا يمكن شراء حساب إضافي من نفس المنتج.'
+        : error.message;
+      res.status(400).json({ error: userMsg });
     } else {
       console.error('Create order error:', error);
       res.status(500).json({ error: 'حدث خطأ أثناء معالجة الطلب. يرجى المحاولة لاحقاً.' });
     }
+  }
+});
+
+// Customer / Admin: Get credentials of assigned digital account (STRICT IDOR PROTECTION)
+router.get('/:id/credentials', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const orderId = String(req.params.id);
+
+    // 1. Fetch order and verify ownership (STRICT IDOR CHECK)
+    const orderRes = await pool.query(
+      `SELECT id, "userId", status, "packageName" FROM "Order" WHERE id = $1`,
+      [orderId]
+    );
+    const order = orderRes.rows[0];
+    if (!order) {
+      return res.status(404).json({ error: 'الطلب غير موجود.' });
+    }
+
+    if (order.userId !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'غير مصرح لك بالوصول لبيانات هذا الطلب.' });
+    }
+
+    if (order.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'بيانات الحساب متاحة فقط للطلبات المكتملة.' });
+    }
+
+    // 2. Fetch assigned digital account
+    const accRes = await pool.query(
+      `SELECT email, password_encrypted, assigned_at as "assignedAt" 
+       FROM digital_product_accounts 
+       WHERE order_id = $1`,
+      [orderId]
+    );
+    const account = accRes.rows[0];
+    if (!account) {
+      return res.status(404).json({ error: 'لا يوجد حساب رقمي مرتبط بهذا الطلب.' });
+    }
+
+    const decryptedPassword = decryptPassword(account.password_encrypted);
+
+    res.json({
+      email: account.email,
+      password: decryptedPassword,
+      assignedAt: account.assignedAt,
+      packageName: order.packageName
+    });
+  } catch (err: any) {
+    console.error('[Orders] Failed to fetch digital account credentials:', err.message);
+    res.status(500).json({ error: 'فشل جلب بيانات الحساب.' });
   }
 });
 
@@ -570,7 +744,7 @@ router.get('/my-orders', requireAuth, async (req: AuthRequest, res: Response) =>
       `SELECT 
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
-        status, "fulfillmentKey", "createdAt", "completedAt"
+        status, "fulfillmentKey", "createdAt", "completedAt", "orderType"
        FROM "Order" 
        WHERE "userId" = $1 
        ORDER BY "createdAt" DESC`,
@@ -594,7 +768,7 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
       `SELECT 
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
-        status, "fulfillmentKey", "createdAt", "completedAt"
+        status, "fulfillmentKey", "createdAt", "completedAt", "orderType"
        FROM "Order" 
        WHERE id = $1 AND "userId" = $2
        LIMIT 1`,

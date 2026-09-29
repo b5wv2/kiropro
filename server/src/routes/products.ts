@@ -208,7 +208,8 @@ router.get('/', async (req: Request, res: Response) => {
       'telegram-stars': '/uploads/products/prod_1790076568074_2b5df6d4.jpg',
       'telegram-premium': '/uploads/products/prod_1790076822152_f1f36553.webp',
       'blood-strike-global': '/uploads/products/prod_1790076798846_db25c3b2.png',
-      'blood-strike-me': '/uploads/products/prod_1790076811295_aea21c2a.png'
+      'blood-strike-me': '/uploads/products/prod_1790076811295_aea21c2a.png',
+      'google-play-points': 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=800&q=80'
     };
 
     const defaultNames: Record<string, string> = {
@@ -218,7 +219,8 @@ router.get('/', async (req: Request, res: Response) => {
       'telegram-stars': 'نجوم تيليجرام (Telegram Stars)',
       'telegram-premium': 'اشتراكات تيليجرام بريميوم (Telegram Premium)',
       'blood-strike-global': 'Blood Strike — السيرفر العالمي',
-      'blood-strike-me': 'Blood Strike — الشرق الأوسط'
+      'blood-strike-me': 'Blood Strike — الشرق الأوسط',
+      'google-play-points': 'حساب نقاط تشغيل / Google Play'
     };
 
     const defaultLabels: Record<string, { label: string; placeholder: string }> = {
@@ -228,7 +230,8 @@ router.get('/', async (req: Request, res: Response) => {
       'telegram-stars': { label: 'معرف تيليجرام أو اسم المستخدم (@username / User ID)', placeholder: 'أدخل @username أو معرّف تيليجرام الرقمي' },
       'telegram-premium': { label: 'معرف تيليجرام أو اسم المستخدم (@username)', placeholder: 'أدخل @username أو معرّف تيليجرام' },
       'blood-strike-global': { label: 'معرّف اللاعب (User ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (User ID)' },
-      'blood-strike-me': { label: 'معرّف اللاعب (User ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (User ID)' }
+      'blood-strike-me': { label: 'معرّف اللاعب (User ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (User ID)' },
+      'google-play-points': { label: 'تسليم فوري ومباشر', placeholder: 'لا يلزم إدخال معرف - تسليم فوري' }
     };
 
     for (const row of result.rows) {
@@ -274,6 +277,9 @@ router.get('/', async (req: Request, res: Response) => {
       } else if (groupKey === 'freefire-me') {
         itemType = 'شحن جواهر فري فاير مباشر (Free Fire Diamonds)';
         itemCategory = 'games';
+      } else if (groupKey === 'google-play-points' || row.productType === 'DIGITAL_ACCOUNT') {
+        itemType = 'حساب نقاط تشغيل فوري (Google Account)';
+        itemCategory = 'digital';
       }
 
       if (!groupedMap.has(groupKey)) {

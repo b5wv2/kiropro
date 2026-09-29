@@ -18,7 +18,8 @@ import {
   ChevronRight,
   Image as ImageIcon,
   Trash2,
-  Sparkles
+  Sparkles,
+  Key
 } from 'lucide-react';
 import { 
   fetchAdminCatalog, 
@@ -34,6 +35,7 @@ import {
 } from '../../services/api';
 import { getProductImageUrl } from '../../utils/imageUrl';
 import { AdminProduct, AdminCatalogResponse, GameCategory } from '../../types';
+import { AdminDigitalAccountsTab } from '../../components/admin/AdminDigitalAccountsTab';
 
 export const AdminProducts: React.FC = () => {
   const [products, setProducts] = useState<AdminProduct[]>([]);
@@ -84,8 +86,8 @@ export const AdminProducts: React.FC = () => {
   const [catalogSyncStats, setCatalogSyncStats] = useState<GamesDropCatalogSyncResult['stats'] | null>(null);
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog)
-  const [activeAdminTab, setActiveAdminTab] = useState<'categories' | 'products'>('categories');
+  // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog) vs 'digital-accounts' (Digital Accounts Inventory)
+  const [activeAdminTab, setActiveAdminTab] = useState<'categories' | 'products' | 'digital-accounts'>('categories');
   const [categories, setCategories] = useState<GameCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [uploadingCatId, setUploadingCatId] = useState<string | null>(null);
@@ -496,6 +498,39 @@ export const AdminProducts: React.FC = () => {
             borderRadius: '12px'
           }}>
             {stats.activeCount} نشط
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminTab('digital-accounts')}
+          style={{
+            padding: '10px 18px',
+            borderRadius: '8px',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            border: 'none',
+            background: activeAdminTab === 'digital-accounts' ? '#0f172a' : '#f8fafc',
+            color: activeAdminTab === 'digital-accounts' ? '#ffffff' : '#64748b',
+            boxShadow: activeAdminTab === 'digital-accounts' ? '0 4px 12px rgba(15,23,42,0.15)' : 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Key size={18} color={activeAdminTab === 'digital-accounts' ? '#f59e0b' : '#64748b'} />
+          <span>مخزون الحسابات الرقمية (Google Play Points)</span>
+          <span style={{ 
+            background: activeAdminTab === 'digital-accounts' ? '#f59e0b' : '#e2e8f0', 
+            color: activeAdminTab === 'digital-accounts' ? '#0f172a' : '#475569',
+            fontSize: '0.72rem',
+            fontWeight: 800,
+            padding: '2px 8px',
+            borderRadius: '12px'
+          }}>
+            تسليم فوري 🔑
           </span>
         </button>
       </div>
@@ -1013,6 +1048,13 @@ export const AdminProducts: React.FC = () => {
         </div>
       </div>
       </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. DIGITAL PRODUCT ACCOUNTS INVENTORY VIEW                               */}
+      {/* ========================================================================= */}
+      {activeAdminTab === 'digital-accounts' && (
+        <AdminDigitalAccountsTab products={products} />
       )}
 
       {/* Edit Product Modal */}

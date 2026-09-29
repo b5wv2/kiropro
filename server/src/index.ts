@@ -29,6 +29,7 @@ import virtualNumbersRoutes from './routes/virtualNumbers';
 import adminVirtualNumbersRoutes from './routes/adminVirtualNumbers';
 import partnerRoutes from './routes/partner';
 import adminPartnersRoutes from './routes/adminPartners';
+import adminDigitalAccountsRoutes from './routes/adminDigitalAccounts';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
@@ -241,6 +242,7 @@ app.use('/api/virtual-numbers', banCheckMiddleware, virtualNumbersRoutes);
 app.use('/api/admin/virtual-numbers', adminVirtualNumbersRoutes);
 app.use('/api/partner', banCheckMiddleware, partnerRoutes);
 app.use('/api/admin', adminPartnersRoutes);
+app.use('/api/admin/digital-accounts', adminDigitalAccountsRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

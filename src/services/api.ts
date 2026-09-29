@@ -142,6 +142,8 @@ export async function createOrder(payload: {
     amount: data.chargedAmount,
     currency: data.chargedCurrency || 'SDG',
     status: data.status,
+    orderType: data.orderType,
+    credentials: data.credentials,
     fulfillmentKey: data.key,
     key: data.key,
     createdAt: new Date().toISOString()
@@ -266,6 +268,83 @@ export async function triggerGamesDropCatalogSync(): Promise<GamesDropCatalogSyn
 
 export async function fetchGamesDropSyncStatus(): Promise<{ success: boolean; stats: GamesDropCatalogSyncResult['stats'] }> {
   return api.get('/api/admin/providers/gamesdrop/sync-status');
+}
+
+// ----------------------------------------------------
+// Digital Product Accounts (Google Play Points, etc.)
+// ----------------------------------------------------
+
+export async function fetchDigitalAccountStats(productId?: string): Promise<{ success: boolean; stats: import('../types').DigitalAccountStats }> {
+  return api.get('/api/admin/digital-accounts/stats', { params: { productId } });
+}
+
+export async function fetchDigitalAccounts(params?: {
+  productId?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}): Promise<{
+  success: boolean;
+  accounts: import('../types').DigitalAccount[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}> {
+  return api.get('/api/admin/digital-accounts', { params });
+}
+
+export async function createDigitalAccount(data: {
+  productId: string;
+  email: string;
+  password: string;
+  status?: string;
+}): Promise<{ success: boolean; account: import('../types').DigitalAccount; message: string }> {
+  return api.post('/api/admin/digital-accounts', data);
+}
+
+export async function bulkImportDigitalAccounts(data: {
+  productId: string;
+  rawData?: string;
+  items?: Array<{ email: string; password: string }>;
+}): Promise<{
+  success: boolean;
+  inserted: number;
+  rejected: number;
+  errors: string[];
+  message: string;
+}> {
+  return api.post('/api/admin/digital-accounts/bulk', data);
+}
+
+export async function updateDigitalAccount(
+  id: string,
+  data: { email?: string; password?: string; status?: string }
+): Promise<{ success: boolean; account: import('../types').DigitalAccount; message: string }> {
+  return api.patch(`/api/admin/digital-accounts/${id}`, data);
+}
+
+export async function deleteDigitalAccount(id: string): Promise<{ success: boolean; message: string }> {
+  return api.delete(`/api/admin/digital-accounts/${id}`);
+}
+
+export async function revealDigitalAccountPassword(id: string): Promise<{
+  success: boolean;
+  id: string;
+  email: string;
+  password: string;
+}> {
+  return api.post(`/api/admin/digital-accounts/${id}/reveal`);
+}
+
+export async function fetchOrderCredentials(orderId: string): Promise<{
+  success: boolean;
+  credentials: { email: string; password?: string };
+  isDigitalAccount?: boolean;
+  orderStatus: string;
+}> {
+  return api.get(`/api/orders/${orderId}/credentials`);
 }
 
 

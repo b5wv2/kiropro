@@ -4,7 +4,7 @@ import { Game, GamePackage } from '../../types';
 import { useWallet } from '../../context/WalletContext';
 import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers } from '../../services/api';
 import { formatCurrency } from '../../lib/formatters';
-import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2, Key, Copy, Check, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { getProductImageUrl } from '../../utils/imageUrl';
 
 interface QuickTopUpModalProps {
@@ -22,6 +22,9 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [selectedServer, setSelectedServer] = useState<string>('');
   const [serverList, setServerList] = useState<Array<{ id: string; name: string }>>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [deliveredCredentials, setDeliveredCredentials] = useState<{ email: string; password?: string } | null>(null);
+  const [showDeliveredPassword, setShowDeliveredPassword] = useState(false);
+  const [copiedField, setCopiedField] = useState<'email' | 'password' | 'all' | null>(null);
 
   // Promo Code State
   const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -44,6 +47,9 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       setAppliedPromo(null);
       setPromoCodeInput('');
       setPromoError(null);
+      setDeliveredCredentials(null);
+      setShowDeliveredPassword(false);
+      setCopiedField(null);
     }
   }, [game]);
 
@@ -123,6 +129,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
   if (!isOpen || !game || !selectedPackage) return null;
 
+  const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
   const rawOrderPrice = getPackagePrice(selectedPackage);
   const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
     ? (appliedPromo.discountAmount ? Number(appliedPromo.discountAmount) : (appliedPromo.discount ? Number(appliedPromo.discount) : 0))
@@ -216,8 +223,16 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     }
   };
 
+  const handleCopyText = (text: string, field: 'email' | 'password' | 'all') => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2500);
+  };
+
   const handleConfirmOrder = async () => {
-    if (!playerId.trim()) {
+    const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
+
+    if (!isDigitalAccount && !playerId.trim()) {
       showToast('يرجى إدخال معرّف اللاعب للاستلام', 'warning');
       return;
     }
@@ -227,7 +242,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       selectedPackage?.isRequiredGameServerId
     );
 
-    if (pkgRequiresServer && serverList.length > 0 && !selectedServer) {
+    if (!isDigitalAccount && pkgRequiresServer && serverList.length > 0 && !selectedServer) {
       showToast('يرجى اختيار خادم اللعبة قبل تأكيد الشراء', 'warning');
       return;
     }
@@ -242,20 +257,26 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
     setIsProcessing(true);
     try {
-      await createOrder({
+      const orderRes = await createOrder({
         gameId: game.id,
         packageId: selectedPackage.id,
         packageName: `${game.name} - ${selectedPackage.name}`,
-        playerId: playerId.trim(),
-        serverId: pkgRequiresServer && selectedServer ? selectedServer : undefined,
-        playerName: verifiedPlayerName || undefined,
+        playerId: isDigitalAccount ? 'DIGITAL_ACCOUNT' : playerId.trim(),
+        serverId: (!isDigitalAccount && pkgRequiresServer && selectedServer) ? selectedServer : undefined,
+        playerName: (!isDigitalAccount && verifiedPlayerName) ? verifiedPlayerName : undefined,
         amount: finalPrice,
         promoCode: appliedPromo?.code
       });
 
       await refreshBalance();
-      showToast('تم إنشاء وتنفيذ الطلب بنجاح! جاري معالجة الشحن فورياً.', 'success');
-      onClose();
+
+      if (orderRes.credentials) {
+        setDeliveredCredentials(orderRes.credentials);
+        showToast('تم شراء الحساب وتخصيصه بنجاح! ⚡', 'success');
+      } else {
+        showToast('تم إنشاء وتنفيذ الطلب بنجاح! جاري معالجة الشحن فورياً.', 'success');
+        onClose();
+      }
     } catch (err: any) {
       showToast(err.message || 'تعذر تنفيذ الطلب حاليًا. حاول مرة أخرى.', 'warning');
     } finally {
@@ -292,11 +313,188 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           </button>
         </div>
 
-        {/* Step 1: Package Selection */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>1. حدد الباقة المطلوبة:</label>
+        {deliveredCredentials ? (
+          <div style={{ padding: '10px 0', textAlign: 'center' }}>
+            <div style={{
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              background: '#ecfdf5',
+              color: '#059669',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 12px',
+              border: '2px solid #a7f3d0'
+            }}>
+              <CheckCircle2 size={32} />
+            </div>
+
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', marginBottom: 4 }}>
+              تم استلام الحساب بنجاح! 🎉
+            </h3>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: 18 }}>
+              تم تخصيص الحساب وتسليمه إليك فورياً. يرجى حفظ بيانات الدخول التالية:
+            </p>
+
+            {/* Credentials Card */}
+            <div style={{
+              background: '#0B0F19',
+              borderRadius: '12px',
+              border: '1.5px solid #facc15',
+              padding: '16px 18px',
+              textAlign: 'right',
+              marginBottom: 16
+            }}>
+              {/* Email */}
+              <div style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: 4 }}>
+                  البريد الإلكتروني (Email):
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#1e293b', padding: '8px 12px', borderRadius: 8 }}>
+                  <code style={{ color: '#facc15', fontSize: '0.95rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
+                    {deliveredCredentials.email}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(deliveredCredentials.email, 'email')}
+                    style={{
+                      background: copiedField === 'email' ? '#10b981' : 'rgba(250, 204, 21, 0.2)',
+                      color: copiedField === 'email' ? '#ffffff' : '#facc15',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                  >
+                    {copiedField === 'email' ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{copiedField === 'email' ? 'تم النسخ' : 'نسخ'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: 4 }}>
+                  كلمة المرور (Password):
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#1e293b', padding: '8px 12px', borderRadius: 8 }}>
+                  <code style={{ color: '#38bdf8', fontSize: '0.95rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
+                    {showDeliveredPassword ? (deliveredCredentials.password || '••••••••') : '••••••••••••'}
+                  </code>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeliveredPassword(!showDeliveredPassword)}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        color: '#cbd5e1',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center'
+                      }}
+                      title={showDeliveredPassword ? 'إخفاء' : 'إظهار'}
+                    >
+                      {showDeliveredPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(deliveredCredentials.password || '', 'password')}
+                      style={{
+                        background: copiedField === 'password' ? '#10b981' : 'rgba(56, 189, 248, 0.2)',
+                        color: copiedField === 'password' ? '#ffffff' : '#38bdf8',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                    >
+                      {copiedField === 'password' ? <Check size={13} /> : <Copy size={13} />}
+                      <span>{copiedField === 'password' ? 'تم النسخ' : 'نسخ'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick copy all button */}
+            <button
+              type="button"
+              onClick={() => handleCopyText(`Email: ${deliveredCredentials.email}\nPassword: ${deliveredCredentials.password || ''}`, 'all')}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: '#f1f5f9',
+                border: '1px solid #cbd5e1',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                color: '#334155',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                marginBottom: 16
+              }}
+            >
+              {copiedField === 'all' ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+              <span>{copiedField === 'all' ? 'تم نسخ جميع البيانات بنجاح ✓' : 'نسخ الإيميل وكلمة المرور معاً'}</span>
+            </button>
+
+            {/* Security Warning */}
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              textAlign: 'right',
+              fontSize: '0.78rem',
+              color: '#991b1b',
+              lineHeight: 1.5,
+              marginBottom: 18,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 8
+            }}>
+              <ShieldCheck size={18} color="#dc2626" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <strong>تنبيه أمان هام:</strong>
+                <div>يرجى تسجيل الدخول إلى الحساب فوراً وتغيير كلمة المرور وإضافة رقم هاتفك للتحقق لحماية ملكية الحساب. يمكنك مراجعة هذه البيانات دائماً في صفحة <strong>طلباتي</strong>.</div>
+              </div>
+            </div>
+
+            {/* Close Button */}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onClose}
+              style={{ width: '100%', fontSize: '0.95rem' }}
+            >
+              تم الحفظ، إغلاق النافذة
+            </button>
           </div>
+        ) : (
+          <>
+            {/* Step 1: Package Selection */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>1. حدد الباقة المطلوبة:</label>
+              </div>
 
           {availableSubCategories.length > 1 && (
             <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 8 }}>
@@ -401,23 +599,82 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           )}
         </div>
 
-        {/* Step 2: Player ID & Server Selection */}
-        <div style={{ marginBottom: 16 }}>
-          {Boolean(selectedPackage?.requiresGameServerId || selectedPackage?.isRequiredGameServerId) && serverList.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <label htmlFor="modal-server-select" style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
-                اختر خادم اللعبة (Game Server):
-              </label>
-              <select
-                id="modal-server-select"
-                value={selectedServer}
+        {/* Step 2: Player ID & Server Selection OR Digital Account Info */}
+        {isDigitalAccount ? (
+          <div style={{
+            marginBottom: 16,
+            padding: '14px 16px',
+            background: '#ecfdf5',
+            border: '1.5px solid #10b981',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12
+          }}>
+            <Key size={22} color="#059669" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ fontSize: '0.82rem', color: '#065f46', lineHeight: 1.6 }}>
+              <strong style={{ display: 'block', fontSize: '0.9rem', marginBottom: 2, color: '#047857' }}>
+                تسليم فوري ومباشر للحساب ⚡
+              </strong>
+              لا يتطلب هذا المنتج إدخال معرّف لاعب أو سيرفر. سيتم تخصيص الحساب من المخزون المشفر وعرض البريد الإلكتروني وكلمة المرور فوراً بعد إتمام الشراء، وستظل البيانات محفوظة دائماً في صفحة <strong>طلباتي</strong>.
+              <div style={{ marginTop: 6, fontWeight: 800, color: '#b45309' }}>
+                ⚠️ تنبيه: مسموح بشراء حساب واحد فقط لكل عميل.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            {Boolean(selectedPackage?.requiresGameServerId || selectedPackage?.isRequiredGameServerId) && serverList.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <label htmlFor="modal-server-select" style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                  اختر خادم اللعبة (Game Server):
+                </label>
+                <select
+                  id="modal-server-select"
+                  value={selectedServer}
+                  onChange={(e) => {
+                    setSelectedServer(e.target.value);
+                    setVerifiedPlayerName(null);
+                    setVerifyStatus(null);
+                  }}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg-primary)',
+                    border: '1.5px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '10px 14px',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)'
+                  }}
+                >
+                  {serverList.map((srv) => (
+                    <option key={srv.id} value={srv.id}>
+                      {srv.name} ({srv.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <label htmlFor="modal-player-id" style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+              {serverList.length > 0 ? 'معرّف الحساب في اللعبة' : `2. ${game.idFieldLabel}`}:
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                id="modal-player-id"
+                type="text"
+                value={playerId}
                 onChange={(e) => {
-                  setSelectedServer(e.target.value);
-                  setVerifiedPlayerName(null);
-                  setVerifyStatus(null);
+                  setPlayerId(e.target.value);
+                  if (verifiedPlayerName) {
+                    setVerifiedPlayerName(null);
+                    setVerifyStatus(null);
+                  }
                 }}
+                placeholder={game.idPlaceholder}
                 style={{
-                  width: '100%',
+                  flexGrow: 1,
                   background: 'var(--bg-primary)',
                   border: '1.5px solid var(--border-subtle)',
                   borderRadius: 'var(--radius-md)',
@@ -426,102 +683,67 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                   fontWeight: 600,
                   color: 'var(--text-primary)'
                 }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleVerify}
+                disabled={verifyStatus?.loading}
+                style={{ paddingInline: 16, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
               >
-                {serverList.map((srv) => (
-                  <option key={srv.id} value={srv.id}>
-                    {srv.name} ({srv.id})
-                  </option>
-                ))}
-              </select>
+                {verifyStatus?.loading ? (
+                  <>
+                    <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>جارٍ التحقق...</span>
+                  </>
+                ) : (
+                  <span>تحقق من ID</span>
+                )}
+              </button>
             </div>
-          )}
 
-          <label htmlFor="modal-player-id" style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
-            {serverList.length > 0 ? 'معرّف الحساب في اللعبة' : `2. ${game.idFieldLabel}`}:
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              id="modal-player-id"
-              type="text"
-              value={playerId}
-              onChange={(e) => {
-                setPlayerId(e.target.value);
-                if (verifiedPlayerName) {
-                  setVerifiedPlayerName(null);
-                  setVerifyStatus(null);
-                }
-              }}
-              placeholder={game.idPlaceholder}
-              style={{
-                flexGrow: 1,
-                background: 'var(--bg-primary)',
-                border: '1.5px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
+            {verifiedPlayerName && (
+              <div style={{
+                marginTop: 10,
                 padding: '10px 14px',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                color: 'var(--text-primary)'
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleVerify}
-              disabled={verifyStatus?.loading}
-              style={{ paddingInline: 16, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-            >
-              {verifyStatus?.loading ? (
-                <>
-                  <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>جارٍ التحقق...</span>
-                </>
-              ) : (
-                <span>تحقق من ID</span>
-              )}
-            </button>
-          </div>
-
-          {verifiedPlayerName && (
-            <div style={{
-              marginTop: 10,
-              padding: '10px 14px',
-              background: '#ecfdf5',
-              border: '1px solid #10b981',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10
-            }}>
-              <CheckCircle2 size={20} color="#059669" style={{ flexShrink: 0 }} />
-              <div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#065f46' }}>
-                  ✓ تم التحقق من الحساب
-                </div>
-                <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#047857', marginTop: 2 }}>
-                  اسم اللاعب: <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#065f46' }}>{verifiedPlayerName}</span>
+                background: '#ecfdf5',
+                border: '1px solid #10b981',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10
+              }}>
+                <CheckCircle2 size={20} color="#059669" style={{ flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#065f46' }}>
+                    ✓ تم التحقق من الحساب
+                  </div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#047857', marginTop: 2 }}>
+                    اسم اللاعب: <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#065f46' }}>{verifiedPlayerName}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {verifyStatus && !verifyStatus.success && !verifyStatus.loading && (
-            <div style={{
-              marginTop: 10,
-              padding: '10px 14px',
-              background: '#fef2f2',
-              border: '1px solid #ef4444',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10
-            }}>
-              <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#991b1b' }}>
-                ✕ {verifyStatus.message}
-              </span>
-            </div>
-          )}
-        </div>
+            {verifyStatus && !verifyStatus.success && !verifyStatus.loading && (
+              <div style={{
+                marginTop: 10,
+                padding: '10px 14px',
+                background: '#fef2f2',
+                border: '1px solid #ef4444',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10
+              }}>
+                <AlertCircle size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#991b1b' }}>
+                  ✕ {verifyStatus.message}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Promo Code Input Section */}
         <div style={{
@@ -714,17 +936,22 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
             style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
           >
             {isProcessing ? (
-              <span>جاري خصم الرصيد وتنفيذ الطلب...</span>
+              <span>{isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
             ) : (
-              <span>تأكيد الطلب وشحنه فوراً ⚡</span>
+              <span>{isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
             )}
           </button>
         )}
 
         <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
-          🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وإرسال الطلب تلقائياً لمزود الخدمة.
+          {isDigitalAccount 
+            ? '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وتسليم بيانات الحساب فورياً.'
+            : '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وإرسال الطلب تلقائياً لمزود الخدمة.'}
         </p>
-      </div>
-    </div>
-  );
+      </>
+    )}
+  </div>
+</div>
+);
 };
+
