@@ -13,7 +13,11 @@ import {
   Key
 } from 'lucide-react';
 
-export const PartnerProfilePage: React.FC = () => {
+interface PartnerProfilePageProps {
+  forceChangePassword?: boolean;
+}
+
+export const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ forceChangePassword }) => {
   const { partner, nextLevel, refreshProfile, partnerFetch } = usePartner();
 
   // Password change state
@@ -58,6 +62,23 @@ export const PartnerProfilePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {forceChangePassword && (
+        <div style={{
+          background: 'rgba(245, 158, 11, 0.15)',
+          border: '1px solid rgba(245, 158, 11, 0.4)',
+          borderRadius: 14,
+          padding: '16px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          color: '#FCD34D',
+          fontSize: '0.95rem',
+          fontWeight: 700
+        }}>
+          <AlertCircle size={22} color="#F59E0B" style={{ flexShrink: 0 }} />
+          <span>تنبيه أمان إلزامي: يُرجى تغيير كلمة المرور المؤقتة لتفعيل صلاحيات الشحن السريع واستخدام الرصيد.</span>
+        </div>
+      )}
       {/* Header */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

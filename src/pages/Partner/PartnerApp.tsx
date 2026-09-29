@@ -12,7 +12,7 @@ import { PartnerSetupPassword } from './PartnerSetupPassword';
 import { RefreshCw } from 'lucide-react';
 
 const PartnerPortalContent: React.FC = () => {
-  const { isAuthenticated, isLoading, activeTab } = usePartner();
+  const { isAuthenticated, isLoading, activeTab, partner } = usePartner();
 
   // Check if this is a password setup token link
   const urlParams = new URLSearchParams(window.location.search);
@@ -24,7 +24,7 @@ const PartnerPortalContent: React.FC = () => {
     return <PartnerSetupPassword />;
   }
 
-  // Explicit login subroute
+  // Explicit login subroute if not authenticated
   if (window.location.pathname.includes('/login') && !isAuthenticated) {
     return <PartnerLogin />;
   }
@@ -63,6 +63,39 @@ const PartnerPortalContent: React.FC = () => {
 
   if (!isAuthenticated) {
     return <PartnerLogin />;
+  }
+
+  // Suspended account guard
+  if (partner?.status === 'SUSPENDED') {
+    return (
+      <div className="partner-portal-shell" style={{ justifyContent: 'center', alignItems: 'center', padding: 24, direction: 'rtl' }}>
+        <div className="partner-card" style={{ maxWidth: 480, width: '100%', textAlign: 'center', border: '1px solid rgba(239, 68, 68, 0.4)', padding: 32 }}>
+          <div style={{ fontSize: '3rem', marginBottom: 16 }}>🚫</div>
+          <h2 style={{ color: '#fff', fontSize: '1.4rem', fontWeight: 900, margin: '0 0 12px 0' }}>
+            الحساب التجاري موقوف مؤقتاً
+          </h2>
+          <p style={{ color: '#94a3b8', fontSize: '0.95rem', lineHeight: 1.6, margin: '0 0 24px 0' }}>
+            تم تعليق حسابك التجاري من قبل إدارة المنصة. يرجى التواصل مع الدعم الفني للمراجعة وإعادة التفعيل.
+          </p>
+          <a
+            href="/"
+            className="btn-partner-primary"
+            style={{ textDecoration: 'none', display: 'inline-block', padding: '12px 24px' }}
+          >
+            العودة إلى المتجر الرئيسي
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Must change password guard: forces change password before accessing dashboard
+  if (partner?.mustChangePassword) {
+    return (
+      <PartnerLayout>
+        <PartnerProfilePage forceChangePassword={true} />
+      </PartnerLayout>
+    );
   }
 
   return (

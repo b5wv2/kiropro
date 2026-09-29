@@ -227,12 +227,45 @@ export class PartnerService {
   }
 
   /**
-   * Calculates authoritative Partner Price for a specific product.
+  /**
+   * Fetches admin-configured partner pricing markup settings.
+   * Default markup: $0.03 (Min: $0.01, Max: $0.05)
+   */
+  public async getPricingSettings(): Promise<{
+    defaultMarkupUsd: number;
+    minMarkupUsd: number;
+    maxMarkupUsd: number;
+  }> {
+    try {
+      const res = await pool.query('SELECT key, value FROM "partner_pricing_settings"');
+      const map: Record<string, number> = {};
+      for (const row of res.rows) {
+        map[row.key] = Number(row.value);
+      }
+      return {
+        defaultMarkupUsd: map['default_markup_usd'] ?? 0.03,
+        minMarkupUsd: map['min_markup_usd'] ?? 0.01,
+        maxMarkupUsd: map['max_markup_usd'] ?? 0.05
+      };
+    } catch {
+      return {
+        defaultMarkupUsd: 0.03,
+        minMarkupUsd: 0.01,
+        maxMarkupUsd: 0.05
+      };
+    }
+  }
+
+  /**
+   * Calculates authoritative Partner Price based strictly on:
+   * Partner Price = Provider/Supplier Cost + Small Markup ($0.01 to $0.05)
+   *
    * Priority:
    * 1. partner_product_pricing (UNIQUE partner_id + product_id override)
    * 2. Product.defaultPartnerPriceUsd
-   * 3. Product.customerPriceUsd * 0.95 fallback
-   * Level discount is applied to the base partner price.
+   * 3. Supplier Cost + Admin-defined markup ($0.03 default, min $0.01, max $0.05)
+   *
+   * NO percentages. NO Customer retail price.
    */
   public async getEffectivePartnerPrice(partnerId: string, productId: string) {
     const query = `
@@ -245,11 +278,9 @@ export class PartnerService {
         p."isActive",
         p."inStock",
         ppp.partner_price_usd as custom_partner_price,
-        ppp.is_available as custom_is_available,
-        pl.discount_percent as level_discount_percent
+        ppp.markup_usd as custom_markup_usd,
+        ppp.is_available as custom_is_available
       FROM "Product" p
-      LEFT JOIN partner_profiles pp ON pp.id = $1
-      LEFT JOIN partner_levels pl ON pp.level_id = pl.id
       LEFT JOIN partner_product_pricing ppp ON ppp.partner_id = $1 AND ppp.product_id = p.id
       WHERE p.id = $2
       LIMIT 1
@@ -270,37 +301,45 @@ export class PartnerService {
       throw new Error('هذا المنتج غير مصرح لمتجرك بشرائه.');
     }
 
+    // 1. Supplier / Provider Cost in USD (e.g. GamesDrop cost)
     const supplierCostUsd = Number(row.supplierCostUsd || row.gamesDropCostUsd || 0);
 
-    let basePartnerPriceUsd: number;
+    // 2. Pricing Settings from Admin
+    const settings = await this.getPricingSettings();
+    const defaultMarkup = Math.min(settings.maxMarkupUsd, Math.max(settings.minMarkupUsd, settings.defaultMarkupUsd));
+
+    let finalPartnerPriceUsd: number;
+    let markupUsd: number;
     let isCustom = false;
 
     if (row.custom_partner_price !== null && row.custom_partner_price !== undefined) {
-      basePartnerPriceUsd = Number(row.custom_partner_price);
+      finalPartnerPriceUsd = Number(row.custom_partner_price);
+      markupUsd = Math.round((finalPartnerPriceUsd - supplierCostUsd) * 10000) / 10000;
       isCustom = true;
-    } else if (row.defaultPartnerPriceUsd !== null && row.defaultPartnerPriceUsd !== undefined) {
-      basePartnerPriceUsd = Number(row.defaultPartnerPriceUsd);
+    } else if (row.custom_markup_usd !== null && row.custom_markup_usd !== undefined) {
+      markupUsd = Number(row.custom_markup_usd);
+      finalPartnerPriceUsd = Math.round((supplierCostUsd + markupUsd) * 100) / 100;
+      isCustom = true;
     } else {
-      basePartnerPriceUsd = Math.round(Number(row.customerPriceUsd || 0) * 0.95 * 100) / 100;
+      // Base formula strictly: Supplier Cost + Admin Markup ($0.01 - $0.05, default $0.03)
+      markupUsd = defaultMarkup;
+      finalPartnerPriceUsd = Math.round((supplierCostUsd + markupUsd) * 100) / 100;
     }
 
-    // Apply level discount (only if not customized specifically, or as stackable discount)
-    const discountPercent = Number(row.level_discount_percent || 0);
-    let finalPartnerPriceUsd = basePartnerPriceUsd;
-
-    if (discountPercent > 0 && !isCustom) {
-      finalPartnerPriceUsd = Math.round(basePartnerPriceUsd * (1 - discountPercent / 100) * 100) / 100;
+    // Protection 1: Partner price CANNOT be lower than Supplier Cost + minMarkup ($0.01)
+    if (finalPartnerPriceUsd < supplierCostUsd + settings.minMarkupUsd) {
+      finalPartnerPriceUsd = Math.round((supplierCostUsd + settings.minMarkupUsd) * 100) / 100;
+      markupUsd = settings.minMarkupUsd;
     }
 
-    // Protection: partner price cannot be less than 0.01
+    // Protection 2: Minimum absolute price $0.01
     finalPartnerPriceUsd = Math.max(0.01, finalPartnerPriceUsd);
 
     return {
       productId: row.product_id,
       supplierCostUsd,
+      markupUsd,
       customerPriceUsd: Number(row.customerPriceUsd || 0),
-      basePartnerPriceUsd,
-      discountPercent,
       finalPartnerPriceUsd,
       isCustomPricing: isCustom
     };

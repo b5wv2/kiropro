@@ -176,6 +176,41 @@ router.post('/login', partnerLoginLimiter, async (req: Request, res: Response) =
       [user.partner_id]
     );
 
+    const details = await partnerService.getPartnerDetails(user.partner_id);
+
+    const partnerData = details ? {
+      id: details.partnerId,
+      userId: details.userId,
+      name: details.name,
+      email: details.email,
+      phone: details.phone,
+      businessName: details.businessName,
+      status: details.status,
+      mustChangePassword: details.mustChangePassword,
+      levelId: details.levelId,
+      levelName: details.levelName,
+      levelArabicName: details.levelArabicName,
+      badgeColor: details.badgeColor,
+      discountPercent: details.discountPercent,
+      totalPoints: details.totalPoints,
+      ordersCount: details.totalOrders,
+      totalPurchasesUsd: Number(details.totalSpentUsd || 0)
+    } : {
+      id: user.partner_id,
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      businessName: user.business_name,
+      status: user.partner_status || 'ACTIVE',
+      mustChangePassword: !!user.must_change_password,
+      totalPoints: 0
+    };
+
+    const walletData = {
+      balance: Number(walletRes.rows[0]?.balance || 0),
+      currency: walletRes.rows[0]?.currency || 'USD'
+    };
+
     res.json({
       success: true,
       token,
@@ -186,10 +221,12 @@ router.post('/login', partnerLoginLimiter, async (req: Request, res: Response) =
         name: user.name,
         businessName: user.business_name,
         role: user.role,
-        balance: Number(walletRes.rows[0]?.balance || 0),
-        currency: walletRes.rows[0]?.currency || 'USD',
+        balance: walletData.balance,
+        currency: walletData.currency,
         mustChangePassword: !!user.must_change_password
-      }
+      },
+      partner: partnerData,
+      wallet: walletData
     });
   } catch (err: any) {
     console.error('[PartnerLogin] Error:', err);
@@ -307,7 +344,37 @@ router.get('/me', requirePartner, async (req: PartnerAuthRequest, res: Response)
     const details = await partnerService.getPartnerDetails(partnerId);
     if (!details) return res.status(404).json({ error: 'بيانات الشريك غير متوفرة.' });
 
-    res.json(details);
+    const partner = {
+      id: details.partnerId,
+      userId: details.userId,
+      name: details.name,
+      email: details.email,
+      phone: details.phone,
+      businessName: details.businessName,
+      status: details.status,
+      mustChangePassword: details.mustChangePassword,
+      levelId: details.levelId,
+      levelName: details.levelName,
+      levelArabicName: details.levelArabicName,
+      badgeColor: details.badgeColor,
+      discountPercent: details.discountPercent,
+      totalPoints: details.totalPoints,
+      ordersCount: details.totalOrders,
+      totalPurchasesUsd: Number(details.totalSpentUsd || 0)
+    };
+
+    const wallet = {
+      balance: Number(details.balance || 0),
+      currency: details.currency || 'USD'
+    };
+
+    res.json({
+      success: true,
+      ...details,
+      partner,
+      wallet,
+      nextLevel: details.nextLevel
+    });
   } catch (err: any) {
     console.error('[Partner/me] Error:', err);
     res.status(500).json({ error: 'فشل جلب بيانات الشريك.' });
@@ -322,14 +389,19 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
     const partnerId = req.partner?.id;
     if (!partnerId) return res.status(400).json({ error: 'معرّف الشريك غير صالح.' });
 
+    const settings = await partnerService.getPricingSettings();
+    const defaultMarkup = Math.min(settings.maxMarkupUsd, Math.max(settings.minMarkupUsd, settings.defaultMarkupUsd));
+
     // Fetch active products with partner customized pricing or default partner price
     const query = `
       SELECT 
         p.id, p."providerOfferId", p."productName", p."offerName", p.category,
         p."arabicName", p.description, p."platformCode", p."regionCode",
         p."customerPriceUsd" as "retailPriceUsd",
-        COALESCE(ppp.partner_price_usd, p."defaultPartnerPriceUsd", ROUND(p."customerPriceUsd" * 0.95, 2)) as "basePartnerPriceUsd",
-        pl.discount_percent as "levelDiscountPercent",
+        COALESCE(p."supplierCostUsd", p."gamesDropCostUsd", 0) as "supplierCostUsd",
+        p."defaultPartnerPriceUsd",
+        ppp.partner_price_usd as "customPartnerPriceUsd",
+        ppp.markup_usd as "customMarkupUsd",
         ppp.is_available as "customIsAvailable",
         p."inStock", p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
         p."gameCategoryId",
@@ -340,8 +412,6 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
         c."idPlaceholder" as "categoryIdPlaceholder"
       FROM "Product" p
       LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
-      LEFT JOIN partner_profiles pp ON pp.id = $1
-      LEFT JOIN partner_levels pl ON pp.level_id = pl.id
       LEFT JOIN partner_product_pricing ppp ON ppp.partner_id = $1 AND ppp.product_id = p.id
       WHERE p."isActive" = true
         AND (ppp.is_available IS NULL OR ppp.is_available = true)
@@ -350,23 +420,42 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
 
     const result = await pool.query(query, [partnerId]);
 
-    // Calculate final price with level discount
+    // Calculate authoritative Partner Price = Supplier Cost + Small Markup ($0.01 - $0.05)
     const products = result.rows.map(row => {
-      const base = Number(row.basePartnerPriceUsd || 0);
-      const discount = Number(row.levelDiscountPercent || 0);
-      let finalPrice = base;
-      if (discount > 0) {
-        finalPrice = Math.round(base * (1 - discount / 100) * 100) / 100;
+      const supplierCost = Number(row.supplierCostUsd || 0);
+      let finalPrice: number;
+      let hasCustomPrice = false;
+
+      if (row.customPartnerPriceUsd !== null && row.customPartnerPriceUsd !== undefined) {
+        finalPrice = Number(row.customPartnerPriceUsd);
+        hasCustomPrice = true;
+      } else if (row.customMarkupUsd !== null && row.customMarkupUsd !== undefined) {
+        finalPrice = Math.round((supplierCost + Number(row.customMarkupUsd)) * 100) / 100;
+        hasCustomPrice = true;
+      } else if (row.defaultPartnerPriceUsd !== null && row.defaultPartnerPriceUsd !== undefined) {
+        finalPrice = Number(row.defaultPartnerPriceUsd);
+      } else {
+        finalPrice = Math.round((supplierCost + defaultMarkup) * 100) / 100;
+      }
+
+      // Anti-loss guard
+      if (finalPrice < supplierCost + settings.minMarkupUsd) {
+        finalPrice = Math.round((supplierCost + settings.minMarkupUsd) * 100) / 100;
       }
       finalPrice = Math.max(0.01, finalPrice);
+
+      const retailPrice = Number(row.retailPriceUsd || 0);
+      const savings = retailPrice > finalPrice ? Math.round(((retailPrice - finalPrice) / retailPrice) * 100) : 0;
 
       return {
         id: row.id,
         providerOfferId: row.providerOfferId,
+        name: row.arabicName || row.offerName || row.productName,
+        nameEn: row.productName,
         productName: row.productName,
         offerName: row.offerName,
         arabicName: row.arabicName || row.offerName,
-        category: row.category,
+        category: row.categoryName || row.category || 'العاب',
         gameCategoryId: row.gameCategoryId,
         categoryName: row.categoryName,
         categoryArabicName: row.categoryArabicName || row.categoryName,
@@ -376,14 +465,19 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
         inStock: row.inStock,
         requiresGameUserId: row.requiresGameUserId,
         requiresGameServerId: row.requiresGameServerId,
-        retailPriceUsd: Number(row.retailPriceUsd || 0),
+        price: retailPrice,
+        retailPriceUsd: retailPrice,
+        effectivePartnerPriceUsd: finalPrice,
         partnerPriceUsd: finalPrice,
-        originalPartnerPriceUsd: base,
-        discountAppliedPercent: discount
+        hasCustomPrice,
+        savingsPercent: savings
       };
     });
 
-    res.json(products);
+    res.json({
+      success: true,
+      products
+    });
   } catch (err: any) {
     console.error('[Partner/products] Error:', err);
     res.status(500).json({ error: 'فشل تحميل قائمة منتجات الشركاء.' });
@@ -487,8 +581,8 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
         `INSERT INTO partner_orders (
           id, partner_id, product_id, provider_offer_id, game_id,
           package_name, player_id, server_id, player_name,
-          cost_price_usd, partner_price_usd, points_awarded, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PROCESSING')`,
+          cost_price_usd, partner_price_usd, markup_usd, points_awarded, status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'PROCESSING')`,
         [
           orderId,
           partner.id,
@@ -501,6 +595,7 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
           playerName ? String(playerName).trim() : null,
           pricing.supplierCostUsd,
           chargeAmountUsd,
+          pricing.markupUsd,
           chargeAmountUsd // 1 USD = 1 Point
         ]
       );
@@ -606,6 +701,13 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
         ? 'تم الشحن بنجاح واكتمل الطلب فوراً! 🎉' 
         : 'تم إرسال الطلب بنجاح وهو قيد التنفيذ التلقائي.',
       orderId,
+      order: {
+        id: orderId,
+        orderNumber: orderId.slice(0, 8).toUpperCase(),
+        productName: product.arabicName || product.productName,
+        amountUsd: chargeAmountUsd,
+        status: mappedStatus
+      },
       status: mappedStatus,
       fulfillmentKey,
       newBalance: Number(updatedWallet.rows[0]?.balance || 0)

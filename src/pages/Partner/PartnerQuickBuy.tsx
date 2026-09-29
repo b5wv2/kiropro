@@ -56,12 +56,28 @@ export const PartnerQuickBuy: React.FC = () => {
   const loadProducts = async () => {
     try {
       setLoading(true);
-      const res = await partnerFetch<{ success: boolean; products: PartnerProduct[] }>('/api/partner/products');
-      if (res?.products) {
-        setProducts(res.products);
-        if (res.products.length > 0 && !selectedProduct) {
-          setSelectedProduct(res.products[0]);
-        }
+      const res = await partnerFetch<any>('/api/partner/products');
+      const rawList = Array.isArray(res) ? res : (res?.products || []);
+
+      const mappedList: PartnerProduct[] = rawList.map((p: any) => ({
+        id: p.id,
+        name: p.arabicName || p.offerName || p.productName || p.name || 'منتج',
+        nameEn: p.productName || p.nameEn,
+        category: p.categoryArabicName || p.categoryName || p.category || 'العاب',
+        price: Number(p.retailPriceUsd ?? p.price ?? 0),
+        effectivePartnerPriceUsd: Number(p.effectivePartnerPriceUsd ?? p.partnerPriceUsd ?? 0),
+        hasCustomPrice: Boolean(p.hasCustomPrice),
+        savingsPercent: Number(p.savingsPercent ?? 0),
+        inStock: p.inStock !== false,
+        gamesdropApiCode: p.gamesdropApiCode,
+        image: p.categoryImageUrl || p.image,
+        minQuantity: p.minQuantity,
+        maxQuantity: p.maxQuantity
+      }));
+
+      setProducts(mappedList);
+      if (mappedList.length > 0 && !selectedProduct) {
+        setSelectedProduct(mappedList[0]);
       }
     } catch (err) {
       console.error('Failed to load products', err);
@@ -116,7 +132,8 @@ export const PartnerQuickBuy: React.FC = () => {
 
       const res = await partnerFetch<{
         success: boolean;
-        order: {
+        orderId?: string;
+        order?: {
           id: string;
           orderNumber: string;
           productName: string;
@@ -133,12 +150,12 @@ export const PartnerQuickBuy: React.FC = () => {
         })
       });
 
-      if (res.success) {
+      if (res && res.success) {
         setOrderResult({
           success: true,
-          orderNumber: res.order.orderNumber,
-          productName: res.order.productName,
-          amountUsd: res.order.amountUsd,
+          orderNumber: res.order?.orderNumber || (res.orderId ? String(res.orderId).slice(0, 8).toUpperCase() : 'OK'),
+          productName: res.order?.productName || productToBuy.name,
+          amountUsd: res.order?.amountUsd || productToBuy.effectivePartnerPriceUsd,
           newBalance: res.newBalance
         });
         // Refresh partner profile/balance in background

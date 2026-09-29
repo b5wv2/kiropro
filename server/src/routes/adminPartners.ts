@@ -348,20 +348,76 @@ router.post('/partners/:id/resend-setup-link', requireAdmin, async (req: AuthReq
 // ==========================================
 // 7. GET & SET PARTNER PRODUCT PRICING (UNIQUE partner_id + product_id)
 // ==========================================
+// 7. GET & SET PARTNER PRODUCT PRICING (UNIQUE partner_id + product_id)
+// ==========================================
+router.get('/partners-pricing-settings', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const settings = await partnerService.getPricingSettings();
+    res.json(settings);
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب إعدادات الهامش الربحي للشركاء.' });
+  }
+});
+
+router.put('/partners-pricing-settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { defaultMarkupUsd, minMarkupUsd, maxMarkupUsd } = req.body;
+  const adminId = req.user?.id;
+
+  const def = Number(defaultMarkupUsd);
+  const min = Number(minMarkupUsd);
+  const max = Number(maxMarkupUsd);
+
+  if (isNaN(def) || isNaN(min) || isNaN(max) || min < 0 || max < min || def < min || def > max) {
+    return res.status(400).json({
+      error: 'القيم المدخلة غير صالحة. يجب أن يكون الهامش الأدنى >= 0، والأقصى >= الأدنى، والافتراضي بينهما.'
+    });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO partner_pricing_settings (key, value, updated_at)
+       VALUES 
+         ('default_markup_usd', $1, CURRENT_TIMESTAMP),
+         ('min_markup_usd', $2, CURRENT_TIMESTAMP),
+         ('max_markup_usd', $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (key) DO UPDATE SET
+         value = EXCLUDED.value,
+         updated_at = CURRENT_TIMESTAMP`,
+      [def, min, max]
+    );
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
+       VALUES ($1, $2, 'UPDATE_PARTNER_PRICING_SETTINGS', $3, $4)`,
+      [uuidv4(), adminId, def, `تحديث إعدادات هوامش الشركاء: الافتراضي $${def}، الأدنى $${min}، الأقصى $${max}`]
+    );
+
+    res.json({
+      success: true,
+      message: 'تم تحديث إعدادات هوامش ربح الشركاء بنجاح.',
+      settings: { defaultMarkupUsd: def, minMarkupUsd: min, maxMarkupUsd: max }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل حفظ إعدادات الهامش.' });
+  }
+});
+
 router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: Response) => {
   const id = getParam(req.params.id);
 
   try {
+    const settings = await partnerService.getPricingSettings();
     const query = `
       SELECT 
         p.id as "productId",
         p."productName",
         p."offerName",
         p."arabicName",
-        p."supplierCostUsd" as "costPriceUsd",
+        COALESCE(p."supplierCostUsd", p."gamesDropCostUsd", 0) as "costPriceUsd",
         p."customerPriceUsd" as "retailPriceUsd",
         p."defaultPartnerPriceUsd" as "defaultPartnerPriceUsd",
         ppp.partner_price_usd as "customPartnerPriceUsd",
+        ppp.markup_usd as "customMarkupUsd",
         ppp.is_available as "customIsAvailable",
         p."isActive"
       FROM "Product" p
@@ -371,7 +427,22 @@ router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: 
     `;
 
     const result = await pool.query(query, [id]);
-    res.json(result.rows);
+    const rows = result.rows.map(r => {
+      const cost = Number(r.costPriceUsd || 0);
+      const defaultPartnerPrice = Math.round((cost + settings.defaultMarkupUsd) * 100) / 100;
+      const currentPrice = r.customPartnerPriceUsd ? Number(r.customPartnerPriceUsd) : defaultPartnerPrice;
+      const markup = Math.round((currentPrice - cost) * 10000) / 10000;
+
+      return {
+        ...r,
+        costPriceUsd: cost,
+        defaultPartnerPriceUsd: defaultPartnerPrice,
+        calculatedMarkupUsd: markup,
+        defaultMarkupUsd: settings.defaultMarkupUsd
+      };
+    });
+
+    res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: 'فشل جلب قائمة أسعار الشريك.' });
   }
@@ -380,33 +451,63 @@ router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: 
 router.put('/partners/:id/pricing/:productId', requireAdmin, async (req: AuthRequest, res: Response) => {
   const partnerId = getParam(req.params.id);
   const productId = getParam(req.params.productId);
-  const { partnerPriceUsd, isAvailable } = req.body;
+  const { partnerPriceUsd, markupUsd, isAvailable } = req.body;
   const adminId = req.user?.id;
 
-  const numPrice = Number(partnerPriceUsd);
-  if (!numPrice || isNaN(numPrice) || numPrice <= 0) {
-    return res.status(400).json({ error: 'سعر الشريك يجب أن يكون رقماً موجباً أكبر من الصفر.' });
-  }
-
   try {
+    const prodRes = await pool.query(
+      'SELECT COALESCE("supplierCostUsd", "gamesDropCostUsd", 0) as cost FROM "Product" WHERE id = $1',
+      [productId]
+    );
+    if (prodRes.rows.length === 0) {
+      return res.status(404).json({ error: 'المنتج غير موجود.' });
+    }
+
+    const cost = Number(prodRes.rows[0].cost || 0);
+    let finalPrice = Number(partnerPriceUsd);
+    let finalMarkup = markupUsd !== undefined ? Number(markupUsd) : undefined;
+
+    if ((!finalPrice || isNaN(finalPrice)) && finalMarkup !== undefined && !isNaN(finalMarkup)) {
+      finalPrice = Math.round((cost + finalMarkup) * 100) / 100;
+    } else if (finalPrice && (finalMarkup === undefined || isNaN(finalMarkup))) {
+      finalMarkup = Math.round((finalPrice - cost) * 10000) / 10000;
+    }
+
+    if (!finalPrice || isNaN(finalPrice) || finalPrice <= 0) {
+      return res.status(400).json({ error: 'سعر الشريك يجب أن يكون رقماً موجباً أكبر من الصفر.' });
+    }
+
+    // Protection: Partner Price cannot be less than Supplier Cost
+    if (finalPrice < cost) {
+      return res.status(400).json({ 
+        error: `لا يمكن أن يكون سعر الشريك ($${finalPrice}) أقل من تكلفة المورد ($${cost}).` 
+      });
+    }
+
     await pool.query(
       `INSERT INTO partner_product_pricing (
-        id, partner_id, product_id, partner_price_usd, is_available, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+        id, partner_id, product_id, partner_price_usd, markup_usd, is_available, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
       ON CONFLICT ("partner_id", "product_id") DO UPDATE SET
         partner_price_usd = EXCLUDED.partner_price_usd,
+        markup_usd = EXCLUDED.markup_usd,
         is_available = EXCLUDED.is_available,
         updated_at = CURRENT_TIMESTAMP`,
-      [uuidv4(), partnerId, productId, numPrice, isAvailable !== false]
+      [uuidv4(), partnerId, productId, finalPrice, finalMarkup ?? 0.03, isAvailable !== false]
     );
 
     await pool.query(
       `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
        VALUES ($1, $2, 'UPDATE_PARTNER_PRICING', $3, $4)`,
-      [uuidv4(), adminId, numPrice, `تحديث سعر الشريك للمنتج ${productId} إلى $${numPrice}`]
+      [uuidv4(), adminId, finalPrice, `تحديث سعر الشريك للمنتج ${productId} إلى $${finalPrice} (هامش $${finalMarkup})`]
     );
 
-    res.json({ success: true, message: 'تم حفظ سعر الشريك للمنتج بنجاح.' });
+    res.json({ 
+      success: true, 
+      message: 'تم حفظ سعر الشريك للمنتج بنجاح.',
+      partnerPriceUsd: finalPrice,
+      markupUsd: finalMarkup
+    });
   } catch (err: any) {
     res.status(500).json({ error: 'فشل حفظ السعر.' });
   }

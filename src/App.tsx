@@ -338,8 +338,10 @@ const AppRouter: React.FC = () => {
   const isPartnerPortal = typeof window !== 'undefined' && window.location.pathname.startsWith('/partner');
 
   if (isPartnerPortal) {
-    // If logged in as normal CUSTOMER on storefront, block access to Partner Portal
-    if (user?.role === 'CUSTOMER') {
+    const hasPartnerToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('partner_token'));
+
+    // If logged in as normal CUSTOMER on storefront and NOT authenticated as partner, block access
+    if (user?.role === 'CUSTOMER' && !hasPartnerToken) {
       return <CustomerPartnerBlocker onLogout={() => logout()} />;
     }
 
