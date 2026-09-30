@@ -22,9 +22,10 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [selectedServer, setSelectedServer] = useState<string>('');
   const [serverList, setServerList] = useState<Array<{ id: string; name: string }>>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [deliveredCredentials, setDeliveredCredentials] = useState<{ email: string; password?: string } | null>(null);
-  const [showDeliveredPassword, setShowDeliveredPassword] = useState(false);
-  const [copiedField, setCopiedField] = useState<'email' | 'password' | 'all' | null>(null);
+  const [deliveredAccounts, setDeliveredAccounts] = useState<Array<{ id?: string; email: string; password?: string }>>([]);
+  const [showDeliveredPasswords, setShowDeliveredPasswords] = useState<{ [key: number]: boolean }>({});
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
 
   // Promo Code State
   const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -47,11 +48,16 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       setAppliedPromo(null);
       setPromoCodeInput('');
       setPromoError(null);
-      setDeliveredCredentials(null);
-      setShowDeliveredPassword(false);
+      setDeliveredAccounts([]);
+      setShowDeliveredPasswords({});
       setCopiedField(null);
+      setQuantity(1);
     }
   }, [game]);
+
+  useEffect(() => {
+    setQuantity(1);
+  }, [selectedPackage?.id]);
 
   const availableSubCategories = React.useMemo(() => {
     if (!game) return [];
@@ -130,7 +136,8 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   if (!isOpen || !game || !selectedPackage) return null;
 
   const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
-  const rawOrderPrice = getPackagePrice(selectedPackage);
+  const unitPrice = getPackagePrice(selectedPackage);
+  const rawOrderPrice = isDigitalAccount ? (unitPrice * quantity) : unitPrice;
   const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
     ? (appliedPromo.discountAmount ? Number(appliedPromo.discountAmount) : (appliedPromo.discount ? Number(appliedPromo.discount) : 0))
     : 0;
@@ -265,14 +272,25 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
         serverId: (!isDigitalAccount && pkgRequiresServer && selectedServer) ? selectedServer : undefined,
         playerName: (!isDigitalAccount && verifiedPlayerName) ? verifiedPlayerName : undefined,
         amount: finalPrice,
-        promoCode: appliedPromo?.code
+        promoCode: appliedPromo?.code,
+        quantity: isDigitalAccount ? quantity : 1
       });
 
       await refreshBalance();
 
-      if (orderRes.credentials) {
-        setDeliveredCredentials(orderRes.credentials);
-        showToast('تم شراء الحساب وتخصيصه بنجاح! ⚡', 'success');
+      // Normalize delivered credentials into an array
+      let deliveredList: Array<{ id?: string; email: string; password?: string }> = [];
+      if (Array.isArray(orderRes.accounts) && orderRes.accounts.length > 0) {
+        deliveredList = orderRes.accounts;
+      } else if (Array.isArray(orderRes.credentials) && orderRes.credentials.length > 0) {
+        deliveredList = orderRes.credentials as any;
+      } else if (orderRes.credentials && typeof orderRes.credentials === 'object' && (orderRes.credentials as any).email) {
+        deliveredList = [orderRes.credentials as any];
+      }
+
+      if (deliveredList.length > 0) {
+        setDeliveredAccounts(deliveredList);
+        showToast(quantity > 1 ? `تم شراء وتخصيص ${quantity} حسابات بنجاح! ⚡` : 'تم شراء الحساب وتخصيصه بنجاح! ⚡', 'success');
       } else {
         showToast('تم إنشاء وتنفيذ الطلب بنجاح! جاري معالجة الشحن فورياً.', 'success');
         onClose();
@@ -313,7 +331,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           </button>
         </div>
 
-        {deliveredCredentials ? (
+        {deliveredAccounts.length > 0 ? (
           <div style={{ padding: '10px 0', textAlign: 'center' }}>
             <div style={{
               width: 56,
@@ -331,110 +349,147 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
             </div>
 
             <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', marginBottom: 4 }}>
-              تم استلام الحساب بنجاح! 🎉
+              {deliveredAccounts.length > 1 ? `تم استلام ${deliveredAccounts.length} حسابات بنجاح! 🎉` : 'تم استلام الحساب بنجاح! 🎉'}
             </h3>
             <p style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: 18 }}>
-              تم تخصيص الحساب وتسليمه إليك فورياً. يرجى حفظ بيانات الدخول التالية:
+              {deliveredAccounts.length > 1 
+                ? `تم تخصيص وتسليم ${deliveredAccounts.length} حسابات مستقلة فورياً. يرجى حفظ بيانات الدخول التالية:`
+                : 'تم تخصيص الحساب وتسليمه إليك فورياً. يرجى حفظ بيانات الدخول التالية:'}
             </p>
 
-            {/* Credentials Card */}
-            <div style={{
-              background: '#0B0F19',
-              borderRadius: '12px',
-              border: '1.5px solid #facc15',
-              padding: '16px 18px',
-              textAlign: 'right',
-              marginBottom: 16
-            }}>
-              {/* Email */}
-              <div style={{ marginBottom: 14 }}>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  البريد الإلكتروني (Email):
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#1e293b', padding: '8px 12px', borderRadius: 8 }}>
-                  <code style={{ color: '#facc15', fontSize: '0.95rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
-                    {deliveredCredentials.email}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyText(deliveredCredentials.email, 'email')}
-                    style={{
-                      background: copiedField === 'email' ? '#10b981' : 'rgba(250, 204, 21, 0.2)',
-                      color: copiedField === 'email' ? '#ffffff' : '#facc15',
-                      border: 'none',
-                      borderRadius: 6,
-                      padding: '4px 10px',
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4
-                    }}
-                  >
-                    {copiedField === 'email' ? <Check size={13} /> : <Copy size={13} />}
-                    <span>{copiedField === 'email' ? 'تم النسخ' : 'نسخ'}</span>
-                  </button>
-                </div>
-              </div>
+            {/* List of Delivered Credentials Cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 16, maxHeight: '360px', overflowY: 'auto', paddingRight: 4 }}>
+              {deliveredAccounts.map((acc, index) => {
+                const isPwdShown = Boolean(showDeliveredPasswords[index]);
+                return (
+                  <div key={acc.id || index} style={{
+                    background: '#0B0F19',
+                    borderRadius: '12px',
+                    border: '1.5px solid #facc15',
+                    padding: '14px 16px',
+                    textAlign: 'right'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, borderBottom: '1px solid #1e293b', paddingBottom: 6 }}>
+                      <span style={{ color: '#facc15', fontWeight: 900, fontSize: '0.85rem' }}>
+                        الحساب {deliveredAccounts.length > 1 ? `#${index + 1}` : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyText(`Email: ${acc.email}\nPassword: ${acc.password || ''}`, `card_${index}` as any)}
+                        style={{
+                          background: copiedField === `card_${index}` ? '#10b981' : 'rgba(250, 204, 21, 0.15)',
+                          color: copiedField === `card_${index}` ? '#ffffff' : '#facc15',
+                          border: 'none',
+                          borderRadius: 6,
+                          padding: '3px 8px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        {copiedField === `card_${index}` ? <Check size={12} /> : <Copy size={12} />}
+                        <span>{copiedField === `card_${index}` ? 'تم النسخ' : 'نسخ هذا الحساب'}</span>
+                      </button>
+                    </div>
 
-              {/* Password */}
-              <div>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: 4 }}>
-                  كلمة المرور (Password):
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#1e293b', padding: '8px 12px', borderRadius: 8 }}>
-                  <code style={{ color: '#38bdf8', fontSize: '0.95rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
-                    {showDeliveredPassword ? (deliveredCredentials.password || '••••••••') : '••••••••••••'}
-                  </code>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowDeliveredPassword(!showDeliveredPassword)}
-                      style={{
-                        background: 'rgba(255, 255, 255, 0.1)',
-                        color: '#cbd5e1',
-                        border: 'none',
-                        borderRadius: 6,
-                        padding: '4px 8px',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center'
-                      }}
-                      title={showDeliveredPassword ? 'إخفاء' : 'إظهار'}
-                    >
-                      {showDeliveredPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
+                    {/* Email */}
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: 4 }}>
+                        البريد الإلكتروني (Email):
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#1e293b', padding: '6px 10px', borderRadius: 8 }}>
+                        <code style={{ color: '#facc15', fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
+                          {acc.email}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(acc.email, `email_${index}` as any)}
+                          style={{
+                            background: copiedField === `email_${index}` ? '#10b981' : 'rgba(250, 204, 21, 0.2)',
+                            color: copiedField === `email_${index}` ? '#ffffff' : '#facc15',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '3px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4
+                          }}
+                        >
+                          {copiedField === `email_${index}` ? <Check size={12} /> : <Copy size={12} />}
+                          <span>{copiedField === `email_${index}` ? 'تم النسخ' : 'نسخ'}</span>
+                        </button>
+                      </div>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleCopyText(deliveredCredentials.password || '', 'password')}
-                      style={{
-                        background: copiedField === 'password' ? '#10b981' : 'rgba(56, 189, 248, 0.2)',
-                        color: copiedField === 'password' ? '#ffffff' : '#38bdf8',
-                        border: 'none',
-                        borderRadius: 6,
-                        padding: '4px 10px',
-                        fontSize: '0.75rem',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4
-                      }}
-                    >
-                      {copiedField === 'password' ? <Check size={13} /> : <Copy size={13} />}
-                      <span>{copiedField === 'password' ? 'تم النسخ' : 'نسخ'}</span>
-                    </button>
+                    {/* Password */}
+                    <div>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: 4 }}>
+                        كلمة المرور (Password):
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#1e293b', padding: '6px 10px', borderRadius: 8 }}>
+                        <code style={{ color: '#38bdf8', fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
+                          {isPwdShown ? (acc.password || '••••••••') : '••••••••••••'}
+                        </code>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => setShowDeliveredPasswords(prev => ({ ...prev, [index]: !prev[index] }))}
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              color: '#cbd5e1',
+                              border: 'none',
+                              borderRadius: 6,
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center'
+                            }}
+                            title={isPwdShown ? 'إخفاء' : 'إظهار'}
+                          >
+                            {isPwdShown ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopyText(acc.password || '', `pwd_${index}` as any)}
+                            style={{
+                              background: copiedField === `pwd_${index}` ? '#10b981' : 'rgba(56, 189, 248, 0.2)',
+                              color: copiedField === `pwd_${index}` ? '#ffffff' : '#38bdf8',
+                              border: 'none',
+                              borderRadius: 6,
+                              padding: '3px 8px',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                          >
+                            {copiedField === `pwd_${index}` ? <Check size={12} /> : <Copy size={12} />}
+                            <span>{copiedField === `pwd_${index}` ? 'تم النسخ' : 'نسخ'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })}
             </div>
 
             {/* Quick copy all button */}
             <button
               type="button"
-              onClick={() => handleCopyText(`Email: ${deliveredCredentials.email}\nPassword: ${deliveredCredentials.password || ''}`, 'all')}
+              onClick={() => {
+                const allText = deliveredAccounts.map((a, i) => `حساب ${i + 1}:\nEmail: ${a.email}\nPassword: ${a.password || ''}`).join('\n\n-----------------\n\n');
+                handleCopyText(allText, 'all');
+              }}
               style={{
                 width: '100%',
                 padding: '10px 14px',
@@ -453,7 +508,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
               }}
             >
               {copiedField === 'all' ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
-              <span>{copiedField === 'all' ? 'تم نسخ جميع البيانات بنجاح ✓' : 'نسخ الإيميل وكلمة المرور معاً'}</span>
+              <span>{copiedField === 'all' ? 'تم نسخ جميع الحسابات بنجاح ✓' : (deliveredAccounts.length > 1 ? 'نسخ جميع الحسابات المستلمة دفعة واحدة' : 'نسخ الإيميل وكلمة المرور معاً')}</span>
             </button>
 
             {/* Security Warning */}
@@ -599,26 +654,146 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           )}
         </div>
 
-        {/* Step 2: Player ID & Server Selection OR Digital Account Info */}
+        {/* Step 2: Player ID & Server Selection OR Digital Account Info & Quantity */}
         {isDigitalAccount ? (
-          <div style={{
-            marginBottom: 16,
-            padding: '14px 16px',
-            background: '#ecfdf5',
-            border: '1.5px solid #10b981',
-            borderRadius: '10px',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 12
-          }}>
-            <Key size={22} color="#059669" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ fontSize: '0.82rem', color: '#065f46', lineHeight: 1.6 }}>
-              <strong style={{ display: 'block', fontSize: '0.9rem', marginBottom: 2, color: '#047857' }}>
-                تسليم فوري ومباشر للحساب ⚡
-              </strong>
-              لا يتطلب هذا المنتج إدخال معرّف لاعب أو سيرفر. سيتم تخصيص الحساب من المخزون المشفر وعرض البريد الإلكتروني وكلمة المرور فوراً بعد إتمام الشراء، وستظل البيانات محفوظة دائماً في صفحة <strong>طلباتي</strong>.
-              <div style={{ marginTop: 6, fontWeight: 800, color: '#b45309' }}>
-                ⚠️ تنبيه: مسموح بشراء حساب واحد فقط لكل عميل.
+          <div>
+            <div style={{
+              marginBottom: 14,
+              padding: '14px 16px',
+              background: '#ecfdf5',
+              border: '1.5px solid #10b981',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12
+            }}>
+              <Key size={22} color="#059669" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ fontSize: '0.82rem', color: '#065f46', lineHeight: 1.6 }}>
+                <strong style={{ display: 'block', fontSize: '0.9rem', marginBottom: 2, color: '#047857' }}>
+                  تسليم فوري ومباشر للحساب ⚡
+                </strong>
+                لا يتطلب هذا المنتج إدخال معرّف لاعب أو سيرفر. سيتم تخصيص الحسابات من المخزون المشفر وعرض البريد الإلكتروني وكلمة المرور فوراً بعد إتمام الشراء، وستظل البيانات محفوظة دائماً في صفحة <strong>طلباتي</strong>.
+                <div style={{ marginTop: 6, fontWeight: 800, color: '#047857' }}>
+                  ✓ اختر الكمية التي تحتاجها. كل وحدة تحصل على حساب مستقل.
+                </div>
+              </div>
+            </div>
+
+            {/* Quantity Selector Card */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1.5px solid #cbd5e1',
+              borderRadius: '10px',
+              padding: '14px 16px',
+              marginBottom: 16
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div>
+                  <label style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0f172a', display: 'block' }}>
+                    الكمية المطلوبة (Quantity):
+                  </label>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    {selectedPackage.availableStock !== undefined
+                      ? `المخزون المتاح: ${selectedPackage.availableStock} حساب`
+                      : 'متوفر في المخزون'}
+                  </span>
+                </div>
+
+                {/* Counter [-] [1] [+] */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', background: '#ffffff', border: '1.5px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                    disabled={quantity <= 1}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      background: quantity <= 1 ? '#f1f5f9' : '#ffffff',
+                      border: 'none',
+                      borderLeft: '1px solid #e2e8f0',
+                      cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '1.2rem',
+                      fontWeight: 800,
+                      color: quantity <= 1 ? '#94a3b8' : '#0f172a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title="تقليل الكمية"
+                  >
+                    -
+                  </button>
+
+                  <input
+                    type="number"
+                    min={1}
+                    max={selectedPackage.availableStock || 100}
+                    value={quantity}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (isNaN(val)) {
+                        setQuantity(1);
+                      } else {
+                        const maxStock = selectedPackage.availableStock || 100;
+                        setQuantity(Math.min(maxStock, Math.max(1, val)));
+                      }
+                    }}
+                    style={{
+                      width: 50,
+                      height: 38,
+                      textAlign: 'center',
+                      border: 'none',
+                      fontSize: '1rem',
+                      fontWeight: 900,
+                      color: '#0f172a',
+                      outline: 'none',
+                      direction: 'ltr'
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const maxStock = selectedPackage.availableStock || 100;
+                      setQuantity(q => Math.min(maxStock, q + 1));
+                    }}
+                    disabled={selectedPackage.availableStock !== undefined && quantity >= selectedPackage.availableStock}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      background: (selectedPackage.availableStock !== undefined && quantity >= selectedPackage.availableStock) ? '#f1f5f9' : '#ffffff',
+                      border: 'none',
+                      borderRight: '1px solid #e2e8f0',
+                      cursor: (selectedPackage.availableStock !== undefined && quantity >= selectedPackage.availableStock) ? 'not-allowed' : 'pointer',
+                      fontSize: '1.2rem',
+                      fontWeight: 800,
+                      color: (selectedPackage.availableStock !== undefined && quantity >= selectedPackage.availableStock) ? '#94a3b8' : '#0f172a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title="زيادة الكمية"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Price Breakdown Calculation */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingTop: 8,
+                borderTop: '1px solid #e2e8f0',
+                fontSize: '0.82rem'
+              }}>
+                <span style={{ color: '#64748b' }}>
+                  السعر للحساب: <strong>{formatCurrency(unitPrice, currency)}</strong>
+                </span>
+                <span style={{ color: '#0f172a', fontWeight: 800 }}>
+                  الإجمالي ({quantity} {quantity > 1 ? 'حسابات' : 'حساب'}): {formatCurrency(unitPrice * quantity, currency)}
+                </span>
               </div>
             </div>
           </div>
@@ -871,7 +1046,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           </div>
 
           <div className={styles.walletRow}>
-            <span>السعر الأساسي:</span>
+            <span>{isDigitalAccount && quantity > 1 ? `السعر الأساسي (${quantity} حسابات):` : 'السعر الأساسي:'}</span>
             <span className={styles.numVal} style={{ textDecoration: discountAmount > 0 ? 'line-through' : 'none', color: discountAmount > 0 ? '#94A3B8' : undefined }}>
               {formatCurrency(rawOrderPrice, 'SDG')}
             </span>

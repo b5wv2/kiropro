@@ -1,4 +1,4 @@
-import { Game, Order } from '../types';
+import { Game, Order, DigitalAccountCredential } from '../types';
 import { api } from '../lib/api';
 
 let cachedGames: { data: Game[]; timestamp: number } | null = null;
@@ -130,20 +130,24 @@ export async function createOrder(payload: {
   playerName?: string;
   amount?: number;
   promoCode?: string;
+  quantity?: number;
 }): Promise<Order> {
   const data = await api.post('/api/orders', payload);
   
   const newOrder: Order = {
-    id: data.id,
+    id: data.id || data.orderId,
     gameId: payload.gameId,
     packageId: payload.packageId,
     packageName: payload.packageName,
     playerId: payload.playerId,
-    amount: data.chargedAmount,
-    currency: data.chargedCurrency || 'SDG',
+    amount: data.chargedAmount || data.amount,
+    currency: data.chargedCurrency || data.currency || 'SDG',
     status: data.status,
-    orderType: data.orderType,
+    orderType: data.orderType || (data.isDigitalAccount ? 'DIGITAL_ACCOUNT' : undefined),
+    quantity: data.quantity || payload.quantity || 1,
+    unitPrice: data.unitPrice,
     credentials: data.credentials,
+    accounts: data.accounts || data.credentials,
     fulfillmentKey: data.key,
     key: data.key,
     createdAt: new Date().toISOString()
@@ -338,11 +342,29 @@ export async function revealDigitalAccountPassword(id: string): Promise<{
   return api.post(`/api/admin/digital-accounts/${id}/reveal`);
 }
 
+export async function fetchAdminDigitalProducts(): Promise<Array<{
+  id: string;
+  productName: string;
+  arabicName: string;
+  offerName: string;
+  category?: string;
+  productType?: string;
+  inStock?: boolean;
+}>> {
+  return api.get('/api/admin/digital-accounts/products');
+}
+
 export async function fetchOrderCredentials(orderId: string): Promise<{
   success: boolean;
-  credentials: { email: string; password?: string };
+  orderId?: string;
+  packageName?: string;
+  quantity?: number;
+  credentials: DigitalAccountCredential[];
+  accounts?: DigitalAccountCredential[];
+  email?: string;
+  password?: string;
   isDigitalAccount?: boolean;
-  orderStatus: string;
+  orderStatus?: string;
 }> {
   return api.get(`/api/orders/${orderId}/credentials`);
 }

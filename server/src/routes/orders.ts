@@ -25,7 +25,7 @@ const orderCreateLimiter = rateLimit({
 
 // Customer: Create Order (Direct GamesDrop Integration)
 router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: Response) => {
-  const { gameId, packageId, packageName, playerId, serverId, playerName, promoCode } = req.body;
+  const { gameId, packageId, packageName, playerId, serverId, playerName, promoCode, quantity: reqQuantity } = req.body;
   const user = req.user;
 
   try {
@@ -65,6 +65,20 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     }
 
     const isDigitalAccount = localProduct.productType === 'DIGITAL_ACCOUNT' || localProduct.category === 'DIGITAL_ACCOUNT' || localProduct.provider === 'INTERNAL';
+
+    let quantity = 1;
+    if (isDigitalAccount) {
+      if (reqQuantity !== undefined && reqQuantity !== null) {
+        const parsedQ = Number(reqQuantity);
+        if (!Number.isInteger(parsedQ) || parsedQ < 1) {
+          return res.status(400).json({ error: 'الكمية المطلوبة غير صالحة. يرجى اختيار كمية 1 أو أكثر.' });
+        }
+        if (parsedQ > 100) {
+          return res.status(400).json({ error: 'الحد الأقصى للشراء في المرة الواحدة هو 100 حساب.' });
+        }
+        quantity = parsedQ;
+      }
+    }
 
     let providerOfferId = 0;
     let effectiveServerId: string | null = null;
@@ -111,13 +125,16 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
     const exchangeRate = Number(rateConfig.rate) || 5000;
 
-    // Base price in user's currency
-    let basePriceInUserCurrency = authoritativeCustomerPriceUsd;
+    // Unit price in user's currency
+    let unitPriceInUserCurrency = authoritativeCustomerPriceUsd;
     if (userCurrency === 'SDG') {
-      basePriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * exchangeRate);
+      unitPriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * exchangeRate);
     } else {
-      basePriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * 100) / 100;
+      unitPriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * 100) / 100;
     }
+
+    // Base price for entire quantity in user's currency
+    let basePriceInUserCurrency = unitPriceInUserCurrency * quantity;
 
     // Resolve Player / Game User ID (Special Handling for Telegram @username resolution)
     let deliveryGameUserId = (playerId || user.email || user.id || '').trim();
@@ -195,37 +212,38 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     let finalChargeAmount = basePriceInUserCurrency;
     let discountApplied = 0;
     let promoRecord: any = null;
-    let assignedInventoryAccount: any = null;
+    let assignedInventoryAccounts: any[] = [];
 
     try {
       await client.query('BEGIN');
 
       if (isDigitalAccount) {
-        // 1. Strict Anti-Duplicate Purchase Rule (Server-Side)
-        const previousPurchase = await client.query(
-          `SELECT id FROM digital_product_accounts 
-           WHERE product_id = $1 AND assigned_to_user_id = $2 AND status = 'SOLD' 
-           LIMIT 1`,
-          [localProduct.id, user.id]
+        // 1. Verify available stock count before locking
+        const stockCountRes = await client.query(
+          `SELECT COUNT(*)::int as count 
+           FROM digital_product_accounts 
+           WHERE product_id = $1 AND status = 'AVAILABLE'`,
+          [localProduct.id]
         );
-        if (previousPurchase.rows.length > 0) {
-          throw new Error('أنت استلمت هذا المنتج من قبل، ولا يمكن شراء حساب إضافي من نفس المنتج.');
+        const availableCount = stockCountRes.rows[0]?.count || 0;
+        if (availableCount < quantity) {
+          throw new Error(`المخزون المتوفر غير كافٍ لتلبية الكمية المطلوبة (${quantity}). المتاح حالياً: ${availableCount} حساب فقط.`);
         }
 
-        // 2. Select & Lock Inventory Account Atomically (FOR UPDATE SKIP LOCKED)
+        // 2. Select & Lock Inventory Accounts Atomically (FOR UPDATE SKIP LOCKED)
         const accLockRes = await client.query(
           `SELECT id, email, password_encrypted 
            FROM digital_product_accounts 
            WHERE product_id = $1 AND status = 'AVAILABLE' 
            ORDER BY created_at ASC 
-           LIMIT 1 
+           LIMIT $2 
            FOR UPDATE SKIP LOCKED`,
-          [localProduct.id]
+          [localProduct.id, quantity]
         );
-        assignedInventoryAccount = accLockRes.rows[0];
-        if (!assignedInventoryAccount) {
-          throw new Error('نفد مخزون هذا المنتج حالياً، يرجى المحاولة لاحقاً.');
+        if (accLockRes.rows.length < quantity) {
+          throw new Error(`تعذر حجز الكمية المطلوبة بالكامل (${quantity}). المتاح حالياً: ${accLockRes.rows.length} حساب.`);
         }
+        assignedInventoryAccounts = accLockRes.rows;
       } else {
         // Duplicate Order Protection: Reject identical purchases made within 5 seconds
         const duplicateCheck = await client.query(
@@ -318,23 +336,28 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       }
 
       if (isDigitalAccount) {
-        // Insert Completed Order directly for DIGITAL_ACCOUNT
+        const deliveryPlayerId = quantity > 1 
+          ? `${quantity} حسابات (${assignedInventoryAccounts[0].email} ...)` 
+          : assignedInventoryAccounts[0].email;
+
+        // Insert Completed Order directly for DIGITAL_ACCOUNT with quantity & unit price
         await client.query(
           `INSERT INTO "Order" (
             id, "userId", "gameId", "packageId", "packageName", "playerId", 
             amount, "originalAmount", "discountAmount", "promoCode", 
             status, provider, "orderType",
             "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount", 
-            "chargedCurrency", "exchangeRateUsed", "cashbackAmount", "completedAt"
+            "chargedCurrency", "exchangeRateUsed", "cashbackAmount", "completedAt",
+            quantity, "unitPrice", "unitPriceUsd"
           ) 
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'COMPLETED', 'INTERNAL', 'DIGITAL_ACCOUNT', $11, $12, $13, $14, $15, $16, 0.0, CURRENT_TIMESTAMP)`,
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'COMPLETED', 'INTERNAL', 'DIGITAL_ACCOUNT', $11, $12, $13, $14, $15, $16, 0.0, CURRENT_TIMESTAMP, $17, $18, $19)`,
           [
             orderId,
             user.id,
             localProduct.gameCategoryId || 'google-play-points',
             localProduct.id,
             effectivePackageName,
-            assignedInventoryAccount.email,
+            deliveryPlayerId,
             finalChargeAmount,
             basePriceInUserCurrency,
             discountApplied,
@@ -344,11 +367,15 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
             authoritativeCustomerPriceUsd,
             finalChargeAmount,
             userCurrency,
-            exchangeRate
+            exchangeRate,
+            quantity,
+            unitPriceInUserCurrency,
+            authoritativeCustomerPriceUsd
           ]
         );
 
-        // Mark account as SOLD and associate with order and user
+        // Mark accounts as SOLD and associate with order and user
+        const accountIds = assignedInventoryAccounts.map(a => a.id);
         await client.query(
           `UPDATE digital_product_accounts 
            SET status = 'SOLD', 
@@ -356,9 +383,19 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
                assigned_to_user_id = $2, 
                assigned_at = CURRENT_TIMESTAMP, 
                updated_at = CURRENT_TIMESTAMP 
-           WHERE id = $3`,
-          [orderId, user.id, assignedInventoryAccount.id]
+           WHERE id = ANY($3::uuid[])`,
+          [orderId, user.id, accountIds]
         );
+
+        // Record assignments in digital_account_assignments table (Atomic Duplicate Assignment Protection)
+        for (const acc of assignedInventoryAccounts) {
+          await client.query(
+            `INSERT INTO digital_account_assignments (
+               id, order_id, digital_account_id, user_id, created_at
+             ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+            [uuidv4(), orderId, acc.id, user.id]
+          );
+        }
       } else {
         // Section 11: Create Initial Order record with authoritative pricing & locked exchange rate
         await client.query(
@@ -468,18 +505,27 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       try { await awardOrderCashback(orderId); } catch (e) { console.error('[Orders] Digital account cashback error:', e); }
       try { await processReferralRewardOnOrder(orderId); } catch (e) { console.error('[Orders] Digital account referral error:', e); }
 
-      const decryptedPassword = decryptPassword(assignedInventoryAccount.password_encrypted);
+      const decryptedAccounts = assignedInventoryAccounts.map((acc, idx) => ({
+        id: acc.id,
+        accountNumber: idx + 1,
+        email: acc.email,
+        password: decryptPassword(acc.password_encrypted)
+      }));
 
       return res.status(201).json({
         success: true,
         orderId,
+        id: orderId,
         status: 'COMPLETED',
         isDigitalAccount: true,
         packageName: effectivePackageName,
-        account: {
-          email: assignedInventoryAccount.email,
-          password: decryptedPassword
-        },
+        quantity,
+        unitPrice: unitPriceInUserCurrency,
+        chargedAmount: finalChargeAmount,
+        currency: userCurrency,
+        accounts: decryptedAccounts,
+        credentials: decryptedAccounts,
+        account: decryptedAccounts[0],
         message: 'تم تنفيذ طلبك بنجاح 🎉'
       });
     }
@@ -670,12 +716,13 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     if (error.message === 'الرصيد غير كافٍ' || 
         error.message?.includes('كود') || 
         error.message?.includes('لمنع التكرار') ||
-        error.message?.includes('أنت استلمت هذا المنتج من قبل') ||
+        error.message?.includes('المخزون المتوفر غير كافٍ') ||
+        error.message?.includes('تعذر حجز الكمية المطلوبة') ||
         error.message?.includes('نفد مخزون هذا المنتج') ||
         error.message === 'تم استخدام هذا الكود مسبقاً' ||
         error.code === '23505') {
       const userMsg = error.code === '23505'
-        ? 'أنت استلمت هذا المنتج من قبل، ولا يمكن شراء حساب إضافي من نفس المنتج.'
+        ? 'حدث تعارض مؤقت أثناء تخصيص الحسابات من المخزون، يرجى إعادة المحاولة.'
         : error.message;
       res.status(400).json({ error: userMsg });
     } else {
@@ -709,25 +756,37 @@ router.get('/:id/credentials', requireAuth, async (req: AuthRequest, res: Respon
       return res.status(400).json({ error: 'بيانات الحساب متاحة فقط للطلبات المكتملة.' });
     }
 
-    // 2. Fetch assigned digital account
+    // 2. Fetch assigned digital accounts
     const accRes = await pool.query(
-      `SELECT email, password_encrypted, assigned_at as "assignedAt" 
-       FROM digital_product_accounts 
-       WHERE order_id = $1`,
+      `SELECT a.id, a.email, a.password_encrypted, a.assigned_at as "assignedAt" 
+       FROM digital_product_accounts a 
+       WHERE a.order_id = $1
+       ORDER BY a.assigned_at ASC, a.created_at ASC`,
       [orderId]
     );
-    const account = accRes.rows[0];
-    if (!account) {
-      return res.status(404).json({ error: 'لا يوجد حساب رقمي مرتبط بهذا الطلب.' });
+    const accounts = accRes.rows;
+    if (!accounts || accounts.length === 0) {
+      return res.status(404).json({ error: 'لا توجد حسابات رقمية مرتبطة بهذا الطلب.' });
     }
 
-    const decryptedPassword = decryptPassword(account.password_encrypted);
+    const decryptedList = accounts.map((acc, idx) => ({
+      id: acc.id,
+      accountNumber: idx + 1,
+      email: acc.email,
+      password: decryptPassword(acc.password_encrypted),
+      assignedAt: acc.assignedAt
+    }));
 
     res.json({
-      email: account.email,
-      password: decryptedPassword,
-      assignedAt: account.assignedAt,
-      packageName: order.packageName
+      success: true,
+      orderId: order.id,
+      packageName: order.packageName,
+      quantity: decryptedList.length,
+      credentials: decryptedList,
+      accounts: decryptedList,
+      email: decryptedList[0]?.email,
+      password: decryptedList[0]?.password,
+      assignedAt: decryptedList[0]?.assignedAt
     });
   } catch (err: any) {
     console.error('[Orders] Failed to fetch digital account credentials:', err.message);
@@ -744,7 +803,8 @@ router.get('/my-orders', requireAuth, async (req: AuthRequest, res: Response) =>
       `SELECT 
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
-        status, "fulfillmentKey", "createdAt", "completedAt", "orderType"
+        status, "fulfillmentKey", "createdAt", "completedAt", "orderType",
+        quantity, "unitPrice", "unitPriceUsd"
        FROM "Order" 
        WHERE "userId" = $1 
        ORDER BY "createdAt" DESC`,

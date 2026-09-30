@@ -149,9 +149,16 @@ router.get('/', async (req: Request, res: Response) => {
         c.badge as "categoryBadge",
         c."deliveryTime" as "categoryDeliveryTime",
         c."idFieldLabel" as "categoryIdFieldLabel",
-        c."idPlaceholder" as "categoryIdPlaceholder"
+        c."idPlaceholder" as "categoryIdPlaceholder",
+        COALESCE(dpa.available_count, 0)::int as "availableStock"
       FROM "Product" p
       LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+      LEFT JOIN (
+        SELECT product_id, COUNT(*)::int as available_count
+        FROM digital_product_accounts
+        WHERE status = 'AVAILABLE'
+        GROUP BY product_id
+      ) dpa ON p.id = dpa.product_id
       WHERE p."isActive" = true
       ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
     `);
@@ -220,7 +227,7 @@ router.get('/', async (req: Request, res: Response) => {
       'telegram-premium': 'اشتراكات تيليجرام بريميوم (Telegram Premium)',
       'blood-strike-global': 'Blood Strike — السيرفر العالمي',
       'blood-strike-me': 'Blood Strike — الشرق الأوسط',
-      'google-play-points': 'حساب نقاط تشغيل / Google Play'
+      'google-play-points': 'حساب نقاط تشغيل / Google'
     };
 
     const defaultLabels: Record<string, { label: string; placeholder: string }> = {
@@ -320,7 +327,9 @@ router.get('/', async (req: Request, res: Response) => {
         originalPriceSdg: Math.round(pkgPriceSdg * 1.2),
         bestValue: card.packages.length === 0,
         requiresGameServerId: Boolean(row.requiresGameServerId),
-        isRequiredGameServerId: Boolean(row.requiresGameServerId)
+        isRequiredGameServerId: Boolean(row.requiresGameServerId),
+        availableStock: row.productType === 'DIGITAL_ACCOUNT' ? Number(row.availableStock || 0) : undefined,
+        inStock: row.productType === 'DIGITAL_ACCOUNT' ? (Number(row.availableStock || 0) > 0) : Boolean(row.inStock)
       });
 
       if (pkgPrice > 0 && (card.minPrice === 0 || pkgPrice < card.minPrice)) {

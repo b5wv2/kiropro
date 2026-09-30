@@ -25,6 +25,7 @@ import {
 import {
   fetchDigitalAccountStats,
   fetchDigitalAccounts,
+  fetchAdminDigitalProducts,
   createDigitalAccount,
   bulkImportDigitalAccounts,
   updateDigitalAccount,
@@ -52,6 +53,16 @@ export const AdminDigitalAccountsTab: React.FC<AdminDigitalAccountsTabProps> = (
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [limit] = useState(25);
+
+  // Digital Products state (loaded strictly from Backend DIGITAL_ACCOUNT endpoint)
+  const [digitalProducts, setDigitalProducts] = useState<Array<{
+    id: string;
+    productName: string;
+    arabicName: string;
+    offerName: string;
+    category?: string;
+    productType?: string;
+  }>>([]);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -92,21 +103,34 @@ export const AdminDigitalAccountsTab: React.FC<AdminDigitalAccountsTabProps> = (
   // Global Alert State
   const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Find default product (Google Play Points account or first DIGITAL_ACCOUNT)
+  // Load digital account products from authoritative backend API
   useEffect(() => {
-    if (products.length > 0 && !selectedProductId) {
-      const digitalProd = products.find(p => p.productType === 'DIGITAL_ACCOUNT' || p.category === 'DIGITAL_ACCOUNT' || p.id === 'a0000000-0000-0000-0000-000000000001');
-      if (digitalProd) {
-        setSelectedProductId(digitalProd.id);
-        setAddForm(prev => ({ ...prev, productId: digitalProd.id }));
-        setBulkProductId(digitalProd.id);
-      } else {
-        setSelectedProductId(products[0].id);
-        setAddForm(prev => ({ ...prev, productId: products[0].id }));
-        setBulkProductId(products[0].id);
-      }
-    }
-  }, [products, selectedProductId]);
+    let isMounted = true;
+    fetchAdminDigitalProducts()
+      .then(prods => {
+        if (!isMounted) return;
+        setDigitalProducts(prods);
+        if (prods.length > 0 && !selectedProductId) {
+          setSelectedProductId(prods[0].id);
+          setAddForm(prev => ({ ...prev, productId: prods[0].id }));
+          setBulkProductId(prods[0].id);
+        }
+      })
+      .catch(err => {
+        console.error('[AdminDigitalAccounts] Failed to fetch digital products:', err);
+        // Fallback: Filter incoming products strictly by DIGITAL_ACCOUNT
+        const filtered = products.filter(p => p.productType === 'DIGITAL_ACCOUNT' || p.category === 'DIGITAL_ACCOUNT');
+        if (isMounted && filtered.length > 0) {
+          setDigitalProducts(filtered as any);
+          if (!selectedProductId) {
+            setSelectedProductId(filtered[0].id);
+            setAddForm(prev => ({ ...prev, productId: filtered[0].id }));
+            setBulkProductId(filtered[0].id);
+          }
+        }
+      });
+    return () => { isMounted = false; };
+  }, [products]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -456,13 +480,13 @@ export const AdminDigitalAccountsTab: React.FC<AdminDigitalAccountsTabProps> = (
               fontWeight: 700,
               color: '#334155',
               background: '#fff',
-              maxWidth: 240
+              maxWidth: 260
             }}
           >
             <option value="">جميع المنتجات الرقمية</option>
-            {products.map(p => (
+            {digitalProducts.map(p => (
               <option key={p.id} value={p.id}>
-                {p.productName || p.offerName}
+                {p.arabicName || p.productName || 'حساب نقاط تشغيل / Google'}
               </option>
             ))}
           </select>
@@ -880,7 +904,7 @@ export const AdminDigitalAccountsTab: React.FC<AdminDigitalAccountsTabProps> = (
               {/* Product */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
-                  المنتج الرقمي التابع له:
+                  المنتج الرقمي:
                 </label>
                 <select
                   value={addForm.productId}
@@ -888,9 +912,9 @@ export const AdminDigitalAccountsTab: React.FC<AdminDigitalAccountsTabProps> = (
                   required
                   style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
                 >
-                  {products.map(p => (
+                  {digitalProducts.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.productName || p.offerName}
+                      {p.arabicName || p.productName || 'حساب نقاط تشغيل / Google'}
                     </option>
                   ))}
                 </select>
@@ -1004,9 +1028,9 @@ export const AdminDigitalAccountsTab: React.FC<AdminDigitalAccountsTabProps> = (
                   required
                   style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
                 >
-                  {products.map(p => (
+                  {digitalProducts.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.productName || p.offerName}
+                      {p.arabicName || p.productName || 'حساب نقاط تشغيل / Google'}
                     </option>
                   ))}
                 </select>

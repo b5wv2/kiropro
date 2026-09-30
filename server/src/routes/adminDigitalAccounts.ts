@@ -37,6 +37,46 @@ router.get('/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // ==========================================
+// 1.5. LIST DIGITAL ACCOUNT PRODUCTS ONLY
+// ==========================================
+router.get('/products', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        id, 
+        "productName", 
+        "arabicName", 
+        "offerName", 
+        category, 
+        "productType", 
+        "customerPriceUsd", 
+        "inStock"
+      FROM "Product"
+      WHERE ("productType" = 'DIGITAL_ACCOUNT' OR category = 'DIGITAL_ACCOUNT')
+        AND "isActive" = true
+      ORDER BY COALESCE("arabicName", "productName") ASC
+    `);
+
+    // Standardize commercial name: prioritize arabicName
+    const products = result.rows.map(row => ({
+      id: row.id,
+      productName: row.arabicName || row.productName || 'حساب نقاط تشغيل / Google',
+      arabicName: row.arabicName || 'حساب نقاط تشغيل / Google',
+      rawProductName: row.productName,
+      offerName: row.offerName || row.arabicName || row.productName,
+      category: row.category,
+      productType: row.productType,
+      inStock: row.inStock
+    }));
+
+    res.json(products);
+  } catch (err: any) {
+    console.error('[AdminDigitalAccounts] Failed to fetch digital products:', err.message);
+    res.status(500).json({ error: 'فشل جلب قائمة المنتجات الرقمية.' });
+  }
+});
+
+// ==========================================
 // 2. LIST INVENTORY ACCOUNTS (Sanitized - NO Passwords)
 // ==========================================
 router.get('/', requireAdmin, async (req: AuthRequest, res: Response) => {
@@ -137,14 +177,18 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // 1. Verify Product exists
+    // 1. Verify Product exists and is of DIGITAL_ACCOUNT type
     const prodRes = await pool.query(
-      `SELECT id, "productName", "arabicName" FROM "Product" WHERE id = $1`,
+      `SELECT id, "productName", "arabicName", "productType", category FROM "Product" WHERE id = $1`,
       [productId.trim()]
     );
     const product = prodRes.rows[0];
     if (!product) {
       return res.status(404).json({ error: 'المنتج المحدد غير موجود.' });
+    }
+
+    if (product.productType !== 'DIGITAL_ACCOUNT' && product.category !== 'DIGITAL_ACCOUNT') {
+      return res.status(400).json({ error: 'المنتج المحدد ليس من نوع DIGITAL_ACCOUNT' });
     }
 
     // 2. Check for duplicate email in this product
@@ -214,12 +258,16 @@ router.post('/bulk', requireAdmin, async (req: AuthRequest, res: Response) => {
 
   try {
     const prodRes = await pool.query(
-      `SELECT id, "productName", "arabicName" FROM "Product" WHERE id = $1`,
+      `SELECT id, "productName", "arabicName", "productType", category FROM "Product" WHERE id = $1`,
       [productId.trim()]
     );
     const product = prodRes.rows[0];
     if (!product) {
       return res.status(404).json({ error: 'المنتج المحدد غير موجود.' });
+    }
+
+    if (product.productType !== 'DIGITAL_ACCOUNT' && product.category !== 'DIGITAL_ACCOUNT') {
+      return res.status(400).json({ error: 'المنتج المحدد ليس من نوع DIGITAL_ACCOUNT' });
     }
 
     // Parse items from rawData or items array

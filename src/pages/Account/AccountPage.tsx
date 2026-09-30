@@ -62,10 +62,10 @@ export const AccountPage: React.FC = () => {
   const [digitalCredentials, setDigitalCredentials] = useState<{
     [orderId: string]: {
       loading: boolean;
-      email?: string;
-      password?: string;
+      isOpen?: boolean;
+      accounts?: Array<{ id?: string; accountNumber?: number; email: string; password?: string }>;
+      showPasswords?: { [accIdx: number]: boolean };
       error?: string;
-      showPassword?: boolean;
     };
   }>({});
   const [copiedAccountField, setCopiedAccountField] = useState<{ [key: string]: boolean }>({});
@@ -266,12 +266,12 @@ export const AccountPage: React.FC = () => {
 
   const handleToggleDigitalCredentials = async (orderId: string) => {
     const current = digitalCredentials[orderId];
-    if (current && (current.email || current.error)) {
+    if (current && (current.accounts || current.error)) {
       setDigitalCredentials(prev => ({
         ...prev,
         [orderId]: {
           ...prev[orderId],
-          showPassword: !prev[orderId]?.showPassword
+          isOpen: !prev[orderId]?.isOpen
         }
       }));
       return;
@@ -279,19 +279,28 @@ export const AccountPage: React.FC = () => {
 
     setDigitalCredentials(prev => ({
       ...prev,
-      [orderId]: { loading: true }
+      [orderId]: { loading: true, isOpen: true }
     }));
 
     try {
       const res = await fetchOrderCredentials(orderId);
-      if (res.success && res.credentials) {
+      let accountsList: Array<{ id?: string; accountNumber?: number; email: string; password?: string }> = [];
+      if (Array.isArray(res.credentials) && res.credentials.length > 0) {
+        accountsList = res.credentials;
+      } else if (Array.isArray(res.accounts) && res.accounts.length > 0) {
+        accountsList = res.accounts;
+      } else if (res.email) {
+        accountsList = [{ email: res.email, password: res.password }];
+      }
+
+      if (accountsList.length > 0) {
         setDigitalCredentials(prev => ({
           ...prev,
           [orderId]: {
             loading: false,
-            email: res.credentials.email,
-            password: res.credentials.password,
-            showPassword: false
+            isOpen: true,
+            accounts: accountsList,
+            showPasswords: {}
           }
         }));
       } else {
@@ -299,6 +308,7 @@ export const AccountPage: React.FC = () => {
           ...prev,
           [orderId]: {
             loading: false,
+            isOpen: true,
             error: 'تعذر جلب بيانات الحساب'
           }
         }));
@@ -308,10 +318,29 @@ export const AccountPage: React.FC = () => {
         ...prev,
         [orderId]: {
           loading: false,
+          isOpen: true,
           error: err?.message || 'فشل جلب بيانات الحساب'
         }
       }));
     }
+  };
+
+  const handleToggleShowPassword = (orderId: string, accIndex: number) => {
+    setDigitalCredentials(prev => {
+      const ordCred = prev[orderId];
+      if (!ordCred) return prev;
+      const currentMap = ordCred.showPasswords || {};
+      return {
+        ...prev,
+        [orderId]: {
+          ...ordCred,
+          showPasswords: {
+            ...currentMap,
+            [accIndex]: !currentMap[accIndex]
+          }
+        }
+      };
+    });
   };
 
   const handleCopyAccountItem = (key: string, text: string) => {
@@ -900,12 +929,26 @@ export const AccountPage: React.FC = () => {
                               <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 4 }}>
                                 معرّف الاستلام / الحساب: <strong>{ord.playerId}</strong> • {new Date(ord.createdAt).toLocaleString('ar-EG')}
                               </div>
+
+                              {(ord.orderType === 'DIGITAL_ACCOUNT' || ord.gameId === 'google-play-points') && (
+                                <div style={{ fontSize: '0.82rem', color: '#0369a1', fontWeight: 800, marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                                  <span>الكمية: <strong>{ord.quantity || 1}</strong> {((ord.quantity || 1) > 1) ? 'حسابات' : 'حساب'}</span>
+                                  {ord.unitPrice && (
+                                    <span>• السعر للوحدة: <strong>{formatCurrency(Number(ord.unitPrice), ord.currency || user.currency)}</strong></span>
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             <div style={{ textAlign: 'left' }}>
                               <span style={{ fontFamily: 'var(--font-latin)', fontWeight: 900, fontSize: '1.2rem', color: '#0B0F19', direction: 'ltr' }}>
                                 {formatCurrency(Number(ord.amount), ord.currency || user.currency)}
                               </span>
+                              {(ord.quantity && ord.quantity > 1) && (
+                                <span style={{ display: 'block', fontSize: '0.72rem', color: '#0369a1', fontWeight: 700 }}>
+                                  إجمالي ({ord.quantity} حسابات)
+                                </span>
+                              )}
                               <span style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', direction: 'ltr' }}>
                                 رقم الطلب: {ord.id.substring(0, 13)}...
                               </span>
@@ -1005,10 +1048,12 @@ export const AccountPage: React.FC = () => {
                                 </div>
                                 <div>
                                   <span style={{ fontSize: '0.85rem', color: '#facc15', fontWeight: 800 }}>
-                                    بيانات الحساب الرقمي المستلم (Google Account)
+                                    بيانات الحسابات الرقمية المستلمة (Google Accounts)
                                   </span>
                                   <span style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block' }}>
-                                    اضغط للتحقق وعرض بيانات الدخول وكلمة المرور المشفرة
+                                    {ord.quantity && ord.quantity > 1 
+                                      ? `تم تخصيص ${ord.quantity} حسابات مستقلة لهذا الطلب`
+                                      : 'اضغط للتحقق وعرض بيانات الدخول وكلمة المرور المشفرة'}
                                   </span>
                                 </div>
                               </div>
@@ -1018,8 +1063,8 @@ export const AccountPage: React.FC = () => {
                                 onClick={() => handleToggleDigitalCredentials(ord.id)}
                                 disabled={digitalCredentials[ord.id]?.loading}
                                 style={{
-                                  background: digitalCredentials[ord.id]?.email ? '#1e293b' : 'var(--accent-yellow)',
-                                  color: digitalCredentials[ord.id]?.email ? '#facc15' : '#0B0F19',
+                                  background: (digitalCredentials[ord.id]?.accounts && digitalCredentials[ord.id]?.isOpen) ? '#1e293b' : 'var(--accent-yellow)',
+                                  color: (digitalCredentials[ord.id]?.accounts && digitalCredentials[ord.id]?.isOpen) ? '#facc15' : '#0B0F19',
                                   border: '1px solid #facc15',
                                   borderRadius: '6px',
                                   padding: '7px 14px',
@@ -1036,97 +1081,182 @@ export const AccountPage: React.FC = () => {
                                     <RefreshCw size={13} className="animate-spin" />
                                     <span>جاري التحميل...</span>
                                   </>
-                                ) : digitalCredentials[ord.id]?.email ? (
+                                ) : (digitalCredentials[ord.id]?.accounts && digitalCredentials[ord.id]?.isOpen) ? (
                                   <>
-                                    {digitalCredentials[ord.id]?.showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                                    <span>{digitalCredentials[ord.id]?.showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}</span>
+                                    <EyeOff size={14} />
+                                    <span>إخفاء الحسابات</span>
                                   </>
                                 ) : (
                                   <>
                                     <Key size={14} />
-                                    <span>عرض بيانات الحساب 🔑</span>
+                                    <span>عرض الحسابات 🔑</span>
                                   </>
                                 )}
                               </button>
                             </div>
 
-                            {digitalCredentials[ord.id]?.email && (
-                              <div style={{
-                                background: '#111827',
-                                borderRadius: '8px',
-                                border: '1px solid #374151',
-                                padding: '12px 14px',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 10
-                              }}>
-                                {/* Email Row */}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>البريد الإلكتروني:</span>
-                                    <code style={{ color: '#facc15', fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
-                                      {digitalCredentials[ord.id]?.email}
-                                    </code>
-                                  </div>
+                            {/* Render Accounts if loaded and open */}
+                            {digitalCredentials[ord.id]?.isOpen && digitalCredentials[ord.id]?.accounts && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                {digitalCredentials[ord.id]?.accounts?.map((acc, index) => {
+                                  const isPwdShown = Boolean(digitalCredentials[ord.id]?.showPasswords?.[index]);
+                                  const count = digitalCredentials[ord.id]?.accounts?.length || 1;
+                                  return (
+                                    <div key={acc.id || index} style={{
+                                      background: '#111827',
+                                      borderRadius: '8px',
+                                      border: '1px solid #374151',
+                                      padding: '12px 14px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: 10
+                                    }}>
+                                      {count > 1 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1f2937', paddingBottom: 6 }}>
+                                          <span style={{ color: '#facc15', fontWeight: 900, fontSize: '0.8rem' }}>
+                                            حساب #{index + 1}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyAccountItem(`all_${ord.id}_${index}`, `Email: ${acc.email}\nPassword: ${acc.password || ''}`)}
+                                            style={{
+                                              background: copiedAccountField[`all_${ord.id}_${index}`] ? '#10b981' : 'rgba(250, 204, 21, 0.12)',
+                                              color: copiedAccountField[`all_${ord.id}_${index}`] ? '#fff' : '#facc15',
+                                              border: 'none',
+                                              borderRadius: 4,
+                                              padding: '2px 6px',
+                                              fontSize: '0.72rem',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 4
+                                            }}
+                                          >
+                                            {copiedAccountField[`all_${ord.id}_${index}`] ? <Check size={11} /> : <Copy size={11} />}
+                                            <span>{copiedAccountField[`all_${ord.id}_${index}`] ? 'تم النسخ' : 'نسخ هذا الحساب'}</span>
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {/* Email Row */}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>البريد الإلكتروني:</span>
+                                          <code style={{ color: '#facc15', fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
+                                            {acc.email}
+                                          </code>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyAccountItem(`email_${ord.id}_${index}`, acc.email)}
+                                          style={{
+                                            background: copiedAccountField[`email_${ord.id}_${index}`] ? '#10b981' : 'rgba(250, 204, 21, 0.15)',
+                                            color: copiedAccountField[`email_${ord.id}_${index}`] ? '#fff' : '#facc15',
+                                            border: 'none',
+                                            borderRadius: 4,
+                                            padding: '3px 8px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 800,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4
+                                          }}
+                                        >
+                                          {copiedAccountField[`email_${ord.id}_${index}`] ? <Check size={12} /> : <Copy size={12} />}
+                                          <span>{copiedAccountField[`email_${ord.id}_${index}`] ? 'تم النسخ' : 'نسخ الإيميل'}</span>
+                                        </button>
+                                      </div>
+
+                                      {/* Password Row */}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>كلمة المرور:</span>
+                                          <code style={{ color: '#38bdf8', fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
+                                            {isPwdShown 
+                                              ? (acc.password || '••••••••') 
+                                              : '••••••••••••'}
+                                          </code>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleShowPassword(ord.id, index)}
+                                            style={{
+                                              background: 'rgba(255, 255, 255, 0.1)',
+                                              color: '#cbd5e1',
+                                              border: 'none',
+                                              borderRadius: 4,
+                                              padding: '3px 6px',
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center'
+                                            }}
+                                            title={isPwdShown ? 'إخفاء' : 'إظهار'}
+                                          >
+                                            {isPwdShown ? <EyeOff size={13} /> : <Eye size={13} />}
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyAccountItem(`pwd_${ord.id}_${index}`, acc.password || '')}
+                                            style={{
+                                              background: copiedAccountField[`pwd_${ord.id}_${index}`] ? '#10b981' : 'rgba(56, 189, 248, 0.15)',
+                                              color: copiedAccountField[`pwd_${ord.id}_${index}`] ? '#fff' : '#38bdf8',
+                                              border: 'none',
+                                              borderRadius: 4,
+                                              padding: '3px 8px',
+                                              fontSize: '0.75rem',
+                                              fontWeight: 800,
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 4
+                                            }}
+                                          >
+                                            {copiedAccountField[`pwd_${ord.id}_${index}`] ? <Check size={12} /> : <Copy size={12} />}
+                                            <span>{copiedAccountField[`pwd_${ord.id}_${index}`] ? 'تم النسخ' : 'نسخ كلمة المرور'}</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                                {/* Master Copy All button if multiple accounts */}
+                                {(digitalCredentials[ord.id]?.accounts?.length || 0) > 1 && (
                                   <button
                                     type="button"
-                                    onClick={() => handleCopyAccountItem(`email_${ord.id}`, digitalCredentials[ord.id]?.email || '')}
+                                    onClick={() => {
+                                      const text = (digitalCredentials[ord.id]?.accounts || [])
+                                        .map((a, i) => `حساب ${i + 1}:\nEmail: ${a.email}\nPassword: ${a.password || ''}`)
+                                        .join('\n\n-----------------\n\n');
+                                      handleCopyAccountItem(`all_${ord.id}`, text);
+                                    }}
                                     style={{
-                                      background: copiedAccountField[`email_${ord.id}`] ? '#10b981' : 'rgba(250, 204, 21, 0.15)',
-                                      color: copiedAccountField[`email_${ord.id}`] ? '#fff' : '#facc15',
-                                      border: 'none',
-                                      borderRadius: 4,
-                                      padding: '3px 8px',
-                                      fontSize: '0.75rem',
+                                      background: copiedAccountField[`all_${ord.id}`] ? '#10b981' : '#1e293b',
+                                      color: copiedAccountField[`all_${ord.id}`] ? '#fff' : '#facc15',
+                                      border: '1px solid #facc15',
+                                      borderRadius: 6,
+                                      padding: '8px 12px',
+                                      fontSize: '0.78rem',
                                       fontWeight: 800,
                                       cursor: 'pointer',
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: 4
+                                      justifyContent: 'center',
+                                      gap: 6
                                     }}
                                   >
-                                    {copiedAccountField[`email_${ord.id}`] ? <Check size={12} /> : <Copy size={12} />}
-                                    <span>{copiedAccountField[`email_${ord.id}`] ? 'تم النسخ' : 'نسخ الإيميل'}</span>
+                                    {copiedAccountField[`all_${ord.id}`] ? <Check size={13} /> : <Copy size={13} />}
+                                    <span>{copiedAccountField[`all_${ord.id}`] ? 'تم نسخ جميع الحسابات بنجاح ✓' : 'نسخ جميع الحسابات دفعة واحدة'}</span>
                                   </button>
-                                </div>
-
-                                {/* Password Row */}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>كلمة المرور:</span>
-                                    <code style={{ color: '#38bdf8', fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', direction: 'ltr' }}>
-                                      {digitalCredentials[ord.id]?.showPassword 
-                                        ? (digitalCredentials[ord.id]?.password || '••••••••') 
-                                        : '••••••••••••'}
-                                    </code>
-                                  </div>
-                                  <div style={{ display: 'flex', gap: 6 }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyAccountItem(`pwd_${ord.id}`, digitalCredentials[ord.id]?.password || '')}
-                                      style={{
-                                        background: copiedAccountField[`pwd_${ord.id}`] ? '#10b981' : 'rgba(56, 189, 248, 0.15)',
-                                        color: copiedAccountField[`pwd_${ord.id}`] ? '#fff' : '#38bdf8',
-                                        border: 'none',
-                                        borderRadius: 4,
-                                        padding: '3px 8px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 4
-                                      }}
-                                    >
-                                      {copiedAccountField[`pwd_${ord.id}`] ? <Check size={12} /> : <Copy size={12} />}
-                                      <span>{copiedAccountField[`pwd_${ord.id}`] ? 'تم النسخ' : 'نسخ كلمة المرور'}</span>
-                                    </button>
-                                  </div>
-                                </div>
+                                )}
 
                                 <div style={{ fontSize: '0.72rem', color: '#f87171', borderTop: '1px solid #1f2937', paddingTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                                   <ShieldCheck size={13} color="#ef4444" />
-                                  <span>تنبيه أمان: يرجى تسجيل الدخول للحساب فوراً وتغيير كلمة المرور وتعيين رقم استرداد لحمايته.</span>
+                                  <span>تنبيه أمان: يرجى تسجيل الدخول للحسابات فوراً وتغيير كلمة المرور وتعيين رقم استرداد لحمايتها.</span>
                                 </div>
                               </div>
                             )}

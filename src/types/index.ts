@@ -14,6 +14,16 @@ export interface GamePackage {
   bestValue?: boolean;
   requiresGameServerId?: boolean;
   isRequiredGameServerId?: boolean;
+  availableStock?: number;
+  inStock?: boolean;
+}
+
+export interface DigitalAccountCredential {
+  id?: string;
+  accountNumber?: number;
+  email: string;
+  password?: string;
+  assignedAt?: string;
 }
 
 export interface GameCategory {
@@ -86,7 +96,11 @@ export interface Order {
   promoCode?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
   orderType?: 'DIRECT_TOPUP' | 'DIGITAL_ACCOUNT' | string;
-  credentials?: { email: string; password?: string };
+  quantity?: number;
+  unitPrice?: number;
+  unitPriceUsd?: number;
+  credentials?: DigitalAccountCredential | DigitalAccountCredential[];
+  accounts?: DigitalAccountCredential[];
   fulfillmentKey?: string;
   key?: string;
   failureReason?: string;
