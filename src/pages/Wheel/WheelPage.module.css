@@ -1,0 +1,812 @@
+.container {
+  min-height: calc(100vh - 80px);
+  padding: 40px 16px 80px;
+  direction: rtl;
+  font-family: inherit;
+  background-color: #070A12;
+  background-image: radial-gradient(circle at 50% 25%, rgba(245, 158, 11, 0.05) 0%, transparent 60%);
+  position: relative;
+  overflow-x: hidden;
+  color: #F8FAFC;
+}
+
+.confettiCanvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 999998;
+}
+
+.wrapper {
+  max-width: 1140px;
+  margin: 0 auto;
+}
+
+/* Header Section */
+.header {
+  text-align: center;
+  margin-bottom: 34px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #F59E0B;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  padding: 6px 18px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+
+.title {
+  font-size: clamp(2rem, 4vw, 2.9rem);
+  font-weight: 900;
+  color: #FFFFFF;
+  margin: 0 0 12px 0;
+  letter-spacing: -0.5px;
+}
+
+.titleHighlight {
+  background: linear-gradient(135deg, #FDE68A 0%, #F59E0B 50%, #D97706 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  color: #94A3B8;
+  font-size: 1.02rem;
+  max-width: 620px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Main Grid Layout */
+.mainGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (min-width: 992px) {
+  .mainGrid {
+    grid-template-columns: 1.25fr 0.75fr;
+  }
+}
+
+/* Wheel Main Card (Dark Gaming UI) */
+.wheelCard {
+  background: #0B0F19;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 26px;
+  padding: 28px 20px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.wheelToolbar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  z-index: 5;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Available Credits Breakdown Tag */
+.creditsSummaryPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #F8FAFC;
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+.creditsSummaryPill strong {
+  color: #FBBF24;
+  font-size: 1rem;
+}
+
+.creditsBreakdown {
+  color: #94A3B8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.securityTag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #94A3B8;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.soundBtn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #F59E0B;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.soundBtn:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  transform: scale(1.05);
+}
+
+/* Wheel Canvas Stage */
+.wheelStage {
+  position: relative;
+  width: 440px;
+  height: 440px;
+  margin: 10px auto 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 520px) {
+  .wheelStage {
+    width: 326px;
+    height: 326px;
+    margin: 8px auto 20px;
+  }
+}
+
+/* Outer Precision Gaming Track Ring (No Casino Bulbs) */
+.wheelOuterRing {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 8px solid #0F172A;
+  box-shadow: 
+    0 0 30px rgba(0, 0, 0, 0.85),
+    inset 0 0 16px rgba(0, 0, 0, 0.9),
+    0 0 0 2px rgba(245, 158, 11, 0.4);
+  pointer-events: none;
+  z-index: 8;
+}
+
+/* Canvas Element */
+.wheelCanvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+  z-index: 6;
+  filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.7));
+}
+
+/* 3D Pointer / Needle */
+.pointerContainer {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 38px;
+  height: 48px;
+  z-index: 30;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.85));
+}
+
+.pointerSvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pointerActive {
+  animation: pointerWiggle 0.13s infinite ease-in-out alternate;
+}
+
+@keyframes pointerWiggle {
+  0% { transform: translateX(-50%) rotate(-3.5deg); }
+  100% { transform: translateX(-50%) rotate(3.5deg); }
+}
+
+/* Center KIRO PRO Gaming Hub */
+.centerHub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 30%, #1E293B 0%, #0F172A 70%, #070A12 100%);
+  border: 3.5px solid #F59E0B;
+  box-shadow: 
+    0 0 20px rgba(245, 158, 11, 0.4), 
+    0 8px 18px rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  padding: 0;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
+
+@media (max-width: 520px) {
+  .centerHub {
+    width: 74px;
+    height: 74px;
+  }
+}
+
+.hubInner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* Hub Active State */
+.centerHubActive {
+  animation: hubPulse 2.2s infinite ease-in-out;
+}
+
+.centerHubActive:hover:not(:disabled) {
+  transform: translate(-50%, -50%) scale(1.08);
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.65), 0 10px 24px rgba(0, 0, 0, 0.8);
+}
+
+@keyframes hubPulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(245, 158, 11, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(245, 158, 11, 0.65);
+  }
+}
+
+.hubState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+}
+
+.hubBrand {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #FBBF24;
+  margin-bottom: 2px;
+}
+
+.hubSpinText {
+  font-size: 1.2rem;
+  font-weight: 900;
+  color: #FFFFFF;
+  letter-spacing: 0.8px;
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+}
+
+@media (max-width: 520px) {
+  .hubSpinText {
+    font-size: 1.05rem;
+  }
+}
+
+.hubActionText {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #FDE68A;
+  margin-top: 2px;
+}
+
+.hubMainText {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #F59E0B;
+}
+
+.hubSubText {
+  font-size: 0.62rem;
+  color: #94A3B8;
+}
+
+/* Hub Locked State */
+.centerHubLocked {
+  background: radial-gradient(circle at 50% 30%, #111827 0%, #070A12 100%);
+  border-color: #334155;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+  cursor: not-allowed;
+}
+
+.hubLockedState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+}
+
+.hubLockedTitle {
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: #CBD5E1;
+}
+
+.hubLockedTime {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #64748B;
+}
+
+/* Hub Spinning State */
+.centerHubSpinning {
+  background: radial-gradient(circle at 50% 30%, #451A03 0%, #0F172A 100%);
+  border-color: #F59E0B;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.55);
+  cursor: wait;
+}
+
+.hubSpinningState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hubSpinIcon {
+  font-size: 1.6rem;
+  color: #F59E0B;
+  animation: hubPulse 0.4s infinite alternate;
+}
+
+/* Spin Controls Box */
+.controlsBox {
+  width: 100%;
+  max-width: 460px;
+  text-align: center;
+  z-index: 5;
+}
+
+.errorMessage {
+  background: rgba(239, 68, 68, 0.12);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 10px 16px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.spinBtn {
+  width: 100%;
+  padding: 16px 28px;
+  border-radius: 16px;
+  border: none;
+  background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 50%, #D97706 100%);
+  color: #0B0F19;
+  font-size: 1.15rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 10px 30px rgba(245, 158, 11, 0.35);
+  transition: all 0.25s ease;
+}
+
+.spinBtn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(245, 158, 11, 0.5);
+}
+
+.spinBtn:disabled {
+  background: #1E293B;
+  color: #64748B;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.loginHint {
+  color: #94A3B8;
+  font-size: 0.85rem;
+  margin-top: 10px;
+  font-weight: 600;
+}
+
+.statusCard {
+  margin-top: 18px;
+  padding: 14px 20px;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.statusAvailable {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.statusUsed {
+  background: #0E131F;
+  color: #F1F5F9;
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  flex-direction: column;
+  gap: 10px;
+}
+
+.usedNotice {
+  color: #94A3B8;
+  font-size: 0.9rem;
+}
+
+.countdownRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.countdownPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #F59E0B;
+  font-size: 1.05rem;
+  font-weight: 900;
+  background: rgba(245, 158, 11, 0.12);
+  padding: 4px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  font-family: monospace;
+}
+
+.purchaseBonusHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #FBBF24;
+  background: rgba(245, 158, 11, 0.08);
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px dashed rgba(245, 158, 11, 0.25);
+}
+
+/* Side Column */
+.sideColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.card {
+  background: #0B0F19;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.cardTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  margin: 0 0 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rulesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ruleItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: #94A3B8;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.ruleIcon {
+  color: #F59E0B;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+}
+
+/* History List */
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-left: 4px;
+}
+
+.historyItem {
+  background: #070A12;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.historyLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prizeDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.historyName {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #F1F5F9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.historySourceTag {
+  font-size: 0.7rem;
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-weight: 700;
+}
+
+.historyDate {
+  font-size: 0.75rem;
+  color: #64748B;
+  margin-top: 2px;
+}
+
+.codeCopyBtn {
+  background: rgba(245, 158, 11, 0.1);
+  color: #F59E0B;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.codeCopyBtn:hover {
+  background: #F59E0B;
+  color: #0B0F19;
+}
+
+/* Result Celebration Modal */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(8px);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  direction: rtl;
+}
+
+.modalContent {
+  background: #0B0F19;
+  border: 2px solid rgba(245, 158, 11, 0.35);
+  border-radius: 26px;
+  max-width: 480px;
+  width: 100%;
+  padding: 36px 28px;
+  text-align: center;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.9), 0 0 40px rgba(245, 158, 11, 0.15);
+  animation: modalPop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes modalPop {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.modalJackpot {
+  border-color: #F59E0B;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.95), 0 0 50px rgba(245, 158, 11, 0.3);
+}
+
+.jackpotBanner {
+  background: linear-gradient(90deg, #D97706, #F59E0B, #D97706);
+  color: #0B0F19;
+  font-weight: 900;
+  font-size: 0.85rem;
+  padding: 6px 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  letter-spacing: 0.5px;
+}
+
+.rareBanner {
+  background: linear-gradient(90deg, #EA580C, #F97316, #EA580C);
+  color: #FFFFFF;
+  font-weight: 900;
+  font-size: 0.85rem;
+  padding: 6px 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.modalNone {
+  border-color: #334155;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+
+.modalIcon {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.4rem;
+  border: 2px solid;
+}
+
+.modalTitle {
+  font-size: 1.45rem;
+  font-weight: 900;
+  color: #FFFFFF;
+  margin: 0 0 8px 0;
+}
+
+.modalPrizeName {
+  font-size: 2rem;
+  font-weight: 900;
+  color: #F59E0B;
+  margin: 0 0 12px 0;
+  letter-spacing: -0.5px;
+}
+
+.modalDescription {
+  color: #94A3B8;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.voucherBox {
+  background: #070A12;
+  border: 1px dashed rgba(245, 158, 11, 0.35);
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voucherCode {
+  font-family: monospace;
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: #FBBF24;
+  letter-spacing: 1px;
+}
+
+.modalActionButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modalPrimaryBtn {
+  background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 50%, #D97706 100%);
+  color: #0B0F19;
+  border: none;
+  font-weight: 900;
+  font-size: 1.05rem;
+  padding: 14px 28px;
+  border-radius: 14px;
+  cursor: pointer;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.35);
+  transition: all 0.2s ease;
+}
+
+.modalPrimaryBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(245, 158, 11, 0.5);
+}
+
+.modalCloseBtn {
+  background: #1E293B;
+  color: #F8FAFC;
+  border: none;
+  font-weight: 800;
+  font-size: 0.95rem;
+  padding: 12px 28px;
+  border-radius: 12px;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.2s ease;
+}
+
+.modalCloseBtn:hover {
+  background: #334155;
+}

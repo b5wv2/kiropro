@@ -13,9 +13,12 @@ import {
   ExternalLink,
   PlusCircle,
   MinusCircle,
-  Award
+  Award,
+  CreditCard,
+  Wallet
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { AdminPaymentMethods } from './AdminPaymentMethods';
 
 interface Partner {
   id: string;
@@ -90,8 +93,19 @@ interface RateHistoryItem {
   created_at: string;
 }
 
+interface PartnerCardSettings {
+  success: boolean;
+  productId: string;
+  name: string;
+  arabicName: string;
+  customerRetailPriceUsd: number;
+  defaultPartnerPriceUsd: number;
+  availableStock: number;
+  totalStock: number;
+}
+
 export const AdminPartners: React.FC = () => {
-  const [activeSubTab, setActiveSubTab] = useState<'list' | 'deposits' | 'pricing' | 'levels' | 'rates'>('list');
+  const [activeSubTab, setActiveSubTab] = useState<'list' | 'deposits' | 'pricing' | 'levels' | 'rates' | 'methods'>('list');
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -110,6 +124,21 @@ export const AdminPartners: React.FC = () => {
   });
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createdResult, setCreatedResult] = useState<{ name: string; email: string; setupUrl: string } | null>(null);
+
+  // Customer Upgrade Confirmation State
+  const [customerUpgradePrompt, setCustomerUpgradePrompt] = useState<{
+    email: string;
+    name: string;
+    customerUserId?: string;
+    message?: string;
+  } | null>(null);
+  const [upgradingCustomer, setUpgradingCustomer] = useState(false);
+
+  // KiroPro Card Partner Pricing & Inventory State
+  const [cardSettings, setCardSettings] = useState<PartnerCardSettings | null>(null);
+  const [cardSettingsLoading, setCardSettingsLoading] = useState(false);
+  const [editingCardPrice, setEditingCardPrice] = useState<string>('1.13');
+  const [savingCardPrice, setSavingCardPrice] = useState(false);
 
   // Partner Details Drawer / Modal State
   const [selectedPartner, setSelectedPartner] = useState<any | null>(null);
@@ -222,6 +251,39 @@ export const AdminPartners: React.FC = () => {
     }
   };
 
+  const fetchCardSettings = async () => {
+    try {
+      setCardSettingsLoading(true);
+      const data = await api.get('/api/admin/partner-card-settings');
+      setCardSettings(data);
+      setEditingCardPrice(String(data.defaultPartnerPriceUsd ?? 1.13));
+    } catch (err) {
+      console.error('Failed to load partner card settings', err);
+    } finally {
+      setCardSettingsLoading(false);
+    }
+  };
+
+  const handleSaveCardPrice = async () => {
+    const val = parseFloat(editingCardPrice);
+    if (isNaN(val) || val <= 0) {
+      alert('يرجى إدخال سعر صالح أكبر من صفر.');
+      return;
+    }
+    try {
+      setSavingCardPrice(true);
+      await api.put('/api/admin/partner-card-settings', {
+        defaultPartnerPriceUsd: val
+      });
+      alert(`تم تحديث سعر الشريك لبطاقة KiroPro بنجاح إلى $${val.toFixed(2)} USD!`);
+      fetchCardSettings();
+    } catch (err: any) {
+      alert(err.message || 'فشل تحديث سعر الشريك لبطاقة KiroPro.');
+    } finally {
+      setSavingCardPrice(false);
+    }
+  };
+
   useEffect(() => {
     fetchPartners();
     fetchLevels();
@@ -229,7 +291,10 @@ export const AdminPartners: React.FC = () => {
 
   useEffect(() => {
     if (activeSubTab === 'deposits') fetchDeposits();
-    if (activeSubTab === 'pricing') fetchPricing(pricingPartnerId);
+    if (activeSubTab === 'pricing') {
+      fetchPricing(pricingPartnerId);
+      fetchCardSettings();
+    }
     if (activeSubTab === 'levels') fetchLevels();
     if (activeSubTab === 'rates') fetchRateHistory();
   }, [activeSubTab, depositFilter, pricingPartnerId]);
@@ -252,6 +317,7 @@ export const AdminPartners: React.FC = () => {
 
     try {
       setCreateSubmitting(true);
+      setCustomerUpgradePrompt(null);
       const payload = {
         ...createForm,
         levelId: createForm.levelId || levels[0]?.id || undefined
@@ -264,9 +330,44 @@ export const AdminPartners: React.FC = () => {
       });
       fetchPartners();
     } catch (err: any) {
-      alert(err.message || 'فشل إنشاء حساب الشريك.');
+      if (err.data?.code === 'EMAIL_IS_CUSTOMER') {
+        setCustomerUpgradePrompt({
+          email: err.data.details?.email || createForm.email,
+          name: err.data.details?.name || createForm.name,
+          customerUserId: err.data.details?.customerUserId,
+          message: err.message || err.data.error || 'هذا البريد مرتبط بحساب مستخدم (Customer) موجود بالفعل.'
+        });
+      } else if (err.data?.code === 'EMAIL_ALREADY_PARTNER') {
+        alert(`تنبيه: هذا البريد مسجل كشريك بالفعل.\nالحالة: ${err.data.details?.status === 'ACTIVE' ? 'نشط' : 'معطل'}`);
+      } else if (err.data?.code === 'EMAIL_IS_ADMIN') {
+        alert('خطأ أمني: هذا البريد مسجل كمسؤول للنظام (ADMIN) ولا يمكن تحويله إلى شريك.');
+      } else {
+        alert(err.message || 'فشل إنشاء حساب الشريك.');
+      }
     } finally {
       setCreateSubmitting(false);
+    }
+  };
+
+  // Explicit confirmation upgrade customer -> partner
+  const handleUpgradeCustomer = async () => {
+    if (!customerUpgradePrompt) return;
+    try {
+      setUpgradingCustomer(true);
+      await api.post('/api/admin/partners/upgrade-customer', {
+        email: customerUpgradePrompt.email,
+        businessName: createForm.businessName,
+        levelId: createForm.levelId || levels[0]?.id || undefined,
+        notes: createForm.notes
+      });
+      alert('تمت ترقية حساب العميل إلى شريك بنجاح! تم الحفاظ الكامل على كلمة المرور الأصلية وبيانات المستخدم وتفعيل محفظة الشريك.');
+      setCustomerUpgradePrompt(null);
+      setShowCreateModal(false);
+      fetchPartners();
+    } catch (err: any) {
+      alert(err.message || 'فشلت ترقية العميل إلى شريك.');
+    } finally {
+      setUpgradingCustomer(false);
     }
   };
 
@@ -616,6 +717,26 @@ export const AdminPartners: React.FC = () => {
         >
           <TrendingUp size={18} />
           سجل أسعار الصرف
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('methods')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: '10px 18px',
+            fontSize: '0.95rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            borderBottom: activeSubTab === 'methods' ? '3px solid #F59E0B' : '3px solid transparent',
+            color: activeSubTab === 'methods' ? '#D97706' : '#64748B',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          <Wallet size={18} />
+          طرق وحسابات الإيداع
         </button>
       </div>
 
@@ -1003,6 +1124,159 @@ export const AdminPartners: React.FC = () => {
       {/* SUB-TAB 3: PARTNER PRICING */}
       {activeSubTab === 'pricing' && (
         <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E2E8F0', padding: 20 }}>
+          {/* SPECIAL SECTION: KIROPRO CARD PARTNER PRICING */}
+          <div style={{
+            background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+            borderRadius: 12,
+            padding: 20,
+            marginBottom: 24,
+            color: '#FFFFFF',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#0B0F19'
+                }}>
+                  <CreditCard size={24} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#FFFFFF' }}>
+                    بطاقة ماستركارد الشركاء (KiroPro Card • Mastercard Virtual)
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#94A3B8' }}>
+                    تسعير خاص للشركاء من المخزون الموحد (kiropro_cards_inventory) بدون تغيير سعر البيع العام للزبائن ($2.00)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchCardSettings}
+                disabled={cardSettingsLoading}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#FFFFFF',
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: '0.82rem',
+                  fontWeight: 700
+                }}
+              >
+                <RefreshCw size={14} className={cardSettingsLoading ? 'spin-anim' : ''} />
+                تحديث بيانات المخزون
+              </button>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 14,
+              marginBottom: 16
+            }}>
+              <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: 14, border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginBottom: 4 }}>سعر البيع العام للمستخدمين (Customer)</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#F1F5F9' }}>
+                  ${(cardSettings?.customerRetailPriceUsd ?? 2.00).toFixed(2)} USD
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: 2 }}>سعر التجزئة المعتمد للعميل النهائي</div>
+              </div>
+
+              <div style={{ background: 'rgba(245, 158, 11, 0.1)', borderRadius: 10, padding: 14, border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                <div style={{ fontSize: '0.8rem', color: '#FCD34D', marginBottom: 4 }}>سعر الشريك الافتراضي الحالي</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#F59E0B' }}>
+                  ${(cardSettings?.defaultPartnerPriceUsd ?? 1.13).toFixed(2)} USD
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#FDE68A', marginTop: 2 }}>السعر المخصوم للتاجر/الشريك</div>
+              </div>
+
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', borderRadius: 10, padding: 14, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                <div style={{ fontSize: '0.8rem', color: '#6EE7B7', marginBottom: 4 }}>هامش ربح الشريك المقدر</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#10B981' }}>
+                  +${((cardSettings?.customerRetailPriceUsd ?? 2.00) - (cardSettings?.defaultPartnerPriceUsd ?? 1.13)).toFixed(2)} USD
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#A7F3D0', marginTop: 2 }}>
+                  ربح الشريك عند إعادة البيع بسعر $2.00
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: 14, border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginBottom: 4 }}>المخزون المتاح الفوري (AVAILABLE)</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: (cardSettings?.availableStock ?? 0) > 0 ? '#10B981' : '#EF4444' }}>
+                  {cardSettings?.availableStock ?? 0} بطاقة
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: 2 }}>
+                  إجمالي المخزون في النظام: {cardSettings?.totalStock ?? 0}
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              background: 'rgba(0,0,0,0.25)',
+              padding: 12,
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.08)'
+            }}>
+              <label style={{ fontSize: '0.88rem', fontWeight: 700, color: '#E2E8F0' }}>
+                تعديل سعر الشريك للبطاقة (USD):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={editingCardPrice}
+                onChange={e => setEditingCardPrice(e.target.value)}
+                style={{
+                  width: 120,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  border: '1px solid #475569',
+                  background: '#0B0F19',
+                  color: '#FFFFFF',
+                  fontWeight: 800,
+                  fontSize: '0.95rem',
+                  textAlign: 'center'
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleSaveCardPrice}
+                disabled={savingCardPrice}
+                style={{
+                  background: '#F59E0B',
+                  color: '#0B0F19',
+                  border: 'none',
+                  borderRadius: 6,
+                  padding: '8px 18px',
+                  fontWeight: 900,
+                  fontSize: '0.88rem',
+                  cursor: savingCardPrice ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                {savingCardPrice ? <RefreshCw size={14} className="spin-anim" /> : null}
+                {savingCardPrice ? 'جارٍ الحفظ...' : 'حفظ السعر الجديد'}
+              </button>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
             <label style={{ fontWeight: 800, color: '#0F172A' }}>اختر الشريك لتحديد أسعاره المخصصة:</label>
             <select
@@ -1255,6 +1529,13 @@ export const AdminPartners: React.FC = () => {
         </div>
       )}
 
+      {/* SUB-TAB 6: PAYMENT METHODS */}
+      {activeSubTab === 'methods' && (
+        <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E2E8F0', padding: 20 }}>
+          <AdminPaymentMethods />
+        </div>
+      )}
+
       {/* MODAL 1: CREATE PARTNER */}
       {showCreateModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: 16 }}>
@@ -1324,6 +1605,72 @@ export const AdminPartners: React.FC = () => {
               </div>
             ) : (
               <form onSubmit={handleCreatePartner}>
+                {customerUpgradePrompt && (
+                  <div style={{
+                    background: '#FEF3C7',
+                    border: '2px solid #F59E0B',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 16
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#B45309', fontWeight: 900, fontSize: '0.98rem', marginBottom: 8 }}>
+                      <ShieldAlert size={22} />
+                      <span>تنبيه: هذا البريد مسجل كحساب مستخدم (Customer) موجود</span>
+                    </div>
+                    <div style={{ fontSize: '0.88rem', color: '#78350F', lineHeight: 1.6, marginBottom: 14 }}>
+                      البريد الإلكتروني: <strong>{customerUpgradePrompt.email}</strong>
+                      {customerUpgradePrompt.name ? ` (${customerUpgradePrompt.name})` : ''}
+                      <br />
+                      السياسة تمنع الترقية التلقائية. هل ترغب بترقية هذا الحساب إلى شريك رسمي بعد تأكيدك؟
+                      <br />
+                      <span style={{ fontSize: '0.8rem', color: '#92400E' }}>
+                        • سيتم الحفاظ الكامل على كلمة المرور الأصلية وبيانات المستخدم دون أي تغيير.
+                        <br />
+                        • سيتم تفعيل حساب الشريك ومحفظته فوراً كمعاملة ذرية آمنة (Atomic Transaction).
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button
+                        type="button"
+                        disabled={upgradingCustomer}
+                        onClick={handleUpgradeCustomer}
+                        style={{
+                          background: '#16A34A',
+                          color: '#FFFFFF',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '10px 20px',
+                          fontWeight: 800,
+                          fontSize: '0.9rem',
+                          cursor: upgradingCustomer ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                        }}
+                      >
+                        {upgradingCustomer ? <RefreshCw size={16} className="spin-anim" /> : null}
+                        {upgradingCustomer ? 'جارٍ الترقية...' : '✓ تأكيد: ترقية هذا الحساب إلى شريك'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={upgradingCustomer}
+                        onClick={() => setCustomerUpgradePrompt(null)}
+                        style={{
+                          background: '#F1F5F9',
+                          color: '#475569',
+                          border: '1px solid #CBD5E1',
+                          borderRadius: 8,
+                          padding: '10px 14px',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        إلغاء الترقية
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: '#0F172A' }}>اسم الشريك *</label>

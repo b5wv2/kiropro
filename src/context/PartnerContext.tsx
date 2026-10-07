@@ -34,11 +34,12 @@ export interface NextLevelInfo {
   progressPercent?: number;
 }
 
-export type PartnerTab = 'dashboard' | 'buy' | 'deposits' | 'ledger' | 'orders' | 'profile';
+export type PartnerTab = 'dashboard' | 'buy' | 'cards' | 'deposits' | 'ledger' | 'orders' | 'profile';
 
 const getInitialTab = (): PartnerTab => {
   if (typeof window === 'undefined') return 'dashboard';
   const path = window.location.pathname;
+  if (path.includes('/cards') || path.includes('/kiropro-cards')) return 'cards';
   if (path.includes('/buy') || path.includes('/quick-buy')) return 'buy';
   if (path.includes('/deposits')) return 'deposits';
   if (path.includes('/ledger')) return 'ledger';

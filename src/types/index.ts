@@ -95,7 +95,10 @@ export interface Order {
   providerPrice?: number;
   promoCode?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
-  orderType?: 'DIRECT_TOPUP' | 'DIGITAL_ACCOUNT' | string;
+  orderType?: 'DIRECT_TOPUP' | 'DIGITAL_ACCOUNT' | 'VIRTUAL_CARD' | string;
+  isVirtualCard?: boolean;
+  cardLast4?: string;
+  card?: KiroProCardDetails;
   quantity?: number;
   unitPrice?: number;
   unitPriceUsd?: number;
@@ -103,6 +106,7 @@ export interface Order {
   accounts?: DigitalAccountCredential[];
   fulfillmentKey?: string;
   key?: string;
+  bonusSpinGranted?: boolean;
   failureReason?: string;
   createdAt: string;
   completedAt?: string;
@@ -248,3 +252,61 @@ export interface DigitalAccountStats {
   sold: number;
   disabled: number;
 }
+
+export interface KiroProCardDetails {
+  id: string;
+  cardNumber: string;
+  last4: string;
+  maskedNumber: string;
+  expDate: string;
+  cvv: string;
+  balance: number;
+  status?: string;
+  assignedAt?: string;
+}
+
+export interface AdminKiroProCard {
+  id: string;
+  last4: string;
+  maskedNumber: string;
+  expDate: string;
+  balance: number;
+  status: 'AVAILABLE' | 'CLAIMED' | 'DISABLED';
+  orderId?: string | null;
+  assignedAt?: string | null;
+  createdAt: string;
+  customer?: {
+    id: string;
+    email: string;
+    name: string;
+  } | null;
+}
+
+export interface KiroProCardStats {
+  totalCards: number;
+  available: number;
+  claimed: number;
+  disabled: number;
+  lowStockThreshold: number;
+  isLowStock: boolean;
+  totalVouchers: number;
+  redeemedVouchers: number;
+  availableVouchers: number;
+}
+
+export interface KiroProCardVoucher {
+  id: string;
+  code: string;
+  value?: number;
+  status?: 'AVAILABLE' | 'REDEEMED' | 'DISABLED' | 'EXPIRED';
+  isRedeemed: boolean;
+  isActive: boolean;
+  redeemedAt?: string | null;
+  redeemedOrderId?: string | null;
+  createdAt: string;
+  expiresAt?: string | null;
+  claimedCardLast4?: string | null;
+  redeemedUserEmail?: string | null;
+  redeemedUserName?: string | null;
+}
+

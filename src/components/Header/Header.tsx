@@ -111,6 +111,26 @@ export const Header: React.FC = () => {
             <span>الأرقام الافتراضية</span>
             <span style={{ fontSize: '0.65rem', background: '#F59E0B', color: '#0B0F19', padding: '1px 5px', borderRadius: 4, fontWeight: 900 }}>جديد</span>
           </button>
+          <button
+            type="button"
+            className={styles.navLink}
+            onClick={() => navigateTo('wheel')}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              color: '#FBBF24',
+              fontWeight: 800,
+              padding: '4px 8px',
+              borderRadius: 6
+            }}
+          >
+            <span>عجلة الحظ 🎡</span>
+            <span style={{ fontSize: '0.65rem', background: 'rgba(245, 158, 11, 0.2)', color: '#F59E0B', border: '1px solid #F59E0B', padding: '1px 5px', borderRadius: 4, fontWeight: 900 }}>مجاناً</span>
+          </button>
           <a
             href="#footer"
             className={styles.navLink}

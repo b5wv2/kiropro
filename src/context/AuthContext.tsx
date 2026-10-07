@@ -28,8 +28,8 @@ interface AuthContextType {
   quickLogin: () => Promise<AuthResult>;
   checkAdminSession: () => Promise<{ hasValidAdminSession: boolean; email?: string }>;
   logout: () => Promise<void>;
-  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers';
-  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers') => void;
+  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel';
+  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel') => void;
   isAccountMenuOpen: boolean;
   setIsAccountMenuOpen: (open: boolean) => void;
 }
@@ -63,7 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(getInitialMaintenanceMode);
   const [contactChannels, setContactChannels] = useState<ContactChannel[]>([]);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState<ContactChannel | null>(null);
-  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel'>('home');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
   const refreshContactChannels = async () => {
@@ -115,6 +115,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentView('leaderboard');
         } else if (window.location.pathname === '/virtual-numbers') {
           setCurrentView('virtual-numbers');
+        } else if (window.location.pathname === '/wheel') {
+          setCurrentView('wheel');
         }
 
         const [authData, settingsData] = await Promise.all([
@@ -177,7 +179,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers') => {
+  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel') => {
     // Protected route check
     if (view === 'account' && !user) {
       setCurrentView('login');
@@ -204,6 +206,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         window.history.pushState(null, '', '/usdt');
       } else if (view === 'virtual-numbers') {
         window.history.pushState(null, '', '/virtual-numbers');
+      } else if (view === 'wheel') {
+        window.history.pushState(null, '', '/wheel');
       } else if (view === 'home') {
         window.history.pushState(null, '', '/');
       }

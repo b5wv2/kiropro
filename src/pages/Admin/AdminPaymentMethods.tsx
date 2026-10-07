@@ -19,6 +19,8 @@ export interface PaymentMethod {
   account_name: string;
   account_number: string;
   bank_name: string;
+  phone_number?: string | null;
+  qr_code_url?: string | null;
   instructions: string | null;
   enabled: boolean;
   display_order: number;
@@ -43,6 +45,8 @@ export const AdminPaymentMethods: React.FC = () => {
     bank_name: '',
     account_name: '',
     account_number: '',
+    phone_number: '',
+    qr_code_url: '',
     instructions: '',
     display_order: 1,
     enabled: true
@@ -75,6 +79,8 @@ export const AdminPaymentMethods: React.FC = () => {
       bank_name: '',
       account_name: '',
       account_number: '',
+      phone_number: '',
+      qr_code_url: '',
       instructions: '',
       display_order: methods.length + 1,
       enabled: true
@@ -92,6 +98,8 @@ export const AdminPaymentMethods: React.FC = () => {
       bank_name: method.bank_name,
       account_name: method.account_name,
       account_number: method.account_number,
+      phone_number: method.phone_number || '',
+      qr_code_url: method.qr_code_url || '',
       instructions: method.instructions || '',
       display_order: method.display_order,
       enabled: method.enabled
@@ -450,6 +458,30 @@ export const AdminPaymentMethods: React.FC = () => {
                     placeholder="1829304"
                     value={formData.account_number}
                     onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                    className="admin-input"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="admin-form-group">
+                  <label className="admin-label">رقم الهاتف / المحفظة (اختياري)</label>
+                  <input
+                    type="text"
+                    placeholder="مثال: 0912345678 (لماي كاشي أو أورانج)"
+                    value={formData.phone_number}
+                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                    className="admin-input"
+                  />
+                </div>
+
+                <div className="admin-form-group">
+                  <label className="admin-label">رابط صورة QR Code (اختياري)</label>
+                  <input
+                    type="text"
+                    placeholder="https://... رابط باركود الدفع السريع"
+                    value={formData.qr_code_url}
+                    onChange={(e) => setFormData({ ...formData, qr_code_url: e.target.value })}
                     className="admin-input"
                   />
                 </div>

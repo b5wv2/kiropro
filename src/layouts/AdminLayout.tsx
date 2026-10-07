@@ -19,6 +19,8 @@ import { AdminAudit } from '../pages/Admin/AdminAudit';
 import { AdminSecurityAudit } from '../pages/Admin/AdminSecurityAudit';
 import { AdminSettings } from '../pages/Admin/AdminSettings';
 import { AdminPartners } from '../pages/Admin/AdminPartners';
+import { AdminWheel } from '../pages/Admin/AdminWheel';
+import { AdminKiroProCards } from '../pages/Admin/AdminKiroProCards';
 
 export const AdminLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -34,6 +36,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminReferralLeaderboard />;
       case 'orders':
         return <AdminOrders />;
+      case 'kiropro-cards':
+        return <AdminKiroProCards />;
       case 'virtual-numbers':
         return <AdminVirtualNumbers />;
       case 'crypto':
@@ -60,6 +64,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminSecurityAudit />;
       case 'partners':
         return <AdminPartners />;
+      case 'wheel':
+        return <AdminWheel />;
       case 'settings':
         return <AdminSettings />;
       default:

@@ -19,7 +19,8 @@ import {
   ShieldCheck,
   Trophy,
   Smartphone,
-  Handshake
+  Handshake,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -29,6 +30,7 @@ export type AdminTab =
   | 'partners'
   | 'referrals'
   | 'orders' 
+  | 'kiropro-cards'
   | 'crypto'
   | 'topups'
   | 'payment-methods'
@@ -41,6 +43,7 @@ export type AdminTab =
   | 'virtual-numbers'
   | 'audit' 
   | 'security'
+  | 'wheel'
   | 'settings';
 
 interface AdminSidebarProps {
@@ -64,6 +67,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'partners', label: 'الشركاء والتجار 🤝', icon: Handshake },
     { id: 'referrals', label: 'متصدرين الإحالات', icon: Trophy },
     { id: 'orders', label: 'الطلبات', icon: ShoppingCart },
+    { id: 'kiropro-cards', label: 'بطاقات كيرو برو 💳', icon: CreditCard },
     { id: 'virtual-numbers', label: 'الأرقام الافتراضية 📱', icon: Smartphone },
     { id: 'crypto', label: 'إدارة USDT والتحويل', icon: Coins },
     { id: 'topups', label: 'طلبات الشحن البنكي', icon: ArrowDownCircle },
@@ -71,6 +75,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'wallet', label: 'إدارة المحافظ', icon: Wallet },
     { id: 'cashback', label: 'مكافآت الكاش باك', icon: Coins },
     { id: 'codes', label: 'أكواد الخصم', icon: Tag },
+    { id: 'wheel', label: 'عجلة الحظ 🎡', icon: Sparkles },
     { id: 'products', label: 'المنتجات والألعاب', icon: Package },
     { id: 'reviews', label: 'التقييمات والمراجعات', icon: Star },
     { id: 'providers', label: 'مزودو الخدمة (APIs)', icon: Server },

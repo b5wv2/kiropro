@@ -13,7 +13,8 @@ import {
   X, 
   Lock, 
   Key,
-  User
+  User,
+  CreditCard
 } from 'lucide-react';
 
 interface PartnerLayoutProps {
@@ -35,6 +36,7 @@ export const PartnerLayout: React.FC<PartnerLayoutProps> = ({ children }) => {
   const navItems: { id: PartnerTab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18} /> },
     { id: 'buy', label: 'شحن سريع', icon: <Zap size={18} /> },
+    { id: 'cards', label: 'بطاقات ماستركارد', icon: <CreditCard size={18} /> },
     { id: 'deposits', label: 'الإيداعات والرصيد', icon: <Wallet size={18} /> },
     { id: 'ledger', label: 'القيود المالية', icon: <History size={18} /> },
     { id: 'orders', label: 'سجل الطلبات', icon: <ShoppingBag size={18} /> },

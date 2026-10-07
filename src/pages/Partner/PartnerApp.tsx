@@ -3,6 +3,7 @@ import { PartnerProvider, usePartner } from '../../context/PartnerContext';
 import { PartnerLayout } from '../../layouts/PartnerLayout';
 import { PartnerDashboard } from './PartnerDashboard';
 import { PartnerQuickBuy } from './PartnerQuickBuy';
+import { PartnerCards } from './PartnerCards';
 import { PartnerDeposits } from './PartnerDeposits';
 import { PartnerLedger } from './PartnerLedger';
 import { PartnerOrders } from './PartnerOrders';
@@ -102,6 +103,7 @@ const PartnerPortalContent: React.FC = () => {
     <PartnerLayout>
       {activeTab === 'dashboard' && <PartnerDashboard />}
       {activeTab === 'buy' && <PartnerQuickBuy />}
+      {activeTab === 'cards' && <PartnerCards />}
       {activeTab === 'deposits' && <PartnerDeposits />}
       {activeTab === 'ledger' && <PartnerLedger />}
       {activeTab === 'orders' && <PartnerOrders />}

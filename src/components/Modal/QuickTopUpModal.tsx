@@ -4,8 +4,10 @@ import { Game, GamePackage } from '../../types';
 import { useWallet } from '../../context/WalletContext';
 import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers } from '../../services/api';
 import { formatCurrency } from '../../lib/formatters';
-import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2, Key, Copy, Check, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2, Key, Copy, Check, Eye, EyeOff, ShieldCheck, CreditCard } from 'lucide-react';
+import { CardDetailsViewModal } from '../KiroProCard/CardDetailsViewModal';
 import { getProductImageUrl } from '../../utils/imageUrl';
+import { api } from '../../lib/api';
 
 interface QuickTopUpModalProps {
   game: Game | null;
@@ -26,6 +28,15 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [showDeliveredPasswords, setShowDeliveredPasswords] = useState<{ [key: number]: boolean }>({});
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
+  const [deliveredCardOrder, setDeliveredCardOrder] = useState<{ orderId: string; last4?: string } | null>(null);
+  const [showCardDetailsModal, setShowCardDetailsModal] = useState(false);
+
+  // KiroPro Card Dual Payment Method State
+  const [cardPaymentMethod, setCardPaymentMethod] = useState<'wallet' | 'issuance_code'>('wallet');
+  const [issuanceCodeInput, setIssuanceCodeInput] = useState('');
+  const [issuanceCodeLoading, setIssuanceCodeLoading] = useState(false);
+  const [issuanceCodeError, setIssuanceCodeError] = useState<string | null>(null);
+  const [issuanceCodeValidInfo, setIssuanceCodeValidInfo] = useState<{ value: number; message: string } | null>(null);
 
   // Promo Code State
   const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -52,6 +63,12 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       setShowDeliveredPasswords({});
       setCopiedField(null);
       setQuantity(1);
+      setDeliveredCardOrder(null);
+      setShowCardDetailsModal(false);
+      setCardPaymentMethod('wallet');
+      setIssuanceCodeInput('');
+      setIssuanceCodeError(null);
+      setIssuanceCodeValidInfo(null);
     }
   }, [game]);
 
@@ -136,6 +153,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   if (!isOpen || !game || !selectedPackage) return null;
 
   const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
+  const isVirtualCard = selectedPackage?.productType === 'VIRTUAL_CARD' || game?.id === 'kiropro-card';
   const unitPrice = getPackagePrice(selectedPackage);
   const rawOrderPrice = isDigitalAccount ? (unitPrice * quantity) : unitPrice;
   const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
@@ -236,10 +254,53 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     setTimeout(() => setCopiedField(null), 2500);
   };
 
+  const handleValidateIssuanceCode = async (codeVal: string) => {
+    const clean = codeVal.trim().toUpperCase();
+    if (clean.length < 6) {
+      setIssuanceCodeValidInfo(null);
+      return;
+    }
+    try {
+      const res: any = await api.post('/api/kiropro-cards/validate-code', { code: clean });
+      if (res && res.valid) {
+        setIssuanceCodeValidInfo({ value: res.value || 2.00, message: res.message });
+        setIssuanceCodeError(null);
+      } else {
+        setIssuanceCodeValidInfo(null);
+      }
+    } catch {
+      setIssuanceCodeValidInfo(null);
+    }
+  };
+
+  const handleRedeemIssuanceCode = async () => {
+    if (!issuanceCodeInput.trim() || issuanceCodeLoading) return;
+    setIssuanceCodeLoading(true);
+    setIssuanceCodeError(null);
+    try {
+      const res: any = await api.post('/api/kiropro-cards/redeem-issuance-code', {
+        code: issuanceCodeInput.trim().toUpperCase()
+      });
+      if (res.success && res.card) {
+        setDeliveredCardOrder({
+          orderId: res.orderId,
+          last4: res.card.last4
+        });
+        showToast('تم إصدار وتخصيص بطاقة كيرو برو بنجاح! 💳', 'success');
+      } else {
+        setIssuanceCodeError(res.error || 'فشل استرداد كود الإصدار.');
+      }
+    } catch (err: any) {
+      setIssuanceCodeError(err?.response?.data?.error || err.message || 'كود الإصدار غير صالح أو تم استخدامه مسبقاً.');
+    } finally {
+      setIssuanceCodeLoading(false);
+    }
+  };
+
   const handleConfirmOrder = async () => {
     const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
 
-    if (!isDigitalAccount && !playerId.trim()) {
+    if (!isDigitalAccount && !isVirtualCard && !playerId.trim()) {
       showToast('يرجى إدخال معرّف اللاعب للاستلام', 'warning');
       return;
     }
@@ -249,7 +310,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       selectedPackage?.isRequiredGameServerId
     );
 
-    if (!isDigitalAccount && pkgRequiresServer && serverList.length > 0 && !selectedServer) {
+    if (!isDigitalAccount && !isVirtualCard && pkgRequiresServer && serverList.length > 0 && !selectedServer) {
       showToast('يرجى اختيار خادم اللعبة قبل تأكيد الشراء', 'warning');
       return;
     }
@@ -268,9 +329,9 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
         gameId: game.id,
         packageId: selectedPackage.id,
         packageName: `${game.name} - ${selectedPackage.name}`,
-        playerId: isDigitalAccount ? 'DIGITAL_ACCOUNT' : playerId.trim(),
-        serverId: (!isDigitalAccount && pkgRequiresServer && selectedServer) ? selectedServer : undefined,
-        playerName: (!isDigitalAccount && verifiedPlayerName) ? verifiedPlayerName : undefined,
+        playerId: isVirtualCard ? 'KIROPRO_CARD' : (isDigitalAccount ? 'DIGITAL_ACCOUNT' : playerId.trim()),
+        serverId: (!isDigitalAccount && !isVirtualCard && pkgRequiresServer && selectedServer) ? selectedServer : undefined,
+        playerName: (!isDigitalAccount && !isVirtualCard && verifiedPlayerName) ? verifiedPlayerName : undefined,
         amount: finalPrice,
         promoCode: appliedPromo?.code,
         quantity: isDigitalAccount ? quantity : 1
@@ -288,11 +349,19 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
         deliveredList = [orderRes.credentials as any];
       }
 
-      if (deliveredList.length > 0) {
+      const spinNotice = (orderRes as any).bonusSpinGranted ? ' • 🎉 ربحت +1 محاولة لعجلة الحظ!' : '';
+
+      if ((orderRes as any).isVirtualCard || isVirtualCard) {
+        setDeliveredCardOrder({
+          orderId: (orderRes as any).orderId || orderRes.id,
+          last4: (orderRes as any).cardLast4
+        });
+        showToast('تم شراء وتخصيص بطاقة كيرو برو بنجاح! 💳' + spinNotice, 'success');
+      } else if (deliveredList.length > 0) {
         setDeliveredAccounts(deliveredList);
-        showToast(quantity > 1 ? `تم شراء وتخصيص ${quantity} حسابات بنجاح! ⚡` : 'تم شراء الحساب وتخصيصه بنجاح! ⚡', 'success');
+        showToast((quantity > 1 ? `تم شراء وتخصيص ${quantity} حسابات بنجاح! ⚡` : 'تم شراء الحساب وتخصيصه بنجاح! ⚡') + spinNotice, 'success');
       } else {
-        showToast('تم إنشاء وتنفيذ الطلب بنجاح! جاري معالجة الشحن فورياً.', 'success');
+        showToast('تم إنشاء وتنفيذ الطلب بنجاح! جاري معالجة الشحن فورياً.' + spinNotice, 'success');
         onClose();
       }
     } catch (err: any) {
@@ -331,7 +400,77 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           </button>
         </div>
 
-        {deliveredAccounts.length > 0 ? (
+        {deliveredCardOrder ? (
+          <div style={{ padding: '20px 10px', textAlign: 'center' }}>
+            <div style={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.2) 0%, rgba(202, 138, 4, 0.15) 100%)',
+              color: '#facc15',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+              border: '2px solid #facc15',
+              boxShadow: '0 0 24px rgba(250, 204, 21, 0.25)'
+            }}>
+              <CreditCard size={32} />
+            </div>
+
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 6 }}>
+              تم إصدار وتخصيص بطاقتك بنجاح! 💳
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 22, lineHeight: 1.6 }}>
+              تم حجز وتشفير البطاقة في خزنتك بأمان.<br/>
+              رقم البطاقة ينتهي بـ: <strong style={{ color: '#facc15', fontFamily: 'monospace', direction: 'ltr', fontSize: '1rem', letterSpacing: '2px' }}>•••• {deliveredCardOrder.last4 || '****'}</strong>
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, margin: '0 auto 20px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCardDetailsModal(true)}
+                style={{
+                  width: '100%',
+                  padding: '14px 20px',
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, #facc15 0%, #eab308 100%)',
+                  color: '#0B0F19',
+                  fontWeight: 900,
+                  fontSize: '0.98rem',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  boxShadow: '0 4px 18px rgba(250, 204, 21, 0.4)'
+                }}
+              >
+                <span>عرض تفاصيل البطاقة</span>
+                <Key size={18} />
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  width: '100%',
+                  padding: '10px 16px',
+                  borderRadius: 10,
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  border: '1px solid var(--border-subtle)',
+                  cursor: 'pointer'
+                }}
+              >
+                إغلاق (يمكنك دائماً استعراض البطاقة في صفحة طلباتي)
+              </button>
+            </div>
+          </div>
+        ) : deliveredAccounts.length > 0 ? (
           <div style={{ padding: '10px 0', textAlign: 'center' }}>
             <div style={{
               width: 56,
@@ -654,8 +793,46 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           )}
         </div>
 
-        {/* Step 2: Player ID & Server Selection OR Digital Account Info & Quantity */}
-        {isDigitalAccount ? (
+        {/* Step 2: Virtual Card Info OR Digital Account Info OR Player ID & Server Selection */}
+        {isVirtualCard ? (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{
+              padding: '16px',
+              background: 'linear-gradient(135deg, #0b0e17 0%, #1e1b4b 100%)',
+              border: '1.5px solid rgba(250, 204, 21, 0.4)',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.15)'
+            }}>
+              <div style={{
+                width: 42,
+                height: 42,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #facc15 0%, #ca8a04 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#000',
+                fontWeight: 900,
+                flexShrink: 0
+              }}>
+                <CreditCard size={22} />
+              </div>
+              <div style={{ fontSize: '0.82rem', color: '#e2e8f0', lineHeight: 1.6 }}>
+                <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: '#facc15' }}>
+                  بطاقة ماستركارد افتراضية مسبقة الدفع ($1.00 USD) ⚡
+                </strong>
+                لا يتطلب هذا المنتج أي معرّف لاعب أو سيرفر. سيتم فوراً حجز بطاقة مشفرة من الخزنة الآمنة وربطها بحسابك بدون أي تداخل أو ازدواجية.
+                <div style={{ marginTop: 6, color: '#94a3b8', fontSize: '0.78rem' }}>
+                  • صالحة للاستخدام الرقمي الدولي والتفعيل عبر الإنترنت<br/>
+                  • تظهر تفاصيل البطاقة الكاملة (الرقم، تاريخ الانتهاء، رمز الأمان CVV) فور تأكيد الشراء وفي صفحة طلباتي.
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : isDigitalAccount ? (
           <div>
             <div style={{
               marginBottom: 14,
@@ -1025,106 +1202,419 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           )}
         </div>
 
-        {/* Wallet Summary */}
-        <div className={styles.walletCard}>
-          <div className={styles.walletHeader}>
-            <div className={styles.walletTitle}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="M7 15h0M2 9.5h20" />
-              </svg>
-              <span>رصيد KIROPRO</span>
+        {isVirtualCard ? (
+          <div style={{ marginBottom: 16 }}>
+            {/* KiroPro Card Official Summary Card */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0B0F19 0%, #151923 100%)',
+              border: '1px solid rgba(250, 204, 21, 0.35)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '16px',
+              color: '#FFFFFF',
+              marginBottom: 16,
+              boxShadow: '0 4px 18px rgba(0, 0, 0, 0.4)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    background: '#000000',
+                    border: '1px solid #FBBF24',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#FBBF24',
+                    boxShadow: '0 2px 8px rgba(250, 204, 21, 0.2)'
+                  }}>
+                    <CreditCard size={20} />
+                  </div>
+                  <div>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
+                      بطاقة كيرو برو الافتراضية
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
+                      KiroPro Virtual Mastercard
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'left', direction: 'ltr' }}>
+                  <span style={{ fontSize: '0.7rem', color: '#94A3B8', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>
+                    Card Balance
+                  </span>
+                  <span style={{ fontSize: '1rem', fontWeight: 900, color: '#10B981' }}>
+                    $1.00 USD
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 10, fontSize: '0.85rem' }}>
+                <span style={{ color: '#CBD5E1', fontWeight: 700 }}>سعر إصدار البطاقة:</span>
+                <strong style={{ color: '#FBBF24', fontSize: '1.1rem', fontWeight: 900 }}>
+                  {formatCurrency(finalPrice, currency)} ($2.00)
+                </strong>
+              </div>
             </div>
-            <span style={{ fontSize: '0.75rem', color: '#16A34A', background: '#DCFCE7', padding: '2px 6px', borderRadius: 4, fontWeight: 800 }}>
-              رصيد مسبق الدفع
-            </span>
-          </div>
 
-          <div className={styles.walletRow}>
-            <span>رصيدك الحالي:</span>
-            <span className={styles.numVal}>{formatCurrency(balance, 'SDG')}</span>
-          </div>
+            {/* Payment Method Selector Tabs */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button
+                type="button"
+                onClick={() => setCardPaymentMethod('wallet')}
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: cardPaymentMethod === 'wallet' ? '2px solid #FBBF24' : '1px solid var(--border-subtle)',
+                  background: cardPaymentMethod === 'wallet' ? '#0B0F19' : '#F8FAFC',
+                  color: cardPaymentMethod === 'wallet' ? '#FBBF24' : 'var(--text-primary)',
+                  fontWeight: 900,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'all 0.2s ease',
+                  boxShadow: cardPaymentMethod === 'wallet' ? '0 2px 10px rgba(250, 204, 21, 0.2)' : 'none'
+                }}
+              >
+                <CreditCard size={16} />
+                <span>رصيد المتجر ($2.00)</span>
+              </button>
 
-          <div className={styles.walletRow}>
-            <span>{isDigitalAccount && quantity > 1 ? `السعر الأساسي (${quantity} حسابات):` : 'السعر الأساسي:'}</span>
-            <span className={styles.numVal} style={{ textDecoration: discountAmount > 0 ? 'line-through' : 'none', color: discountAmount > 0 ? '#94A3B8' : undefined }}>
-              {formatCurrency(rawOrderPrice, 'SDG')}
-            </span>
-          </div>
-
-          {discountAmount > 0 && (
-            <div className={styles.walletRow} style={{ color: '#059669' }}>
-              <span>الخصم ({appliedPromo?.code}):</span>
-              <span className={styles.numVal} style={{ color: '#059669', fontWeight: 900 }}>
-                -{formatCurrency(discountAmount, 'SDG')}
-              </span>
+              <button
+                type="button"
+                onClick={() => setCardPaymentMethod('issuance_code')}
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: cardPaymentMethod === 'issuance_code' ? '2px solid #FBBF24' : '1px solid var(--border-subtle)',
+                  background: cardPaymentMethod === 'issuance_code' ? '#0B0F19' : '#F8FAFC',
+                  color: cardPaymentMethod === 'issuance_code' ? '#FBBF24' : 'var(--text-primary)',
+                  fontWeight: 900,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'all 0.2s ease',
+                  boxShadow: cardPaymentMethod === 'issuance_code' ? '0 2px 10px rgba(250, 204, 21, 0.2)' : 'none'
+                }}
+              >
+                <Key size={16} />
+                <span>كود إصدار ($2.00)</span>
+              </button>
             </div>
-          )}
 
-          <div className={styles.walletRow} style={{ fontWeight: 800 }}>
-            <span>المبلغ المطلوب دفعه:</span>
-            <span className={styles.numVal} style={{ color: '#0B0F19', fontSize: '1.05rem', fontWeight: 900 }}>
-              {formatCurrency(finalPrice, 'SDG')}
-            </span>
-          </div>
+            {/* Method 1: Store Wallet */}
+            {cardPaymentMethod === 'wallet' ? (
+              <div>
+                <div className={styles.walletCard}>
+                  <div className={styles.walletHeader}>
+                    <div className={styles.walletTitle}>
+                      <CreditCard size={16} />
+                      <span>رصيد محفظة KIROPRO</span>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: '#16A34A', background: '#DCFCE7', padding: '2px 6px', borderRadius: 4, fontWeight: 800 }}>
+                      رصيد مسبق الدفع
+                    </span>
+                  </div>
 
-          <div className={styles.walletRowFinal}>
-            <span>الرصيد بعد الشراء:</span>
-            <span
-              className={styles.numVal}
-              style={{ color: isInsufficient ? '#EF4444' : '#10B981' }}
-            >
-              {isInsufficient ? `عجز: ${formatCurrency(Math.abs(balanceAfter), 'SDG')}` : formatCurrency(balanceAfter, 'SDG')}
-            </span>
-          </div>
-        </div>
+                  <div className={styles.walletRow}>
+                    <span>رصيدك الحالي:</span>
+                    <span className={styles.numVal}>{formatCurrency(balance, currency)}</span>
+                  </div>
 
-        {/* Insufficient Balance State */}
-        {isInsufficient ? (
-          <div className={styles.insufficientBox}>
-            <div className={styles.insufficientTitle}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>الرصيد غير كافٍ</span>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: '#7F1D1D' }}>
-              يرجى إضافة رصيد إلى محفظة KIROPRO لمتابعة الشحن الفوري.
-            </p>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={openDepositModal}
-              style={{ width: '100%' }}
-            >
-              <span>إضافة رصيد</span>
-            </button>
+                  <div className={styles.walletRow} style={{ fontWeight: 800 }}>
+                    <span>المبلغ المطلوب للإصدار:</span>
+                    <span className={styles.numVal} style={{ color: '#0B0F19', fontSize: '1.05rem', fontWeight: 900 }}>
+                      {formatCurrency(finalPrice, currency)} ($2.00)
+                    </span>
+                  </div>
+
+                  <div className={styles.walletRowFinal}>
+                    <span>الرصيد بعد الشراء:</span>
+                    <span
+                      className={styles.numVal}
+                      style={{ color: isInsufficient ? '#EF4444' : '#10B981' }}
+                    >
+                      {isInsufficient ? `عجز: ${formatCurrency(Math.abs(balanceAfter), currency)}` : formatCurrency(balanceAfter, currency)}
+                    </span>
+                  </div>
+                </div>
+
+                {isInsufficient ? (
+                  <div className={styles.insufficientBox}>
+                    <div className={styles.insufficientTitle}>
+                      <AlertCircle size={18} color="#dc2626" />
+                      <span>الرصيد غير كافٍ</span>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#7F1D1D' }}>
+                      يلزم توفر $2.00 ({formatCurrency(finalPrice, currency)}) في رصيد محفظتك لإصدار البطاقة.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={openDepositModal}
+                      style={{ width: '100%' }}
+                    >
+                      <span>شحن الرصيد</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleConfirmOrder}
+                    disabled={isProcessing}
+                    style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
+                  >
+                    {isProcessing ? (
+                      <span>جاري حجز وتشفير البطاقة وتنفيذ الطلب...</span>
+                    ) : (
+                      <span>شراء KiroPro Card من الرصيد ($2.00) 💳</span>
+                    )}
+                  </button>
+                )}
+              </div>
+            ) : (
+              /* Method 2: Issuance Code */
+              <div style={{
+                background: '#0B0F19',
+                border: '1px solid rgba(250, 204, 21, 0.35)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '16px',
+                color: '#FFFFFF'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: '0.85rem', fontWeight: 800, color: '#FBBF24' }}>
+                  <Key size={16} />
+                  <span>أدخل كود إصدار KiroPro Card:</span>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <input
+                    type="text"
+                    value={issuanceCodeInput}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      setIssuanceCodeInput(val);
+                      handleValidateIssuanceCode(val);
+                      if (issuanceCodeError) setIssuanceCodeError(null);
+                    }}
+                    placeholder="KPC-XXXX-XXXX-XXXX"
+                    dir="ltr"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: issuanceCodeError ? '1px solid #EF4444' : '1px solid rgba(250, 204, 21, 0.4)',
+                      background: '#131722',
+                      color: '#FFFFFF',
+                      fontFamily: 'monospace',
+                      fontSize: '0.95rem',
+                      letterSpacing: '1.5px',
+                      outline: 'none'
+                    }}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: '#94A3B8', marginTop: 4, display: 'block' }}>
+                    كود الإصدار يعادل قيمة إصدار البطاقة ($2.00) بالكامل دون أي خصم من محفظتك.
+                  </span>
+                </div>
+
+                {issuanceCodeValidInfo && (
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    color: '#34D399',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <CheckCircle2 size={16} />
+                    <span>{issuanceCodeValidInfo.message}</span>
+                  </div>
+                )}
+
+                {issuanceCodeError && (
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#F87171',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <AlertCircle size={16} />
+                    <span>{issuanceCodeError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleRedeemIssuanceCode}
+                  disabled={issuanceCodeLoading || !issuanceCodeInput.trim()}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #FBBF24 0%, #EAB308 100%)',
+                    color: '#0B0F19',
+                    fontWeight: 900,
+                    fontSize: '0.95rem',
+                    border: 'none',
+                    cursor: issuanceCodeLoading || !issuanceCodeInput.trim() ? 'not-allowed' : 'pointer',
+                    opacity: issuanceCodeLoading || !issuanceCodeInput.trim() ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 4px 14px rgba(250, 204, 21, 0.3)'
+                  }}
+                >
+                  {issuanceCodeLoading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>جاري التحقق وإصدار البطاقة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      <span>استرداد الكود وإصدار البطاقة ($2.00)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleConfirmOrder}
-            disabled={isProcessing}
-            style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
-          >
-            {isProcessing ? (
-              <span>{isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
-            ) : (
-              <span>{isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
-            )}
-          </button>
-        )}
+          /* Normal Products (Games / Digital Accounts) Flow */
+          <>
+            <div className={styles.walletCard}>
+              <div className={styles.walletHeader}>
+                <div className={styles.walletTitle}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="M7 15h0M2 9.5h20" />
+                  </svg>
+                  <span>رصيد KIROPRO</span>
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#16A34A', background: '#DCFCE7', padding: '2px 6px', borderRadius: 4, fontWeight: 800 }}>
+                  رصيد مسبق الدفع
+                </span>
+              </div>
 
-        <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
-          {isDigitalAccount 
-            ? '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وتسليم بيانات الحساب فورياً.'
-            : '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وإرسال الطلب تلقائياً لمزود الخدمة.'}
-        </p>
+              <div className={styles.walletRow}>
+                <span>رصيدك الحالي:</span>
+                <span className={styles.numVal}>{formatCurrency(balance, 'SDG')}</span>
+              </div>
+
+              <div className={styles.walletRow}>
+                <span>{isDigitalAccount && quantity > 1 ? `السعر الأساسي (${quantity} حسابات):` : 'السعر الأساسي:'}</span>
+                <span className={styles.numVal} style={{ textDecoration: discountAmount > 0 ? 'line-through' : 'none', color: discountAmount > 0 ? '#94A3B8' : undefined }}>
+                  {formatCurrency(rawOrderPrice, 'SDG')}
+                </span>
+              </div>
+
+              {discountAmount > 0 && (
+                <div className={styles.walletRow} style={{ color: '#059669' }}>
+                  <span>الخصم ({appliedPromo?.code}):</span>
+                  <span className={styles.numVal} style={{ color: '#059669', fontWeight: 900 }}>
+                    -{formatCurrency(discountAmount, 'SDG')}
+                  </span>
+                </div>
+              )}
+
+              <div className={styles.walletRow} style={{ fontWeight: 800 }}>
+                <span>المبلغ المطلوب دفعه:</span>
+                <span className={styles.numVal} style={{ color: '#0B0F19', fontSize: '1.05rem', fontWeight: 900 }}>
+                  {formatCurrency(finalPrice, 'SDG')}
+                </span>
+              </div>
+
+              <div className={styles.walletRowFinal}>
+                <span>الرصيد بعد الشراء:</span>
+                <span
+                  className={styles.numVal}
+                  style={{ color: isInsufficient ? '#EF4444' : '#10B981' }}
+                >
+                  {isInsufficient ? `عجز: ${formatCurrency(Math.abs(balanceAfter), 'SDG')}` : formatCurrency(balanceAfter, 'SDG')}
+                </span>
+              </div>
+            </div>
+
+            {/* Insufficient Balance State */}
+            {isInsufficient ? (
+              <div className={styles.insufficientBox}>
+                <div className={styles.insufficientTitle}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>الرصيد غير كافٍ</span>
+                </div>
+                <p style={{ fontSize: '0.8rem', color: '#7F1D1D' }}>
+                  يرجى إضافة رصيد إلى محفظة KIROPRO لمتابعة الشحن الفوري.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={openDepositModal}
+                  style={{ width: '100%' }}
+                >
+                  <span>إضافة رصيد</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmOrder}
+                disabled={isProcessing}
+                style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
+              >
+                {isProcessing ? (
+                  <span>{isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
+                ) : (
+                  <span>{isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
+                )}
+              </button>
+            )}
+
+            <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
+              {isDigitalAccount 
+                ? '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وتسليم بيانات الحساب فورياً.'
+                : '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وإرسال الطلب تلقائياً لمزود الخدمة.'}
+            </p>
+          </>
+        )}
       </>
     )}
+
+    {/* Virtual Card 3D Viewer Modal */}
+    <CardDetailsViewModal
+      orderId={deliveredCardOrder?.orderId || null}
+      isOpen={showCardDetailsModal}
+      onClose={() => {
+        setShowCardDetailsModal(false);
+        onClose();
+      }}
+      onShowToast={(msg, type) => showToast(msg, type)}
+    />
   </div>
 </div>
 );

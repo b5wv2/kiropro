@@ -150,6 +150,7 @@ export async function createOrder(payload: {
     accounts: data.accounts || data.credentials,
     fulfillmentKey: data.key,
     key: data.key,
+    bonusSpinGranted: data.bonusSpinGranted,
     createdAt: new Date().toISOString()
   };
   return newOrder;

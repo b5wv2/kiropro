@@ -4,6 +4,7 @@ import { GameCard } from '../../components/GameCard/GameCard';
 import { UsdtCard, UsdtCardConfig } from '../../components/GameCard/UsdtCard';
 import { VirtualNumberCard } from '../../components/GameCard/VirtualNumberCard';
 import { DealsBanner } from '../../components/Deals/DealsBanner';
+import { WheelPromoBanner } from '../../components/Deals/WheelPromoBanner';
 import { ReferralPromoBanner } from '../../components/Referral/ReferralPromoBanner';
 import { HowItWorks } from '../../components/HowItWorks/HowItWorks';
 import { WhyUs } from '../../components/Features/WhyUs';
@@ -16,6 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = [
   { id: 'all', name: 'الكل ✨' },
+  { id: 'cards', name: '💳 بطاقات ماستركارد' },
   { id: 'games', name: '🎮 الألعاب الإلكترونية' },
   { id: 'apps', name: '📱 تطبيقات البث والدردشة' },
   { id: 'numbers', name: '📱 الأرقام الافتراضية' },
@@ -77,11 +79,14 @@ export const HomePage: React.FC = () => {
     let matchesCat = activeCategory === 'all';
     if (activeCategory === 'transfers' || activeCategory === 'numbers') {
       matchesCat = false;
+    } else if (activeCategory === 'cards') {
+      matchesCat = game.category === 'cards' || game.id === 'kiropro-card' || game.id.includes('card');
     } else if (activeCategory === 'games') {
-      // Strictly real gaming products! Exclude Likee and Telegram
+      // Strictly real gaming products! Exclude Likee, Telegram, and cards
       matchesCat = (game.category === 'games' || game.category === 'mobile') &&
         !game.id.includes('likee') &&
-        !game.id.includes('telegram');
+        !game.id.includes('telegram') &&
+        !game.id.includes('card');
     } else if (activeCategory === 'apps') {
       matchesCat = game.category === 'apps' || game.id.includes('likee');
     } else if (activeCategory === 'digital') {
@@ -102,15 +107,19 @@ export const HomePage: React.FC = () => {
   const onlyGamesList = games.filter(g => 
     (g.category === 'games' || g.category === 'mobile') &&
     !g.id.includes('likee') &&
-    !g.id.includes('telegram')
+    !g.id.includes('telegram') &&
+    !g.id.includes('card')
   );
 
   const onlyDigitalAndAppsList = games.filter(g => 
     g.category === 'apps' || 
     g.category === 'digital' || 
     g.category === 'subscriptions' ||
+    g.category === 'cards' ||
+    g.id === 'kiropro-card' ||
     g.id.includes('likee') ||
-    g.id.includes('telegram')
+    g.id.includes('telegram') ||
+    g.id.includes('card')
   );
 
   // Determine whether USDT card should be displayed based on filters
@@ -343,6 +352,9 @@ export const HomePage: React.FC = () => {
 
       {/* Featured Deals Section */}
       <DealsBanner />
+
+      {/* Lucky Wheel Daily Free Spin Promo Banner */}
+      <WheelPromoBanner />
 
       {/* Referral & Invite Friends Dynamic Promo Banner */}
       <ReferralPromoBanner />

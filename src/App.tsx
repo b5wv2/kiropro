@@ -13,6 +13,7 @@ import { AllReviewsPage } from './pages/Review/AllReviewsPage';
 import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
 import { LeaderboardPage } from './pages/Leaderboard/LeaderboardPage';
 import { VirtualNumbersPage } from './pages/VirtualNumbers/VirtualNumbersPage';
+import { WheelPage } from './pages/Wheel/WheelPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 import { PartnerApp } from './pages/Partner/PartnerApp';
@@ -49,6 +50,18 @@ const AppContent: React.FC = () => {
     return (
       <MainLayout>
         <VirtualNumbersPage />
+      </MainLayout>
+    );
+  }
+
+  const isWheelPath = typeof window !== 'undefined' && (
+    window.location.pathname === '/wheel' || currentView === 'wheel'
+  );
+
+  if (isWheelPath) {
+    return (
+      <MainLayout>
+        <WheelPage />
       </MainLayout>
     );
   }
@@ -162,6 +175,7 @@ const AppContent: React.FC = () => {
         {currentView === 'account' && <AccountPage />}
         {currentView === 'usdt' && <UsdtTransferPage />}
         {currentView === 'virtual-numbers' && <VirtualNumbersPage />}
+        {currentView === 'wheel' && <WheelPage />}
       </MainLayout>
     </>
   );

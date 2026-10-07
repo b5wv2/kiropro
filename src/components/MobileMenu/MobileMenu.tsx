@@ -86,6 +86,18 @@ export const MobileMenu: React.FC = () => {
           <button
             type="button"
             className={styles.navLink}
+            onClick={() => {
+              closeOverlay();
+              navigateTo('wheel');
+            }}
+            style={{ color: '#FBBF24', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <span>عجلة الحظ اليومية 🎡</span>
+            <span style={{ fontSize: '0.7rem', background: 'rgba(245, 158, 11, 0.2)', color: '#F59E0B', border: '1px solid #F59E0B', padding: '1px 6px', borderRadius: 4, fontWeight: 900 }}>مجاناً</span>
+          </button>
+          <button
+            type="button"
+            className={styles.navLink}
             onClick={() => handleNavClick('#games')}
           >
             الألعاب الأكثر طلباً

@@ -25,6 +25,8 @@ import {
 import { PromoRedemptionCard } from '../../components/Promo/PromoRedemptionCard';
 import { ReferralCard } from '../../components/Referral/ReferralCard';
 import { ReviewModal } from '../../components/Modal/ReviewModal';
+import { CardDetailsViewModal } from '../../components/KiroProCard/CardDetailsViewModal';
+import { CardRedemptionModal } from '../../components/KiroProCard/CardRedemptionModal';
 import { fetchMyOrders, fetchOrderById, fetchOrderCredentials } from '../../services/api';
 import { fetchMyVirtualNumberOrders, cancelVirtualNumberOrder, VirtualNumberOrder } from '../../services/virtualNumberApi';
 import { Order, WalletTransaction } from '../../types';
@@ -59,6 +61,8 @@ export const AccountPage: React.FC = () => {
     redemptions: []
   });
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+  const [selectedCardOrderId, setSelectedCardOrderId] = useState<string | null>(null);
+  const [isRedeemCardModalOpen, setIsRedeemCardModalOpen] = useState(false);
   const [digitalCredentials, setDigitalCredentials] = useState<{
     [orderId: string]: {
       loading: boolean;
@@ -656,6 +660,17 @@ export const AccountPage: React.FC = () => {
               </button>
             </div>
 
+            {activeAccountTab === 'orders' && (
+              <button 
+                className="btn btn-secondary btn-sm" 
+                onClick={() => setIsRedeemCardModalOpen(true)} 
+                type="button"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <span>🎁 استرداد قسيمة كيرو برو</span>
+              </button>
+            )}
+
             {activeAccountTab === 'virtual-numbers' && (
               <button className="btn btn-secondary btn-sm" onClick={() => navigateTo('virtual-numbers' as any)} type="button">
                 <span>+ طلب رقم جديد 📱</span>
@@ -915,6 +930,12 @@ export const AccountPage: React.FC = () => {
                               {isRefunded && (
                                 <span style={{ fontSize: '0.75rem', color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', padding: '2px 10px', borderRadius: 12, fontWeight: 800 }}>
                                   تم استرجاع الرصيد (REFUNDED)
+                                </span>
+                              )}
+
+                              {(ord.orderType === 'VIRTUAL_CARD' || ord.gameId === 'kiropro-card') && (
+                                <span style={{ fontSize: '0.75rem', color: '#854d0e', background: '#fef9c3', border: '1px solid #fde047', padding: '2px 10px', borderRadius: 12, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  💳 بطاقة ماستركارد
                                 </span>
                               )}
 
@@ -1266,6 +1287,72 @@ export const AccountPage: React.FC = () => {
                                 ✕ {digitalCredentials[ord.id]?.error}
                               </div>
                             )}
+                          </div>
+                        )}
+
+                        {/* KIROPRO VIRTUAL CARD DELIVERY CARD */}
+                        {isCompleted && (ord.orderType === 'VIRTUAL_CARD' || ord.gameId === 'kiropro-card') && (
+                          <div style={{
+                            background: 'linear-gradient(135deg, #0B0F19 0%, #1e1b4b 100%)',
+                            borderRadius: '10px',
+                            padding: '14px 18px',
+                            border: '1.5px solid #facc15',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: 12,
+                            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <div style={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: 8,
+                                background: 'linear-gradient(135deg, #facc15 0%, #ca8a04 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '1.2rem'
+                              }}>
+                                💳
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ fontSize: '0.88rem', color: '#facc15', fontWeight: 900 }}>
+                                    بطاقة كيرو برو الافتراضية ($1.00 USD)
+                                  </span>
+                                  <span style={{ fontSize: '0.68rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid #10b981', padding: '1px 6px', borderRadius: 4, fontWeight: 800 }}>
+                                    نشطة ومحمية
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginTop: 2 }}>
+                                  بطاقة ماستركارد مشفرة بـ AES-256 ومخزنة في خزنتك.
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCardOrderId(ord.id)}
+                              style={{
+                                background: 'linear-gradient(135deg, #facc15 0%, #eab308 100%)',
+                                color: '#0B0F19',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '8px 16px',
+                                fontSize: '0.8rem',
+                                fontWeight: 900,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 8px rgba(250, 204, 21, 0.3)'
+                              }}
+                            >
+                              <span>عرض بيانات واستلام البطاقة (3D)</span>
+                              <span>💳</span>
+                            </button>
                           </div>
                         )}
 
@@ -2121,6 +2208,22 @@ export const AccountPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* KiroPro Card 3D Details Viewer Modal */}
+      <CardDetailsViewModal
+        orderId={selectedCardOrderId}
+        isOpen={Boolean(selectedCardOrderId)}
+        onClose={() => setSelectedCardOrderId(null)}
+      />
+
+      {/* KiroPro Card Voucher Redemption Modal */}
+      <CardRedemptionModal
+        isOpen={isRedeemCardModalOpen}
+        onClose={() => {
+          setIsRedeemCardModalOpen(false);
+          pollOrders();
+        }}
+      />
     </div>
   );
 };
