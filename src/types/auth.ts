@@ -6,7 +6,9 @@ export interface User {
   balance: number;
   currency: string;
   preferred_currency?: 'USD' | 'SDG';
-  role: 'CUSTOMER' | 'ADMIN';
+  role: 'CUSTOMER' | 'ADMIN' | 'PARTNER';
+  is_super_admin?: boolean;
+  permissions?: string[];
   emailVerified?: boolean;
   referral_code?: string;
   createdAt: string;

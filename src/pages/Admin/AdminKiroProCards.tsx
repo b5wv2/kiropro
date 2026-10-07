@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  CreditCard, 
-  Plus, 
-  UploadCloud, 
-  ShieldCheck, 
-  Eye, 
-  Trash2, 
-  Power, 
-  RefreshCw, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Settings, 
-  KeyRound, 
+import {
+  CreditCard,
+  Plus,
+  UploadCloud,
+  ShieldCheck,
+  Eye,
+  Trash2,
+  Power,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Settings,
+  KeyRound,
   Search,
   Layers,
   Download,
@@ -80,6 +80,7 @@ export const AdminKiroProCards: React.FC = () => {
   // Settings State
   const [lowStockThreshold, setLowStockThreshold] = useState(5);
   const [complianceNotice, setComplianceNotice] = useState('');
+  const [cardProductPrice, setCardProductPrice] = useState<number>(2.00);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
 
@@ -136,6 +137,9 @@ export const AdminKiroProCards: React.FC = () => {
       if (res && res.settings) {
         setLowStockThreshold(res.settings.lowStockThreshold || 5);
         setComplianceNotice(res.settings.complianceNotice || '');
+        if (res.settings.productPriceUsd !== undefined) {
+          setCardProductPrice(Number(res.settings.productPriceUsd));
+        }
       }
     } catch (err) {
       console.error('Failed to load settings', err);
@@ -393,7 +397,8 @@ export const AdminKiroProCards: React.FC = () => {
     try {
       await api.patch('/api/admin/kiropro-cards/settings', {
         lowStockThreshold,
-        complianceNotice
+        complianceNotice,
+        productPriceUsd: cardProductPrice
       });
       setSettingsSuccess('تم حفظ إعدادات نظام بطاقات كيرو برو بنجاح.');
       loadStats();
@@ -1418,6 +1423,24 @@ export const AdminKiroProCards: React.FC = () => {
           )}
 
           <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
+                سعر بيع بطاقة كيرو برو للعميل ($ USD):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                value={cardProductPrice}
+                onChange={(e) => setCardProductPrice(parseFloat(e.target.value) || 0)}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}
+              />
+              <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginTop: 4 }}>
+                سعر شراء بطاقة KiroPro Virtual Mastercard المعروض في المتجر ونافذة الشحن السريع للزبائن.
+              </span>
+            </div>
+
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
                 حد تنبيه نقص المخزون (Low Stock Threshold):

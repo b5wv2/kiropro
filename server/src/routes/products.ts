@@ -590,7 +590,7 @@ router.get('/:id/servers', async (req: Request, res: Response) => {
     }
 
     const serversRecord = await gamesDropProvider.getServers(numericOfferId);
-    
+
     // Map Record<string, string> to structured list
     const serversList = Object.entries(serversRecord || {}).map(([key, name]) => ({
       id: key,
@@ -711,7 +711,7 @@ router.post('/admin/categories/:id/upload-image', requireAdmin, upload.single('i
 
   const ext = path.extname(req.file.originalname).toLowerCase();
   if (!isValidImageFileSignature(req.file.path, ext)) {
-    try { fs.unlinkSync(req.file.path); } catch {}
+    try { fs.unlinkSync(req.file.path); } catch { }
     return res.status(400).json({ error: 'بصمة الصورة غير صالحة أو الملف تالف.' });
   }
 
@@ -891,13 +891,13 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
  */
 router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { 
-    customerPriceUsd, 
-    isActive, 
-    imageUrl, 
-    productName, 
-    offerName, 
-    displayOrder, 
+  const {
+    customerPriceUsd,
+    isActive,
+    imageUrl,
+    productName,
+    offerName,
+    displayOrder,
     isFeatured,
     arabicName,
     description,
@@ -991,9 +991,9 @@ router.post('/admin/products/:id/toggle-active', requireAdmin, async (req: AuthR
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    res.json({ 
-      message: `Product ${result.rows[0].isActive ? 'activated' : 'deactivated'}`, 
-      product: result.rows[0] 
+    res.json({
+      message: `Product ${result.rows[0].isActive ? 'activated' : 'deactivated'}`,
+      product: result.rows[0]
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to toggle product status' });
@@ -1101,7 +1101,7 @@ router.post('/admin/products/upload-image', requireAdmin, upload.single('image')
 
   const ext = path.extname(req.file.originalname).toLowerCase();
   if (!isValidImageFileSignature(req.file.path, ext)) {
-    try { fs.unlinkSync(req.file.path); } catch {}
+    try { fs.unlinkSync(req.file.path); } catch { }
     return res.status(400).json({ error: 'بصمة الصورة غير صالحة أو الملف تالف.' });
   }
 

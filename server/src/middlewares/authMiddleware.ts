@@ -11,6 +11,8 @@ export interface AuthRequest extends Request {
     id: string;
     email: string;
     role: string;
+    isSuperAdmin?: boolean;
+    permissions?: string[];
     sessionId?: string;
     balance?: number;
   };
@@ -62,8 +64,9 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
 
     // 3. Invalidate session if password was changed after token issuance
     if (decoded.id && decoded.iat) {
-      const userRes = await pool.query('SELECT "passwordChangedAt" FROM "User" WHERE id = $1', [decoded.id]);
-      const pwdChangedAt = userRes.rows[0]?.passwordChangedAt;
+      const userRes = await pool.query('SELECT "passwordChangedAt", is_super_admin, permissions FROM "User" WHERE id = $1', [decoded.id]);
+      const userRow = userRes.rows[0];
+      const pwdChangedAt = userRow?.passwordChangedAt;
       if (pwdChangedAt) {
         const pwdChangedSec = Math.floor(new Date(pwdChangedAt).getTime() / 1000);
         if (decoded.iat < pwdChangedSec) {
@@ -71,9 +74,15 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
           return res.status(401).json({ error: 'تم تغيير كلمة المرور مؤخراً. يرجى تسجيل الدخول مجدداً.' });
         }
       }
+      req.user = {
+        ...decoded,
+        isSuperAdmin: Boolean(userRow?.is_super_admin),
+        permissions: Array.isArray(userRow?.permissions) ? userRow.permissions : []
+      };
+    } else {
+      req.user = decoded;
     }
 
-    req.user = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -103,7 +112,10 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
     };
     
     // Strict DB verification for admin actions
-    const userRes = await pool.query('SELECT role, "passwordChangedAt" FROM "User" WHERE id = $1', [decoded.id]);
+    const userRes = await pool.query(
+      'SELECT role, "passwordChangedAt", is_super_admin, permissions FROM "User" WHERE id = $1', 
+      [decoded.id]
+    );
     const user = userRes.rows[0];
 
     if (!user || user.role !== 'ADMIN') {
@@ -130,11 +142,47 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
       }
     }
 
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      isSuperAdmin: Boolean(user.is_super_admin),
+      permissions: Array.isArray(user.permissions) ? user.permissions : []
+    };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+};
+
+/**
+ * Middleware ensuring only the Super Admin can execute the request.
+ */
+export const requireSuperAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  await requireAdmin(req, res, () => {
+    if (!req.user?.isSuperAdmin) {
+      return res.status(403).json({ error: 'هذا الإجراء مخصص للأدمن الرئيسي (Super Admin) فقط.' });
+    }
+    next();
+  });
+};
+
+/**
+ * Middleware verifying specific permission or wildcard '*' or Super Admin status.
+ */
+export const requirePermission = (permission: string) => {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    await requireAdmin(req, res, () => {
+      if (req.user?.isSuperAdmin) {
+        return next();
+      }
+      const perms = req.user?.permissions || [];
+      if (perms.includes('*') || perms.includes(permission)) {
+        return next();
+      }
+      return res.status(403).json({ 
+        error: `ليس لديك الصلاحية المطلوبة (${permission}). يرجى مراجعة الأدمن الرئيسي.` 
+      });
+    });
+  };
 };
 
 export const optionalAuth = (req: AuthRequest, _res: Response, next: NextFunction) => {

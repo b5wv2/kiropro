@@ -666,7 +666,9 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       balance,
       currency,
       preferred_currency: user.preferred_currency || currency,
-      emailVerified: !!user.emailVerified
+      emailVerified: !!user.emailVerified,
+      is_super_admin: Boolean(user.is_super_admin),
+      permissions: Array.isArray(user.permissions) ? user.permissions : []
     };
 
     res.json({ user: safeUser, token });
@@ -874,7 +876,9 @@ router.post('/quick-login', quickLoginLimiter, async (req: Request, res: Respons
       balance,
       currency,
       preferred_currency: user.preferred_currency || currency,
-      emailVerified: !!user.emailVerified
+      emailVerified: !!user.emailVerified,
+      is_super_admin: Boolean(user.is_super_admin),
+      permissions: Array.isArray(user.permissions) ? user.permissions : []
     };
 
     res.json({
@@ -896,7 +900,10 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     
-    const userRes = await pool.query('SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code" FROM "User" WHERE id = $1', [req.user.id]);
+    const userRes = await pool.query(
+      'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code", "is_super_admin", "permissions" FROM "User" WHERE id = $1', 
+      [req.user.id]
+    );
     let user = userRes.rows[0];
     
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -911,7 +918,16 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     const balance = walletRes.rows[0]?.balance || 0;
     const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
     
-    res.json({ user: { ...user, balance, currency, preferred_currency: user.preferred_currency || currency } });
+    res.json({ 
+      user: { 
+        ...user, 
+        is_super_admin: Boolean(user.is_super_admin),
+        permissions: Array.isArray(user.permissions) ? user.permissions : [],
+        balance, 
+        currency, 
+        preferred_currency: user.preferred_currency || currency 
+      } 
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch user' });

@@ -20,7 +20,8 @@ import {
   Trophy,
   Smartphone,
   Handshake,
-  Sparkles
+  Sparkles,
+  UserCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -44,6 +45,7 @@ export type AdminTab =
   | 'audit' 
   | 'security'
   | 'wheel'
+  | 'staff'
   | 'settings';
 
 interface AdminSidebarProps {
@@ -81,6 +83,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'providers', label: 'مزودو الخدمة (APIs)', icon: Server },
     { id: 'audit', label: 'سجل العمليات (Audit)', icon: ShieldAlert },
     { id: 'security', label: 'سجل الأمان (Security)', icon: ShieldCheck },
+    { id: 'staff', label: 'فريق الإدارة والصلاحيات 🛡️', icon: UserCheck },
     { id: 'settings', label: 'إعدادات المنصة', icon: Settings },
   ];
 

@@ -184,8 +184,8 @@ router.post('/validate-code', requireAuth, async (req: AuthRequest, res: Respons
       valid: true,
       value: Number(voucher.value || 2.00),
       inStock,
-      message: inStock 
-        ? 'الكود صالح — يمكنك الآن إصدار KiroPro Card فورياً بقيمة $2.00.' 
+      message: inStock
+        ? 'الكود صالح — يمكنك الآن إصدار KiroPro Card فورياً بقيمة $2.00.'
         : 'الكود صالح، ولكن مخزون البطاقات نافد حالياً. يرجى مراجعة الدعم أو المحاولة لاحقاً.'
     });
   } catch (err: any) {

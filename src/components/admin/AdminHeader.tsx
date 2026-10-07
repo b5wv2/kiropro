@@ -38,6 +38,8 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
         return { title: 'بوابات ومزودو الخدمة (APIs)', subtitle: 'مراقبة اتصال بوابات الشحن الخارجية وحالة الخوادم' };
       case 'audit':
         return { title: 'سجل العمليات والرقابة (Audit Log)', subtitle: 'سجل غير قابل للتعديل لجميع العمليات الإدارية في النظام' };
+      case 'staff':
+        return { title: 'فريق الإدارة وتعيين الصلاحيات 🛡️', subtitle: 'تعيين مدراء جدد، تحديد الصلاحيات بدقة، وإمكانية سحب الصلاحيات من أي إداري' };
       case 'settings':
         return { title: 'إعدادات النظام والمنصة', subtitle: 'التحكم في بيانات المتجر، العملة، ووضع الصيانة' };
       default:

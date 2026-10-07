@@ -147,10 +147,10 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
       createdAt: row.createdAt,
       customer: row.userId
         ? {
-            id: row.userId,
-            email: row.customerEmail,
-            name: row.customerName
-          }
+          id: row.userId,
+          email: row.customerEmail,
+          name: row.customerName
+        }
         : null
     }));
 

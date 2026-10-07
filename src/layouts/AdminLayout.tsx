@@ -21,6 +21,7 @@ import { AdminSettings } from '../pages/Admin/AdminSettings';
 import { AdminPartners } from '../pages/Admin/AdminPartners';
 import { AdminWheel } from '../pages/Admin/AdminWheel';
 import { AdminKiroProCards } from '../pages/Admin/AdminKiroProCards';
+import { AdminStaff } from '../pages/Admin/AdminStaff';
 
 export const AdminLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -66,6 +67,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminPartners />;
       case 'wheel':
         return <AdminWheel />;
+      case 'staff':
+        return <AdminStaff />;
       case 'settings':
         return <AdminSettings />;
       default:
