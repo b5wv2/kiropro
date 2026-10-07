@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { gamesDropProvider } from '../providers/gamesdrop';
 import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
 import { awardOrderCashback } from './cashbackService';
+import { grantBonusSpinForOrder } from './wheelService';
 import { getOrCreateOrderReviewToken } from './reviewTokenService';
 import { sendOrderProcessingEmail, sendOrderCompletedEmail } from './emailService';
 
@@ -184,6 +185,12 @@ export async function executeOrderWithProvider(params: {
               await awardOrderCashback(orderId);
             } catch (cbErr) {
               console.error('[OrderExecution] Cashback error:', cbErr);
+            }
+
+            try {
+              await grantBonusSpinForOrder(orderId);
+            } catch (spinErr) {
+              console.error('[OrderExecution] Bonus spin error:', spinErr);
             }
 
             const rt = await getOrCreateOrderReviewToken(

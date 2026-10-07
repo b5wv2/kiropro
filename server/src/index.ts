@@ -30,6 +30,10 @@ import adminVirtualNumbersRoutes from './routes/adminVirtualNumbers';
 import partnerRoutes from './routes/partner';
 import adminPartnersRoutes from './routes/adminPartners';
 import adminDigitalAccountsRoutes from './routes/adminDigitalAccounts';
+import wheelRoutes from './routes/wheel';
+import adminWheelRoutes from './routes/adminWheel';
+import kiroproCardsRoutes from './routes/kiroproCards';
+import adminKiroproCardsRoutes from './routes/adminKiroproCards';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
@@ -243,6 +247,10 @@ app.use('/api/admin/virtual-numbers', adminVirtualNumbersRoutes);
 app.use('/api/partner', banCheckMiddleware, partnerRoutes);
 app.use('/api/admin', adminPartnersRoutes);
 app.use('/api/admin/digital-accounts', adminDigitalAccountsRoutes);
+app.use('/api/wheel', banCheckMiddleware, wheelRoutes);
+app.use('/api/admin/wheel', adminWheelRoutes);
+app.use('/api/kiropro-cards', banCheckMiddleware, kiroproCardsRoutes);
+app.use('/api/admin/kiropro-cards', adminKiroproCardsRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

@@ -3,6 +3,7 @@ import { gamesDropProvider, mapGamesDropStatus } from '../providers/gamesdrop';
 import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from './cashbackService';
 import { processReferralRewardOnOrder } from './referralService';
+import { grantBonusSpinForOrder } from './wheelService';
 import { sendOrderCompletedEmail } from './emailService';
 import { getOrCreateOrderReviewToken } from './reviewTokenService';
 import { partnerLedgerService } from './partnerLedgerService';
@@ -140,6 +141,13 @@ class OrderPollingService {
           await processReferralRewardOnOrder(order.id);
         } catch (refErr) {
           console.error(`[OrderPollingService] Referral reward error for order ${order.id}:`, refErr);
+        }
+
+        // Trigger Wheel Bonus Spin Awarding (Idempotent & Safe)
+        try {
+          await grantBonusSpinForOrder(order.id);
+        } catch (spinErr) {
+          console.error(`[OrderPollingService] Wheel bonus spin error for order ${order.id}:`, spinErr);
         }
 
         // Trigger Order Completed Email Safely (Non-blocking & Idempotent)

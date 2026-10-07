@@ -347,7 +347,7 @@ router.get('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res:
 
 // POST /api/admin/payment-methods - Create new payment method
 router.post('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { name, type, currency, account_name, account_number, bank_name, instructions, enabled, display_order } = req.body;
+  const { name, type, currency, account_name, account_number, bank_name, phone_number, qr_code_url, instructions, enabled, display_order } = req.body;
 
   if (!name || !account_name || !account_number || !bank_name) {
     return res.status(400).json({ error: 'اسم الطريقة، اسم البنك، اسم الحساب، ورقم الحساب حقول مطلوبة.' });
@@ -357,8 +357,8 @@ router.post('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res
     const newId = uuidv4();
     const result = await pool.query(
       `INSERT INTO "payment_methods" 
-        (id, name, type, currency, account_name, account_number, bank_name, instructions, enabled, display_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        (id, name, type, currency, account_name, account_number, bank_name, phone_number, qr_code_url, instructions, enabled, display_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         newId,
@@ -368,6 +368,8 @@ router.post('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res
         account_name,
         account_number,
         bank_name,
+        phone_number || null,
+        qr_code_url || null,
         instructions || null,
         enabled !== undefined ? enabled : true,
         display_order || 0
@@ -389,7 +391,7 @@ router.post('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res
 // PATCH /api/admin/payment-methods/:id - Update payment method
 router.patch('/admin/payment-methods/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  const { name, type, currency, account_name, account_number, bank_name, instructions, enabled, display_order } = req.body;
+  const { name, type, currency, account_name, account_number, bank_name, phone_number, qr_code_url, instructions, enabled, display_order } = req.body;
 
   try {
     const existing = await pool.query('SELECT * FROM "payment_methods" WHERE id = $1', [id]);
@@ -406,11 +408,13 @@ router.patch('/admin/payment-methods/:id', requireAdmin, async (req: AuthRequest
         account_name = COALESCE($4, account_name),
         account_number = COALESCE($5, account_number),
         bank_name = COALESCE($6, bank_name),
-        instructions = COALESCE($7, instructions),
-        enabled = COALESCE($8, enabled),
-        display_order = COALESCE($9, display_order),
+        phone_number = COALESCE($7, phone_number),
+        qr_code_url = COALESCE($8, qr_code_url),
+        instructions = COALESCE($9, instructions),
+        enabled = COALESCE($10, enabled),
+        display_order = COALESCE($11, display_order),
         updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10 RETURNING *`,
+       WHERE id = $12 RETURNING *`,
       [
         name !== undefined ? name : current.name,
         type !== undefined ? type : current.type,
@@ -418,6 +422,8 @@ router.patch('/admin/payment-methods/:id', requireAdmin, async (req: AuthRequest
         account_name !== undefined ? account_name : current.account_name,
         account_number !== undefined ? account_number : current.account_number,
         bank_name !== undefined ? bank_name : current.bank_name,
+        phone_number !== undefined ? phone_number : current.phone_number,
+        qr_code_url !== undefined ? qr_code_url : current.qr_code_url,
         instructions !== undefined ? instructions : current.instructions,
         enabled !== undefined ? enabled : current.enabled,
         display_order !== undefined ? display_order : current.display_order,

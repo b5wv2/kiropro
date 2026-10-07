@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { v4 as uuidv4 } from 'uuid';
-import { partnerService } from '../services/partnerService';
+import { partnerService, PartnerAccountError } from '../services/partnerService';
 import { partnerLedgerService } from '../services/partnerLedgerService';
 import { 
   sendPartnerWelcomeEmail, 
@@ -98,7 +98,54 @@ router.post('/partners', requireAdmin, async (req: AuthRequest, res: Response) =
     });
   } catch (err: any) {
     console.error('[AdminPartners] Error creating partner:', err);
+    if (err instanceof PartnerAccountError) {
+      return res.status(err.statusCode).json({
+        error: err.message,
+        code: err.code,
+        data: err.data
+      });
+    }
     res.status(400).json({ error: err.message || 'فشل إنشاء حساب الشريك.' });
+  }
+});
+
+// ==========================================
+// 2.1 UPGRADE CUSTOMER TO PARTNER (ADMIN EXPLICIT CONFIRMATION)
+// ==========================================
+router.post('/partners/upgrade-customer', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { customerUserId, businessName, phone, levelId, status, notes } = req.body;
+  const adminId = req.user?.id;
+
+  if (!customerUserId) {
+    return res.status(400).json({ error: 'معرف العميل (customerUserId) حقل مطلوب.' });
+  }
+
+  try {
+    const result = await partnerService.upgradeCustomerToPartner({
+      customerUserId,
+      businessName,
+      phone,
+      levelId,
+      status: status || 'ACTIVE',
+      notes,
+      adminId
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `تمت ترقية حساب ${result.name} (${result.email}) إلى تاجر بنجاح.`,
+      partner: result
+    });
+  } catch (err: any) {
+    console.error('[AdminPartners] Error upgrading customer to partner:', err);
+    if (err instanceof PartnerAccountError) {
+      return res.status(err.statusCode).json({
+        error: err.message,
+        code: err.code,
+        data: err.data
+      });
+    }
+    res.status(400).json({ error: err.message || 'فشلت ترقية حساب العميل إلى تاجر.' });
   }
 });
 
@@ -788,6 +835,117 @@ router.get('/exchange-rate-history', requireAdmin, async (_req: AuthRequest, res
     res.json(historyRes.rows);
   } catch (err: any) {
     res.status(500).json({ error: 'فشل جلب سجل تغييرات سعر الصرف.' });
+  }
+});
+
+// ==========================================
+// 11. ADMIN KIROPRO CARD PARTNER PRICING CONTROLS
+// ==========================================
+router.get('/partner-card-settings', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const CARD_PRODUCT_ID = 'b0000000-0000-0000-0000-000000000001';
+
+    // 1. Fetch current product settings
+    const prodRes = await pool.query(
+      `SELECT "customerPriceUsd", "defaultPartnerPriceUsd" FROM "Product" WHERE id = $1`,
+      [CARD_PRODUCT_ID]
+    );
+
+    // 2. Fetch pricing setting key if exists
+    const settingRes = await pool.query(
+      `SELECT value FROM partner_pricing_settings WHERE key = 'kiropro_card_default_partner_price_usd'`
+    );
+    const settingPrice = settingRes.rows[0]?.value ? Number(settingRes.rows[0].value) : null;
+    const defaultPartnerPrice = settingPrice || Number(prodRes.rows[0]?.defaultPartnerPriceUsd || 1.13);
+    const customerPrice = Number(prodRes.rows[0]?.customerPriceUsd || 2.00);
+
+    // 3. Stock counts from kiropro_cards_inventory
+    const stockRes = await pool.query(`
+      SELECT 
+        COUNT(*)::int as total,
+        COUNT(CASE WHEN status = 'AVAILABLE' THEN 1 END)::int as available,
+        COUNT(CASE WHEN status = 'CLAIMED' THEN 1 END)::int as claimed
+      FROM kiropro_cards_inventory
+    `);
+
+    res.json({
+      productId: CARD_PRODUCT_ID,
+      partnerPriceUsd: defaultPartnerPrice,
+      customerPriceUsd: customerPrice,
+      stock: {
+        total: stockRes.rows[0]?.total || 0,
+        available: stockRes.rows[0]?.available || 0,
+        claimed: stockRes.rows[0]?.claimed || 0
+      }
+    });
+  } catch (err: any) {
+    console.error('[AdminPartners] Error fetching partner card settings:', err);
+    res.status(500).json({ error: 'فشل جلب إعدادات بطاقة KiroPro Card للشركاء.' });
+  }
+});
+
+router.put('/partner-card-settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { partnerPriceUsd } = req.body;
+  const adminId = req.user?.id;
+  const CARD_PRODUCT_ID = 'b0000000-0000-0000-0000-000000000001';
+
+  const newPrice = Math.round(Number(partnerPriceUsd) * 100) / 100;
+  if (isNaN(newPrice) || newPrice < 1.01) {
+    return res.status(400).json({ error: 'سعر الشريك يجب أن يكون على الأقل $1.01 USD.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch current price for audit log
+    const prevRes = await client.query(
+      `SELECT "defaultPartnerPriceUsd" FROM "Product" WHERE id = $1 FOR UPDATE`,
+      [CARD_PRODUCT_ID]
+    );
+    const oldPrice = Number(prevRes.rows[0]?.defaultPartnerPriceUsd || 1.13);
+
+    // 2. Update Product defaultPartnerPriceUsd (NEVER touch customerPriceUsd)
+    await client.query(
+      `UPDATE "Product" 
+       SET "defaultPartnerPriceUsd" = $1, "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [newPrice, CARD_PRODUCT_ID]
+    );
+
+    // 3. Update partner_pricing_settings
+    await client.query(
+      `INSERT INTO partner_pricing_settings (key, value, description, updated_at)
+       VALUES ('kiropro_card_default_partner_price_usd', $1, 'السعر الافتراضي لبطاقة KiroPro Card للشركاء بالدولار', CURRENT_TIMESTAMP)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
+      [newPrice.toFixed(4)]
+    );
+
+    // 4. Record in AuditLog
+    await client.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, reason)
+       VALUES ($1, $2, 'PARTNER_CARD_PRICE_UPDATE', $3)`,
+      [
+        uuidv4(),
+        adminId || null,
+        `تحديث سعر الشريك لبطاقة KiroPro Card: من $${oldPrice.toFixed(2)} إلى $${newPrice.toFixed(2)} USD`
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `تم تحديث سعر الشريك لبطاقة KiroPro Card بنجاح إلى $${newPrice.toFixed(2)} USD.`,
+      oldPrice,
+      newPrice
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[AdminPartners] Error updating partner card price:', err);
+    res.status(500).json({ error: 'فشل تحديث سعر الشريك للبطاقة.' });
+  } finally {
+    client.release();
   }
 });
 

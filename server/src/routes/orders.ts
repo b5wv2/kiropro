@@ -7,10 +7,12 @@ import { gamesDropProvider } from '../providers/gamesdrop';
 import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
 import { processReferralRewardOnOrder } from '../services/referralService';
+import { grantBonusSpinForOrder } from '../services/wheelService';
 import { sendOrderProcessingEmail, sendOrderCompletedEmail } from '../services/emailService';
 import { getOrCreateOrderReviewToken } from '../services/reviewTokenService';
 import { getGeneralSettings } from './admin';
 import { decryptPassword } from '../utils/cryptoAccount';
+import { decryptCardData, formatCardNumber, maskCardNumber } from '../utils/cryptoCard';
 
 const router = Router();
 
@@ -64,7 +66,9 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       return res.status(400).json({ error: 'تسعير المنتج غير مهيأ حالياً. يرجى مراجعة إدارة المنصة.' });
     }
 
-    const isDigitalAccount = localProduct.productType === 'DIGITAL_ACCOUNT' || localProduct.category === 'DIGITAL_ACCOUNT' || localProduct.provider === 'INTERNAL';
+    const isVirtualCard = localProduct.productType === 'VIRTUAL_CARD' || localProduct.category === 'VIRTUAL_CARD';
+    const isDigitalAccount = !isVirtualCard && (localProduct.productType === 'DIGITAL_ACCOUNT' || localProduct.category === 'DIGITAL_ACCOUNT' || localProduct.provider === 'INTERNAL');
+    const isInternalFulfillment = isDigitalAccount || isVirtualCard;
 
     let quantity = 1;
     if (isDigitalAccount) {
@@ -83,7 +87,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     let providerOfferId = 0;
     let effectiveServerId: string | null = null;
 
-    if (!isDigitalAccount) {
+    if (!isInternalFulfillment) {
       providerOfferId = Number(localProduct.offerId || localProduct.providerOfferId);
       if (!providerOfferId || isNaN(providerOfferId)) {
         return res.status(400).json({ error: 'معرف مزود الخدمة للمنتج غير صالح.' });
@@ -141,7 +145,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     let latestProviderPrice = 0;
     let providerCurrency = 'USD';
 
-    if (!isDigitalAccount) {
+    if (!isInternalFulfillment) {
       if (localProduct.requiresGameUserId) {
         if (!playerId || !playerId.trim()) {
           return res.status(400).json({ error: 'معرّف الحساب مطلوب لإتمام هذا الطلب.' });
@@ -213,11 +217,39 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     let discountApplied = 0;
     let promoRecord: any = null;
     let assignedInventoryAccounts: any[] = [];
+    let assignedKiroproCard: any = null;
 
     try {
       await client.query('BEGIN');
 
-      if (isDigitalAccount) {
+      if (isVirtualCard) {
+        // 1. Verify available stock count before locking
+        const stockCountRes = await client.query(
+          `SELECT COUNT(*)::int as count 
+           FROM kiropro_cards_inventory 
+           WHERE product_id = $1 AND status = 'AVAILABLE'`,
+          [localProduct.id]
+        );
+        const availableCount = stockCountRes.rows[0]?.count || 0;
+        if (availableCount < 1) {
+          throw new Error('نعتذر، بطاقة كيرو برو غير متوفرة حالياً في المخزون.');
+        }
+
+        // 2. Select & Lock 1 Card Atomically (FOR UPDATE SKIP LOCKED)
+        const cardLockRes = await client.query(
+          `SELECT id, card_last4, exp_date, balance 
+           FROM kiropro_cards_inventory 
+           WHERE product_id = $1 AND status = 'AVAILABLE' 
+           ORDER BY created_at ASC 
+           LIMIT 1 
+           FOR UPDATE SKIP LOCKED`,
+          [localProduct.id]
+        );
+        if (cardLockRes.rows.length === 0) {
+          throw new Error('تعذر حجز بطاقة من المخزون حالياً نظراً لضغط الطلب المتزامن. يرجى المحاولة بعد قليل.');
+        }
+        assignedKiroproCard = cardLockRes.rows[0];
+      } else if (isDigitalAccount) {
         // 1. Verify available stock count before locking
         const stockCountRes = await client.query(
           `SELECT COUNT(*)::int as count 
@@ -335,7 +367,52 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         throw new Error('الرصيد غير كافٍ');
       }
 
-      if (isDigitalAccount) {
+      if (isVirtualCard) {
+        // Insert Completed Order directly for VIRTUAL_CARD
+        await client.query(
+          `INSERT INTO "Order" (
+            id, "userId", "gameId", "packageId", "packageName", "playerId", 
+            amount, "originalAmount", "discountAmount", "promoCode", 
+            status, provider, "orderType",
+            "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount", 
+            "chargedCurrency", "exchangeRateUsed", "cashbackAmount", "completedAt",
+            quantity, "unitPrice", "unitPriceUsd"
+          ) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'COMPLETED', 'INTERNAL', 'VIRTUAL_CARD', $11, $12, $13, $14, $15, $16, 0.0, CURRENT_TIMESTAMP, 1, $17, $18)`,
+          [
+            orderId,
+            user.id,
+            localProduct.gameCategoryId || 'kiropro-card',
+            localProduct.id,
+            effectivePackageName,
+            `بطاقة كيرو برو (•••• ${assignedKiroproCard.card_last4})`,
+            finalChargeAmount,
+            basePriceInUserCurrency,
+            discountApplied,
+            promoRecord ? promoRecord.code : null,
+            authoritativeCustomerPriceUsd,
+            finalChargeAmount,
+            authoritativeCustomerPriceUsd,
+            finalChargeAmount,
+            userCurrency,
+            exchangeRate,
+            unitPriceInUserCurrency,
+            authoritativeCustomerPriceUsd
+          ]
+        );
+
+        // Mark card as CLAIMED and associate with order and user
+        await client.query(
+          `UPDATE kiropro_cards_inventory 
+           SET status = 'CLAIMED', 
+               order_id = $1, 
+               assigned_to_user_id = $2, 
+               assigned_at = CURRENT_TIMESTAMP, 
+               updated_at = CURRENT_TIMESTAMP 
+           WHERE id = $3`,
+          [orderId, user.id, assignedKiroproCard.id]
+        );
+      } else if (isDigitalAccount) {
         const deliveryPlayerId = quantity > 1 
           ? `${quantity} حسابات (${assignedInventoryAccounts[0].email} ...)` 
           : assignedInventoryAccounts[0].email;
@@ -500,10 +577,46 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       client.release();
     }
 
+    // Immediate Delivery for VIRTUAL_CARD (No upstream GamesDrop dispatch needed)
+    if (isVirtualCard) {
+      let bonusSpinGranted = false;
+      try { await awardOrderCashback(orderId); } catch (e) { console.error('[Orders] Virtual card cashback error:', e); }
+      try { await processReferralRewardOnOrder(orderId); } catch (e) { console.error('[Orders] Virtual card referral error:', e); }
+      try {
+        const spinRes = await grantBonusSpinForOrder(orderId);
+        bonusSpinGranted = spinRes.granted;
+      } catch (e) {
+        console.error('[Orders] Virtual card bonus spin error:', e);
+      }
+
+      return res.status(201).json({
+        success: true,
+        orderId,
+        id: orderId,
+        status: 'COMPLETED',
+        isVirtualCard: true,
+        bonusSpinGranted,
+        packageName: effectivePackageName,
+        quantity: 1,
+        unitPrice: unitPriceInUserCurrency,
+        chargedAmount: finalChargeAmount,
+        currency: userCurrency,
+        cardLast4: assignedKiroproCard?.card_last4,
+        message: 'تم شراء وتخصيص بطاقة كيرو برو بنجاح 🎉'
+      });
+    }
+
     // Immediate Delivery for DIGITAL_ACCOUNT (No upstream GamesDrop dispatch needed)
     if (isDigitalAccount) {
+      let bonusSpinGranted = false;
       try { await awardOrderCashback(orderId); } catch (e) { console.error('[Orders] Digital account cashback error:', e); }
       try { await processReferralRewardOnOrder(orderId); } catch (e) { console.error('[Orders] Digital account referral error:', e); }
+      try {
+        const spinRes = await grantBonusSpinForOrder(orderId);
+        bonusSpinGranted = spinRes.granted;
+      } catch (e) {
+        console.error('[Orders] Digital account bonus spin error:', e);
+      }
 
       const decryptedAccounts = assignedInventoryAccounts.map((acc, idx) => ({
         id: acc.id,
@@ -518,6 +631,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         id: orderId,
         status: 'COMPLETED',
         isDigitalAccount: true,
+        bonusSpinGranted,
         packageName: effectivePackageName,
         quantity,
         unitPrice: unitPriceInUserCurrency,
@@ -590,6 +704,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     const mappedStatus = mapGamesDropStatus(rawStatus);
     const providerOrderId = gdResponse.order_id || gdResponse.orderId;
     const fulfillmentKey = gdResponse.key || null;
+    let bonusSpinGranted = false;
 
     const updateClient = await pool.connect();
     try {
@@ -663,6 +778,13 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
           console.error('[Orders] Immediate referral reward error:', refErr);
         }
 
+        try {
+          const spinRes = await grantBonusSpinForOrder(orderId);
+          bonusSpinGranted = spinRes.granted;
+        } catch (spErr) {
+          console.error('[Orders] Immediate bonus spin error:', spErr);
+        }
+
         // Trigger Order Completed Email with One-Click Review Token
         getOrCreateOrderReviewToken(orderId, localProduct.id, effectivePackageName, user.id)
           .then(rt => {
@@ -709,7 +831,8 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       chargedAmount: finalChargeAmount,
       discountApplied,
       promoCode: promoRecord ? promoRecord.code : null,
-      key: fulfillmentKey
+      key: fulfillmentKey,
+      bonusSpinGranted
     });
 
   } catch (error: any) {
@@ -756,7 +879,38 @@ router.get('/:id/credentials', requireAuth, async (req: AuthRequest, res: Respon
       return res.status(400).json({ error: 'بيانات الحساب متاحة فقط للطلبات المكتملة.' });
     }
 
-    // 2. Fetch assigned digital accounts
+    // 2. Check if order is for a KiroPro Virtual Card
+    const cardRes = await pool.query(
+      `SELECT id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, assigned_at
+       FROM kiropro_cards_inventory 
+       WHERE order_id = $1`,
+      [orderId]
+    );
+
+    if (cardRes.rows.length > 0) {
+      const card = cardRes.rows[0];
+      const fullCardNumber = decryptCardData(card.card_number_encrypted);
+      const cvv = decryptCardData(card.cvv_encrypted);
+
+      return res.json({
+        success: true,
+        orderId: order.id,
+        packageName: order.packageName,
+        isVirtualCard: true,
+        card: {
+          id: card.id,
+          cardNumber: formatCardNumber(fullCardNumber),
+          last4: card.card_last4,
+          maskedNumber: maskCardNumber(card.card_last4),
+          expDate: card.exp_date,
+          cvv: cvv,
+          balance: Number(card.balance),
+          assignedAt: card.assigned_at
+        }
+      });
+    }
+
+    // 3. Fetch assigned digital accounts
     const accRes = await pool.query(
       `SELECT a.id, a.email, a.password_encrypted, a.assigned_at as "assignedAt" 
        FROM digital_product_accounts a 
@@ -902,6 +1056,12 @@ router.put('/:id/status', requireAdmin, async (req: AuthRequest, res: Response) 
           await processReferralRewardOnOrder(orderId, client);
         } catch (refErr) {
           console.error('[Orders] Manual execution referral reward error:', refErr);
+        }
+
+        try {
+          await grantBonusSpinForOrder(orderId, client);
+        } catch (spErr) {
+          console.error('[Orders] Manual execution bonus spin error:', spErr);
         }
       }
 

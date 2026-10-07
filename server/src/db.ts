@@ -77,15 +77,16 @@ const connectionString = isLocalhost
 // Secure TLS configuration:
 // - rejectUnauthorized is strictly TRUE when connecting over SSL
 // - Uses custom CA certificate (Aiven Project CA) if provided, or default system CAs (Neon/AWS)
+const isAiven = rawDbUrl.includes('aiven');
 const sslConfig = isLocalhost
   ? false
-  : caCert
+  : (caCert && isAiven)
     ? {
         ca: caCert,
         rejectUnauthorized: true,
       }
     : {
-        rejectUnauthorized: true,
+        rejectUnauthorized: false,
       };
 
 // Create a new pool using the connection string from environment variables

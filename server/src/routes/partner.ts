@@ -395,11 +395,23 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
     // Fetch active products with partner customized pricing or default partner price
     const query = `
       SELECT 
-        p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+        p.id, p."providerOfferId", p."productName", p."offerName", p.category, p."productType",
         p."arabicName", p.description, p."platformCode", p."regionCode",
         p."customerPriceUsd" as "retailPriceUsd",
         COALESCE(p."supplierCostUsd", p."gamesDropCostUsd", 0) as "supplierCostUsd",
         p."defaultPartnerPriceUsd",
+        p.fulfillment_type,
+        p.requires_player_id,
+        p.requires_server_id,
+        p.requires_quantity,
+        p.requires_inventory,
+        (CASE 
+          WHEN p.fulfillment_type = 'KIROPRO_CARD' OR p."productType" = 'VIRTUAL_CARD' THEN 
+            (SELECT COUNT(*)::int FROM kiropro_cards_inventory WHERE status = 'AVAILABLE')
+          WHEN p.fulfillment_type = 'DIGITAL_ACCOUNT' OR p."productType" = 'DIGITAL_ACCOUNT' THEN 
+            (SELECT COUNT(*)::int FROM digital_product_accounts WHERE product_id = p.id AND status = 'AVAILABLE')
+          ELSE NULL 
+        END) as "availableStock",
         ppp.partner_price_usd as "customPartnerPriceUsd",
         ppp.markup_usd as "customMarkupUsd",
         ppp.is_available as "customIsAvailable",
@@ -447,6 +459,16 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
       const retailPrice = Number(row.retailPriceUsd || 0);
       const savings = retailPrice > finalPrice ? Math.round(((retailPrice - finalPrice) / retailPrice) * 100) : 0;
 
+      const fulfillmentType = row.fulfillment_type || (
+        row.productType === 'VIRTUAL_CARD' ? 'KIROPRO_CARD' :
+        row.productType === 'DIGITAL_ACCOUNT' ? 'DIGITAL_ACCOUNT' :
+        'DIRECT_TOPUP'
+      );
+      const isCardOrDigital = fulfillmentType === 'KIROPRO_CARD' || fulfillmentType === 'DIGITAL_ACCOUNT';
+      const requiresPlayerId = !isCardOrDigital && (row.requires_player_id !== false && row.requiresGameUserId !== false);
+      const availableStock = row.availableStock !== null ? Number(row.availableStock) : undefined;
+      const inStock = isCardOrDigital ? (availableStock !== undefined ? availableStock > 0 : row.inStock) : row.inStock;
+
       return {
         id: row.id,
         providerOfferId: row.providerOfferId,
@@ -462,9 +484,15 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
         categoryImageUrl: row.categoryImageUrl,
         idFieldLabel: row.categoryIdFieldLabel || 'معرّف اللاعب (Player ID)',
         idPlaceholder: row.categoryIdPlaceholder || 'أدخل معرّف اللاعب (Player ID)',
-        inStock: row.inStock,
-        requiresGameUserId: row.requiresGameUserId,
-        requiresGameServerId: row.requiresGameServerId,
+        fulfillmentType,
+        requiresPlayerId,
+        requiresServerId: Boolean(row.requires_server_id || row.requiresGameServerId),
+        requiresQuantity: Boolean(row.requires_quantity || fulfillmentType === 'DIGITAL_ACCOUNT'),
+        requiresInventory: Boolean(row.requires_inventory || isCardOrDigital),
+        availableStock,
+        inStock,
+        requiresGameUserId: requiresPlayerId,
+        requiresGameServerId: Boolean(row.requires_server_id || row.requiresGameServerId),
         price: retailPrice,
         retailPriceUsd: retailPrice,
         effectivePartnerPriceUsd: finalPrice,
@@ -488,7 +516,7 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
 // 6. QUICK BUY (INSTANT 1-CLICK TOP-UP)
 // ==========================================
 router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAuthRequest, res: Response) => {
-  const { productId, playerId, serverId, playerName } = req.body;
+  const { productId, playerId, serverId, playerName, quantity = 1, idempotencyKey } = req.body;
   const partner = req.partner;
 
   if (!partner) return res.status(401).json({ error: 'غير مصرح.' });
@@ -504,18 +532,8 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
     return res.status(400).json({ error: 'يرجى اختيار باقة الشحن.' });
   }
 
-  if (!playerId || typeof playerId !== 'string' || !playerId.trim()) {
-    return res.status(400).json({ error: 'معرّف اللاعب (Player ID) مطلوب.' });
-  }
-
-  const cleanPlayerId = playerId.trim();
-
   try {
-    // 1. Authoritative price resolution
-    const pricing = await partnerService.getEffectivePartnerPrice(partner.id, productId);
-    const chargeAmountUsd = pricing.finalPartnerPriceUsd;
-
-    // 2. Fetch authoritative product info
+    // 1. Fetch authoritative product info
     const prodRes = await pool.query(
       `SELECT p.*, c.name as "categoryName", c."arabicName" as "categoryArabicName" 
        FROM "Product" p 
@@ -527,21 +545,111 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
     const product = prodRes.rows[0];
     if (!product) return res.status(400).json({ error: 'المنتج غير موجود.' });
 
+    const fulfillmentType = product.fulfillment_type || (
+      product.productType === 'VIRTUAL_CARD' ? 'KIROPRO_CARD' :
+      product.productType === 'DIGITAL_ACCOUNT' ? 'DIGITAL_ACCOUNT' :
+      'DIRECT_TOPUP'
+    );
+
+    // 2. Route KIROPRO_CARD (Virtual Mastercard)
+    if (fulfillmentType === 'KIROPRO_CARD') {
+      try {
+        const cardResult = await partnerService.issueKiroProCard({
+          partnerId: partner.id,
+          partnerUserId: req.user?.id || partner.userId,
+          idempotencyKey
+        });
+
+        const updatedWallet = await pool.query(
+          'SELECT balance FROM partner_wallets WHERE partner_id = $1',
+          [partner.id]
+        );
+
+        return res.json({
+          success: true,
+          orderId: cardResult.order.id,
+          order: {
+            id: cardResult.order.id,
+            orderNumber: cardResult.order.id.slice(0, 8).toUpperCase(),
+            productName: product.arabicName || product.productName,
+            amountUsd: cardResult.order.partnerPriceUsd,
+            status: cardResult.order.status,
+            cardLast4: cardResult.order.cardLast4,
+            cardId: cardResult.order.cardId
+          },
+          newBalance: Number(updatedWallet.rows[0]?.balance || 0),
+          message: 'تم إصدار بطاقة ماستركارد بنجاح!'
+        });
+      } catch (err: any) {
+        return res.status(400).json({ error: err.message || 'فشل إصدار البطاقة.' });
+      }
+    }
+
+    // 3. Route DIGITAL_ACCOUNT (Google Play Accounts, etc.)
+    if (fulfillmentType === 'DIGITAL_ACCOUNT') {
+      const parsedQty = Math.max(1, Math.min(100, Number(quantity) || 1));
+      try {
+        const digitalResult = await partnerService.issueDigitalAccounts({
+          partnerId: partner.id,
+          partnerUserId: req.user?.id || partner.userId,
+          productId,
+          quantity: parsedQty,
+          idempotencyKey
+        });
+
+        const updatedWallet = await pool.query(
+          'SELECT balance FROM partner_wallets WHERE partner_id = $1',
+          [partner.id]
+        );
+
+        return res.json({
+          success: true,
+          orderId: digitalResult.order.id,
+          order: {
+            id: digitalResult.order.id,
+            orderNumber: digitalResult.order.id.slice(0, 8).toUpperCase(),
+            productName: digitalResult.order.productName,
+            amountUsd: digitalResult.order.totalAmountUsd,
+            quantity: digitalResult.order.quantity,
+            status: digitalResult.order.status
+          },
+          accounts: digitalResult.accounts,
+          newBalance: Number(updatedWallet.rows[0]?.balance || 0),
+          message: `تم تسليم ${parsedQty} حساب بنجاح!`
+        });
+      } catch (err: any) {
+        return res.status(400).json({ error: err.message || 'فشل شراء الحسابات الرقمية.' });
+      }
+    }
+
+    // 4. Route DIRECT_TOPUP (Games with Player ID)
+    const requiresPlayerId = product.requires_player_id !== false && product.requiresGameUserId !== false;
+    if (requiresPlayerId) {
+      if (!playerId || typeof playerId !== 'string' || !playerId.trim()) {
+        return res.status(400).json({ error: 'معرّف اللاعب (Player ID) مطلوب.' });
+      }
+    }
+    const cleanPlayerId = (playerId && typeof playerId === 'string') ? playerId.trim() : 'N/A';
+
     const providerOfferId = Number(product.providerOfferId);
     if (!providerOfferId || isNaN(providerOfferId)) {
       return res.status(400).json({ error: 'معرّف مزود الخدمة غير صالح.' });
     }
 
-    // 3. Server ID check if required
+    // Server ID check if required
     let effectiveServerId: string | null = null;
-    if (product.requiresGameServerId) {
+    if (product.requires_server_id || product.requiresGameServerId) {
       if (!serverId || !String(serverId).trim()) {
         return res.status(400).json({ error: 'يرجى تحديد خادم اللعبة (Server ID) لإتمام الشحن.' });
       }
       effectiveServerId = String(serverId).trim();
     }
 
-    // 4. Idempotency Check: reject identical request within 5 seconds
+    // Authoritative price resolution
+    const pricing = await partnerService.getEffectivePartnerPrice(partner.id, productId);
+    const chargeAmountUsd = pricing.finalPartnerPriceUsd;
+
+    // Idempotency Check: reject identical request within 5 seconds
     const duplicateCheck = await pool.query(
       `SELECT id FROM partner_orders 
        WHERE partner_id = $1 AND product_id = $2 AND player_id = $3 
@@ -980,6 +1088,163 @@ router.post('/logout', requirePartner, async (req: PartnerAuthRequest, res: Resp
   res.clearCookie('token', getAuthCookieOptions());
   res.clearCookie('partner_token', getAuthCookieOptions());
   res.json({ success: true, message: 'تم تسجيل الخروج بنجاح.' });
+});
+
+// ==========================================
+// 14. KIROPRO CARD (MASTERCARD VIRTUAL) FOR PARTNERS
+// ==========================================
+
+const cardIssueLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20, // 20 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'تم تجاوز الحد المسموح لطلبات إصدار البطاقات. يرجى الانتظار قليلاً.' }
+});
+
+// 14.1 GET Card Summary, Stock & Partner Price
+router.get('/kiropro-cards/info', requirePartner, async (req: PartnerAuthRequest, res: Response) => {
+  const partnerId = req.partner?.id;
+  if (!partnerId) {
+    return res.status(403).json({ error: 'حساب الشريك غير متوفر.' });
+  }
+
+  try {
+    const info = await partnerService.getPartnerCardInfo(partnerId);
+    res.json(info);
+  } catch (err: any) {
+    console.error('[Partner] Error fetching card info:', err.message);
+    res.status(500).json({ error: err.message || 'فشل جلب بيانات بطاقة KiroPro Card.' });
+  }
+});
+
+// 14.2 POST Issue KiroPro Card (Atomic with SELECT FOR UPDATE SKIP LOCKED & Idempotency)
+router.post('/kiropro-cards/issue', requirePartner, cardIssueLimiter, async (req: PartnerAuthRequest, res: Response) => {
+  const partnerId = req.partner?.id;
+  const partnerUserId = req.user?.id;
+
+  if (!partnerId || !partnerUserId) {
+    return res.status(403).json({ error: 'غير مصرح: حساب الشريك غير معتمد.' });
+  }
+
+  // Idempotency key from header or body
+  const headerKey = req.headers['x-idempotency-key'] as string | undefined;
+  const idempotencyKey = (headerKey || req.body?.idempotencyKey || '').trim() || undefined;
+
+  try {
+    const result = await partnerService.issueKiroProCard({
+      partnerId,
+      partnerUserId,
+      idempotencyKey
+    });
+
+    res.status(200).json({
+      success: true,
+      message: result.message || 'تم إصدار بطاقة KiroPro Card بنجاح.',
+      order: result.order,
+      isDuplicate: result.isDuplicate || false
+    });
+  } catch (err: any) {
+    // Note: Do not log sensitive user or card data
+    console.error('[Partner] Card issuance failed:', err.message);
+    res.status(400).json({ error: err.message || 'فشل إصدار البطاقة.' });
+  }
+});
+
+// 14.3 GET My Issued Cards List
+router.get('/kiropro-cards/my-cards', requirePartner, async (req: PartnerAuthRequest, res: Response) => {
+  const partnerId = req.partner?.id;
+  if (!partnerId) {
+    return res.status(403).json({ error: 'حساب الشريك غير متوفر.' });
+  }
+
+  try {
+    const cards = await partnerService.getPartnerIssuedCards(partnerId);
+    res.json(cards);
+  } catch (err: any) {
+    console.error('[Partner] Error fetching partner cards:', err.message);
+    res.status(500).json({ error: 'فشل جلب قائمة البطاقات المصدرة.' });
+  }
+});
+
+// 14.4 GET Card Credentials (Strict Ownership & IDOR Protection - NEVER LOGS PAN/CVV)
+router.get('/kiropro-cards/:cardId/credentials', requirePartner, async (req: PartnerAuthRequest, res: Response) => {
+  const partnerId = req.partner?.id;
+  const partnerUserId = req.user?.id;
+  const cardId = typeof req.params.cardId === 'string' ? req.params.cardId : '';
+
+  if (!partnerId || !partnerUserId || !cardId) {
+    return res.status(403).json({ error: 'غير مصرح بعرض البطاقة.' });
+  }
+
+  try {
+    const credentials = await partnerService.getPartnerCardCredentials(partnerId, partnerUserId, cardId);
+    res.json(credentials);
+  } catch (err: any) {
+    console.error('[Partner] Card credentials fetch failed:', err.message);
+    res.status(403).json({ error: err.message || 'غير مصرح لك بعرض بيانات هذه البطاقة.' });
+  }
+});
+
+// 14.5 GET Order Credentials (For Digital Accounts or KiroPro Card - Strict IDOR Protection)
+router.get('/orders/:orderId/credentials', requirePartner, async (req: PartnerAuthRequest, res: Response) => {
+  const partnerId = req.partner?.id;
+  const partnerUserId = req.user?.id;
+  const orderId = String(req.params.orderId);
+
+  if (!partnerId || !orderId) {
+    return res.status(403).json({ error: 'غير مصرح.' });
+  }
+
+  try {
+    const orderRes = await pool.query(
+      `SELECT id, partner_id, game_id as "gameId", product_id as "productId", package_name as "packageName"
+       FROM partner_orders 
+       WHERE id = $1 AND partner_id = $2`,
+      [orderId, partnerId]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'الطلب غير موجود أو غير مصرح لك بعرض بياناته.' });
+    }
+
+    const order = orderRes.rows[0];
+
+    // If KiroPro Card
+    if (order.gameId === 'KIROPRO_CARD') {
+      const cardRes = await pool.query(
+        `SELECT id FROM kiropro_cards_inventory WHERE partner_order_id = $1 LIMIT 1`,
+        [orderId]
+      );
+      if (cardRes.rows.length === 0) {
+        return res.status(404).json({ error: 'لا توجد بطاقة مرتبطة بهذا الطلب.' });
+      }
+      const creds = await partnerService.getPartnerCardCredentials(partnerId, partnerUserId || '', cardRes.rows[0].id);
+      return res.json({
+        success: true,
+        type: 'KIROPRO_CARD',
+        card: creds
+      });
+    }
+
+    // If Digital Account
+    if (order.gameId === 'DIGITAL_ACCOUNT') {
+      const data = await partnerService.getPartnerOrderDigitalAccounts(partnerId, orderId);
+      return res.json({
+        success: true,
+        type: 'DIGITAL_ACCOUNT',
+        accounts: data.accounts
+      });
+    }
+
+    res.json({
+      success: true,
+      type: 'STANDARD',
+      message: 'هذا الطلب شحن مباشر ولا يحتوي على حسابات أو بطاقات قابلة للكشف.'
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'فشل جلب بيانات الاعتماد للطلب.' });
+  }
 });
 
 export default router;

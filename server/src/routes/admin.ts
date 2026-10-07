@@ -4,6 +4,7 @@ import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
+import { grantBonusSpinForOrder } from '../services/wheelService';
 import { 
   processReferralRewardOnOrder, 
   getAdminReferralStats, 
@@ -498,6 +499,12 @@ router.put('/orders/:id/status', requireAdmin, async (req: AuthRequest, res: Res
           await processReferralRewardOnOrder(orderId, client);
         } catch (refErr) {
           console.error('[Admin] Manual execution referral reward error:', refErr);
+        }
+
+        try {
+          await grantBonusSpinForOrder(orderId, client);
+        } catch (spinErr) {
+          console.error('[Admin] Manual execution bonus spin error:', spinErr);
         }
       }
 
