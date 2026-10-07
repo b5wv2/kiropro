@@ -154,6 +154,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
   const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
   const isVirtualCard = selectedPackage?.productType === 'VIRTUAL_CARD' || game?.id === 'kiropro-card';
+  const isOutOfStock = selectedPackage?.inStock === false || (selectedPackage?.availableStock !== undefined && selectedPackage?.availableStock <= 0);
   const unitPrice = getPackagePrice(selectedPackage);
   const rawOrderPrice = isDigitalAccount ? (unitPrice * quantity) : unitPrice;
   const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
@@ -1348,7 +1349,25 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                   </div>
                 </div>
 
-                {isInsufficient ? (
+                {isOutOfStock ? (
+                  <div className={styles.insufficientBox} style={{ background: '#fef2f2', borderColor: '#fecaca' }}>
+                    <div className={styles.insufficientTitle} style={{ color: '#b91c1c' }}>
+                      <AlertCircle size={18} color="#dc2626" />
+                      <span>المخزون غير متوفر حالياً</span>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#7f1d1d' }}>
+                      نعتذر، نفدت بطاقات كيرو برو المتاحة مؤقتاً. جاري إضافة دفعات جديدة قريباً من الإدارة.
+                    </p>
+                    <button
+                      type="button"
+                      disabled
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', opacity: 0.6, cursor: 'not-allowed', marginTop: 8 }}
+                    >
+                      نفد المخزون مؤقتاً
+                    </button>
+                  </div>
+                ) : isInsufficient ? (
                   <div className={styles.insufficientBox}>
                     <div className={styles.insufficientTitle}>
                       <AlertCircle size={18} color="#dc2626" />
@@ -1557,7 +1576,25 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
             </div>
 
             {/* Insufficient Balance State */}
-            {isInsufficient ? (
+            {isOutOfStock ? (
+              <div className={styles.insufficientBox} style={{ background: '#fef2f2', borderColor: '#fecaca' }}>
+                <div className={styles.insufficientTitle} style={{ color: '#b91c1c' }}>
+                  <AlertCircle size={18} color="#dc2626" />
+                  <span>المخزون غير متوفر حالياً</span>
+                </div>
+                <p style={{ fontSize: '0.8rem', color: '#7f1d1d' }}>
+                  نعتذر، هذا المنتج غير متوفر حالياً في المخزون. يرجى مراجعة الموقع لاحقاً عند إضافة كميات جديدة.
+                </p>
+                <button
+                  type="button"
+                  disabled
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', opacity: 0.6, cursor: 'not-allowed', marginTop: 8 }}
+                >
+                  نفد المخزون مؤقتاً
+                </button>
+              </div>
+            ) : isInsufficient ? (
               <div className={styles.insufficientBox}>
                 <div className={styles.insufficientTitle}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

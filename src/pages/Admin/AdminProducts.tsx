@@ -19,7 +19,8 @@ import {
   Image as ImageIcon,
   Trash2,
   Sparkles,
-  Key
+  Key,
+  CreditCard
 } from 'lucide-react';
 import { 
   fetchAdminCatalog, 
@@ -36,6 +37,7 @@ import {
 import { getProductImageUrl } from '../../utils/imageUrl';
 import { AdminProduct, AdminCatalogResponse, GameCategory } from '../../types';
 import { AdminDigitalAccountsTab } from '../../components/admin/AdminDigitalAccountsTab';
+import { AdminKiroProCards } from './AdminKiroProCards';
 
 export const AdminProducts: React.FC = () => {
   const [products, setProducts] = useState<AdminProduct[]>([]);
@@ -86,8 +88,8 @@ export const AdminProducts: React.FC = () => {
   const [catalogSyncStats, setCatalogSyncStats] = useState<GamesDropCatalogSyncResult['stats'] | null>(null);
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog) vs 'digital-accounts' (Digital Accounts Inventory)
-  const [activeAdminTab, setActiveAdminTab] = useState<'categories' | 'products' | 'digital-accounts'>('categories');
+  // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog) vs 'digital-accounts' (Digital Accounts Inventory) vs 'kiropro-cards' (Mastercard Cards Vault)
+  const [activeAdminTab, setActiveAdminTab] = useState<'categories' | 'products' | 'digital-accounts' | 'kiropro-cards'>('categories');
   const [categories, setCategories] = useState<GameCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [uploadingCatId, setUploadingCatId] = useState<string | null>(null);
@@ -531,6 +533,39 @@ export const AdminProducts: React.FC = () => {
             borderRadius: '12px'
           }}>
             تسليم فوري 🔑
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminTab('kiropro-cards')}
+          style={{
+            padding: '10px 18px',
+            borderRadius: '8px',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            border: 'none',
+            background: activeAdminTab === 'kiropro-cards' ? '#0f172a' : '#f8fafc',
+            color: activeAdminTab === 'kiropro-cards' ? '#ffffff' : '#64748b',
+            boxShadow: activeAdminTab === 'kiropro-cards' ? '0 4px 12px rgba(15,23,42,0.15)' : 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <CreditCard size={18} color={activeAdminTab === 'kiropro-cards' ? '#f59e0b' : '#64748b'} />
+          <span>خزنة بطاقات ماستركارد (KiroPro Card)</span>
+          <span style={{ 
+            background: activeAdminTab === 'kiropro-cards' ? '#f59e0b' : '#e2e8f0', 
+            color: activeAdminTab === 'kiropro-cards' ? '#0f172a' : '#475569',
+            fontSize: '0.72rem',
+            fontWeight: 800,
+            padding: '2px 8px',
+            borderRadius: '12px'
+          }}>
+            Mastercard 💳
           </span>
         </button>
       </div>
@@ -996,15 +1031,29 @@ export const AdminProducts: React.FC = () => {
                           : 'لم تتم المزامنة'}
                       </td>
                       <td>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEdit(prod)}
-                          className="admin-btn admin-btn-secondary admin-btn-sm"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                        >
-                          <Edit3 size={14} />
-                          <span>تعديل</span>
-                        </button>
+                        <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(prod)}
+                            className="admin-btn admin-btn-secondary admin-btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                          >
+                            <Edit3 size={14} />
+                            <span>تعديل</span>
+                          </button>
+                          {(prod.category === 'VIRTUAL_CARD' || prod.productName?.toLowerCase().includes('mastercard') || prod.productName?.includes('كيرو برو')) && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveAdminTab('kiropro-cards')}
+                              className="admin-btn admin-btn-primary admin-btn-sm"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#d97706', borderColor: '#b45309' }}
+                              title="إدارة مخزون بطاقات ماستركارد"
+                            >
+                              <CreditCard size={14} />
+                              <span>المخزون</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1055,6 +1104,13 @@ export const AdminProducts: React.FC = () => {
       {/* ========================================================================= */}
       {activeAdminTab === 'digital-accounts' && (
         <AdminDigitalAccountsTab products={products} />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. KIROPRO MASTERCARD CARDS INVENTORY VIEW                               */}
+      {/* ========================================================================= */}
+      {activeAdminTab === 'kiropro-cards' && (
+        <AdminKiroProCards />
       )}
 
       {/* Edit Product Modal */}

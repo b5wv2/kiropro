@@ -9,15 +9,11 @@ import {
   ArrowRight, 
   RefreshCw, 
   Flame, 
-  CreditCard,
   Copy,
   Check,
   ShieldCheck,
   Minus,
   Plus,
-  Server,
-  User,
-  ShoppingBag,
   ExternalLink
 } from 'lucide-react';
 

@@ -9,7 +9,6 @@ import {
   ArrowUpRight, 
   RefreshCw, 
   CreditCard,
-  Building,
   Info
 } from 'lucide-react';
 

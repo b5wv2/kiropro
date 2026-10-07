@@ -9,7 +9,6 @@ import {
   Eye,
   CreditCard,
   Key,
-  ShieldCheck,
   X,
   EyeOff
 } from 'lucide-react';
@@ -326,6 +325,7 @@ export const PartnerOrders: React.FC = () => {
                         {(isCard || isDigital) && ord.status === 'COMPLETED' ? (
                           <button
                             onClick={() => handleViewCredentials(ord)}
+                            disabled={loadingCredentials}
                             className="btn-partner-secondary"
                             style={{ padding: '4px 8px', fontSize: '0.72rem', gap: 4 }}
                             title="عرض تفاصيل وبيانات الاعتماد"

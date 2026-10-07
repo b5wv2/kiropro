@@ -5,16 +5,13 @@ import {
   UploadCloud, 
   Copy, 
   Check, 
-  Eye, 
   RefreshCw,
   Info,
   Building,
   CheckCircle,
   AlertCircle,
-  Phone,
-  CreditCard
+  Phone
 } from 'lucide-react';
-import { BASE_URL } from '../../lib/api';
 
 interface PaymentMethod {
   id: string;
@@ -62,9 +59,6 @@ export const PartnerDeposits: React.FC = () => {
 
   // Copy helper
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Receipt Modal
-  const [viewReceiptUrl, setViewReceiptUrl] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {

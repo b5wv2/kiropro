@@ -137,7 +137,7 @@ router.get('/', async (req: Request, res: Response) => {
     const result = await pool.query(`
       SELECT 
         p.id, p."providerOfferId", p."productName", p."offerName", p.category,
-        p."arabicName", p.description, p."subCategory", p."productType",
+        p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
         p."platformCode", p."platformName", p."regionCode", p."regionName",
         p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
         p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
@@ -150,7 +150,7 @@ router.get('/', async (req: Request, res: Response) => {
         c."deliveryTime" as "categoryDeliveryTime",
         c."idFieldLabel" as "categoryIdFieldLabel",
         c."idPlaceholder" as "categoryIdPlaceholder",
-        COALESCE(dpa.available_count, 0)::int as "availableStock"
+        COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
       FROM "Product" p
       LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
       LEFT JOIN (
@@ -159,6 +159,12 @@ router.get('/', async (req: Request, res: Response) => {
         WHERE status = 'AVAILABLE'
         GROUP BY product_id
       ) dpa ON p.id = dpa.product_id
+      LEFT JOIN (
+        SELECT product_id, COUNT(*)::int as available_count
+        FROM kiropro_cards_inventory
+        WHERE status = 'AVAILABLE'
+        GROUP BY product_id
+      ) kci ON p.id = kci.product_id
       WHERE p."isActive" = true
       ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
     `);
@@ -284,6 +290,9 @@ router.get('/', async (req: Request, res: Response) => {
       } else if (groupKey === 'freefire-me') {
         itemType = 'شحن جواهر فري فاير مباشر (Free Fire Diamonds)';
         itemCategory = 'games';
+      } else if (groupKey === 'kiropro-card' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD') {
+        itemType = 'بطاقة ماستركارد افتراضية (KiroPro Virtual Card)';
+        itemCategory = 'cards';
       } else if (groupKey === 'google-play-points' || row.productType === 'DIGITAL_ACCOUNT') {
         itemType = 'حساب نقاط تشغيل فوري (Google Account)';
         itemCategory = 'digital';
@@ -312,6 +321,10 @@ router.get('/', async (req: Request, res: Response) => {
       const card = groupedMap.get(groupKey);
       const resolvedPackageImage = resolveImageUrl(row.productImageUrl, row.categoryImageUrl);
 
+      const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';
+      const availableStockCount = isInventoryTracked ? Number(row.availableStock || 0) : undefined;
+      const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : Boolean(row.inStock);
+
       card.packages.push({
         id: row.id,
         name: row.arabicName || row.offerName,
@@ -328,8 +341,8 @@ router.get('/', async (req: Request, res: Response) => {
         bestValue: card.packages.length === 0,
         requiresGameServerId: Boolean(row.requiresGameServerId),
         isRequiredGameServerId: Boolean(row.requiresGameServerId),
-        availableStock: row.productType === 'DIGITAL_ACCOUNT' ? Number(row.availableStock || 0) : undefined,
-        inStock: row.productType === 'DIGITAL_ACCOUNT' ? (Number(row.availableStock || 0) > 0) : Boolean(row.inStock)
+        availableStock: availableStockCount,
+        inStock: inStockFlag
       });
 
       if (pkgPrice > 0 && (card.minPrice === 0 || pkgPrice < card.minPrice)) {
@@ -370,13 +383,26 @@ router.get('/:id', async (req: Request, res: Response) => {
       const result = await pool.query(`
         SELECT 
           p.id, p."providerOfferId", p."productName", p."offerName", p.category,
-          p."arabicName", p.description, p."subCategory", p."productType",
+          p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
           p."platformCode", p."platformName", p."regionCode", p."regionName",
           p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
           p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
-          c."imageUrl" as "categoryImageUrl"
+          c."imageUrl" as "categoryImageUrl",
+          COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
         FROM "Product" p
         LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int as available_count
+          FROM digital_product_accounts
+          WHERE status = 'AVAILABLE'
+          GROUP BY product_id
+        ) dpa ON p.id = dpa.product_id
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int as available_count
+          FROM kiropro_cards_inventory
+          WHERE status = 'AVAILABLE'
+          GROUP BY product_id
+        ) kci ON p.id = kci.product_id
         WHERE p."isActive" = true AND p."gameCategoryId" = $1
         ORDER BY p."displayOrder" ASC, p."productName" ASC
       `, [targetCatId]);
@@ -390,6 +416,10 @@ router.get('/:id', async (req: Request, res: Response) => {
       const packages = result.rows.map((row, idx) => {
         const pkgPrice = Number(row.price || 0);
         const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
+        const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';
+        const availableStockCount = isInventoryTracked ? Number(row.availableStock || 0) : undefined;
+        const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : Boolean(row.inStock);
+
         return {
           id: row.id,
           name: row.arabicName || row.offerName,
@@ -403,7 +433,11 @@ router.get('/:id', async (req: Request, res: Response) => {
           priceSdg: pkgPriceSdg,
           originalPrice: Math.round(pkgPrice * 1.2 * 100) / 100,
           originalPriceSdg: Math.round(pkgPriceSdg * 1.2),
-          bestValue: idx === 0
+          bestValue: idx === 0,
+          requiresGameServerId: Boolean(row.requiresGameServerId),
+          isRequiredGameServerId: Boolean(row.requiresGameServerId),
+          availableStock: availableStockCount,
+          inStock: inStockFlag
         };
       });
 

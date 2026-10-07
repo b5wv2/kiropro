@@ -14,6 +14,9 @@ export const GameCard: React.FC<GameCardProps> = ({ game, onSelect }) => {
   const { exchangeRate } = useWallet();
   const effectiveSdgPrice = game.minPriceSdg || Math.round(game.minPrice * (exchangeRate || 7600));
 
+  const isOutOfStock = Boolean(game.packages && game.packages.length > 0 && game.packages.every(p => p.inStock === false));
+  const isCard = game.category === 'cards' || game.id === 'kiropro-card';
+
   return (
     <article
       className={styles.card}
@@ -31,7 +34,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game, onSelect }) => {
           <span className={styles.pulseDot} />
           <span>{game.deliveryTime}</span>
         </div>
-        <div className={styles.badgeTag}>{game.badge}</div>
+        <div className={styles.badgeTag}>{isOutOfStock ? 'نفد مؤقتاً' : game.badge}</div>
       </div>
 
       <div className={styles.body}>
@@ -53,13 +56,13 @@ export const GameCard: React.FC<GameCardProps> = ({ game, onSelect }) => {
 
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className={`btn ${isOutOfStock ? 'btn-secondary' : 'btn-primary'} btn-sm`}
             onClick={(e) => {
               e.stopPropagation();
               onSelect(game);
             }}
           >
-            <span>اشحن الآن</span>
+            <span>{isOutOfStock ? 'نفد مؤقتاً' : isCard ? 'طلب البطاقة' : 'اشحن الآن'}</span>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="19" y1="12" x2="5" y2="12" />
               <polyline points="12 19 5 12 12 5" />
