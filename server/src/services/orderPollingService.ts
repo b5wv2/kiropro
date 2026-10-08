@@ -1,5 +1,5 @@
 import pool from '../db';
-import { gamesDropProvider, mapGamesDropStatus } from '../providers/gamesdrop';
+import { providerRouter } from '../providers/router';
 import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from './cashbackService';
 import { processReferralRewardOnOrder } from './referralService';
@@ -10,18 +10,18 @@ import { partnerLedgerService } from './partnerLedgerService';
 import { partnerService } from './partnerService';
 
 /**
- * Background Order Polling Service for GamesDrop
- * Polls active non-terminal orders every 7 seconds independently.
+ * Background Order Polling Service for Multi-Provider Architecture (GamesDrop & G2Bulk)
+ * Polls active non-terminal orders every 7 seconds independently on server-side.
  * Uses PostgreSQL row-level locks (SKIP LOCKED) to prevent duplicate workers.
  */
 class OrderPollingService {
   private timer: NodeJS.Timeout | null = null;
   private isPolling: boolean = false;
-  private readonly INTERVAL_MS = 7000; // Strictly 7 seconds as requested
+  private readonly INTERVAL_MS = 7000; // Strictly 7 seconds as mandated
 
   public start(): void {
     if (this.timer) return;
-    console.log('[OrderPollingService] Started GamesDrop order polling worker (Interval: 7s)');
+    console.log('[OrderPollingService] Started multi-provider order polling worker (Interval: 7s)');
     this.timer = setInterval(() => this.pollActiveOrders(), this.INTERVAL_MS);
     // Initial run
     this.pollActiveOrders();
@@ -48,7 +48,8 @@ class OrderPollingService {
         const ordersRes = await client.query(`
           SELECT 
             o.id, 
-            o."userId", 
+            o."userId",
+            o."provider",
             o."providerOrderId", 
             o."providerOfferId", 
             o.amount, 
@@ -100,22 +101,23 @@ class OrderPollingService {
   }
 
   private async pollSingleOrder(order: any): Promise<void> {
-    const providerOrderId = Number(order.providerOrderId);
-    if (!providerOrderId || isNaN(providerOrderId)) return;
+    const providerOrderId = order.providerOrderId;
+    if (!providerOrderId) return;
+
+    const providerName = (order.provider || 'GAMESDROP').toUpperCase();
 
     try {
-      console.log(`[OrderPollingService] Checking status for GamesDrop orderId: ${providerOrderId} (KIRO order: ${order.id})`);
-      const statusRes = await gamesDropProvider.getOrderStatus(providerOrderId);
+      console.log(`[OrderPollingService] Checking status via ProviderRouter [${providerName}] orderId: ${providerOrderId} (KIRO order: ${order.id})`);
+      const statusRes = await providerRouter.getOrderStatus(providerName, providerOrderId);
       
-      const rawStatus = statusRes.status;
-      const mappedStatus = mapGamesDropStatus(rawStatus);
+      const rawStatus = statusRes.providerStatus;
+      const canonicalStatus = statusRes.canonicalStatus;
 
-      console.log(`[OrderPollingService] Order ${order.id} -> GamesDrop status: ${rawStatus} (Mapped: ${mappedStatus})`);
+      console.log(`[OrderPollingService] Order ${order.id} -> [${providerName}] status: ${rawStatus} (Canonical: ${canonicalStatus})`);
 
       // 1. Terminal COMPLETED State
-      if (mappedStatus === 'COMPLETED') {
-        const key = statusRes.key || null;
-        // Never log key!
+      if (canonicalStatus === 'COMPLETED') {
+        const key = statusRes.fulfillmentKey || null;
         console.log(`[OrderPollingService] Order ${order.id} COMPLETED successfully. Key present: ${!!key}`);
 
         await pool.query(`
@@ -184,9 +186,9 @@ class OrderPollingService {
         return;
       }
 
-      // 2. Terminal FAILED / CANCELED / REFUND State -> Refund customer balance
-      if (mappedStatus === 'FAILED' || mappedStatus === 'REFUNDED') {
-        console.log(`[OrderPollingService] Order ${order.id} ended in ${mappedStatus}. Refunding user ${order.userId}...`);
+      // 2. Terminal FAILED / REFUND State -> Refund customer balance
+      if (canonicalStatus === 'FAILED') {
+        console.log(`[OrderPollingService] Order ${order.id} ended in FAILED. Refunding user ${order.userId}...`);
         
         const client = await pool.connect();
         try {
@@ -248,12 +250,12 @@ class OrderPollingService {
           await client.query(`
             UPDATE "Order"
             SET 
-              status = $1,
-              "providerStatus" = $2,
-              "failureReason" = $3,
+              status = 'FAILED',
+              "providerStatus" = $1,
+              "failureReason" = $2,
               "updatedAt" = NOW()
-            WHERE id = $4
-          `, [mappedStatus, rawStatus, statusRes.message || 'تم إلغاء الطلب من قبل مزود الخدمة', order.id]);
+            WHERE id = $3
+          `, [rawStatus, statusRes.message || 'تم إلغاء الطلب من قبل مزود الخدمة', order.id]);
 
           await client.query('COMMIT');
         } catch (err) {
@@ -265,7 +267,7 @@ class OrderPollingService {
         return;
       }
 
-      // 3. Still in progress (SUBMITTED / PROCESSING)
+      // 3. Still in progress (PENDING / PROCESSING)
       await pool.query(`
         UPDATE "Order"
         SET 
@@ -286,7 +288,7 @@ class OrderPollingService {
     try {
       const ordersRes = await pool.query(`
         SELECT 
-          id, partner_id, provider_order_id, partner_price_usd, package_name
+          id, partner_id, provider, provider_order_id, partner_price_usd, package_name
         FROM partner_orders
         WHERE status = 'PROCESSING'
           AND provider_order_id IS NOT NULL
@@ -303,16 +305,18 @@ class OrderPollingService {
   }
 
   private async pollSinglePartnerOrder(order: any): Promise<void> {
-    const providerOrderId = Number(order.provider_order_id);
-    if (!providerOrderId || isNaN(providerOrderId)) return;
+    const providerOrderId = order.provider_order_id;
+    if (!providerOrderId) return;
+
+    const providerName = (order.provider || 'GAMESDROP').toUpperCase();
 
     try {
-      const statusRes = await gamesDropProvider.getOrderStatus(providerOrderId);
-      const rawStatus = statusRes.status;
-      const mappedStatus = mapGamesDropStatus(rawStatus);
+      const statusRes = await providerRouter.getOrderStatus(providerName, providerOrderId);
+      const rawStatus = statusRes.providerStatus;
+      const canonicalStatus = statusRes.canonicalStatus;
 
-      if (mappedStatus === 'COMPLETED') {
-        const key = statusRes.key || null;
+      if (canonicalStatus === 'COMPLETED') {
+        const key = statusRes.fulfillmentKey || null;
         await pool.query(`
           UPDATE partner_orders 
           SET status = 'COMPLETED',
@@ -324,8 +328,8 @@ class OrderPollingService {
 
         // Award points
         await partnerService.awardPointsAndCheckPromotion(order.partner_id, Number(order.partner_price_usd));
-      } else if (mappedStatus === 'FAILED' || mappedStatus === 'REFUNDED') {
-        console.log(`[OrderPollingService] Partner order ${order.id} ended in ${mappedStatus}. Executing safe refund...`);
+      } else if (canonicalStatus === 'FAILED') {
+        console.log(`[OrderPollingService] Partner order ${order.id} ended in FAILED. Executing safe refund...`);
         await partnerLedgerService.executeSafeOrderRefund({
           orderId: order.id,
           partnerId: order.partner_id,
@@ -346,4 +350,3 @@ class OrderPollingService {
 }
 
 export const orderPollingService = new OrderPollingService();
-

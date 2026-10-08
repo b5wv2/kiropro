@@ -919,57 +919,200 @@ router.get('/promo-codes/:id/redemptions', requireAdmin, async (req: AuthRequest
 });
 
 import { gamesDropProvider } from '../providers/gamesdrop';
+import { g2BulkClient } from '../providers/g2bulk/client';
+import { g2BulkSyncService } from '../services/g2bulkSyncService';
 
-// Admin Providers: Status & Health (Real GamesDrop Integration)
+// Admin Providers: Status & Health (Multi-Provider: GamesDrop & G2Bulk)
 router.get('/providers', requireAdmin, async (req: AuthRequest, res: Response) => {
-  const startTime = Date.now();
   try {
-    const balanceData = await gamesDropProvider.getBalance();
-    const latency = Date.now() - startTime;
+    // 1. Fetch connected product counts per provider from product_provider_mappings
+    const countsRes = await pool.query(`
+      SELECT UPPER(provider) as prov, COUNT(*)::int as count 
+      FROM product_provider_mappings 
+      WHERE "isActive" = true 
+      GROUP BY provider
+    `);
+    const countsMap: Record<string, number> = {};
+    for (const r of countsRes.rows) {
+      countsMap[r.prov] = Number(r.count || 0);
+    }
 
-    res.json([
+    // 2. Fetch persistent provider settings from database
+    const settingsRes = await pool.query('SELECT * FROM provider_settings');
+    const settingsMap: Record<string, any> = {};
+    for (const s of settingsRes.rows) {
+      settingsMap[s.provider.toUpperCase()] = s;
+    }
+    const gdSettings = settingsMap['GAMESDROP'] || { orders_enabled: true, catalog_sync_enabled: true, health_check_enabled: true };
+    const g2Settings = settingsMap['G2BULK'] || { orders_enabled: false, catalog_sync_enabled: true, health_check_enabled: true };
+
+    // 3. Query GamesDrop status & balance
+    let gdData: any = null;
+    let gdLatency = 0;
+    let gdOnline = false;
+    let gdError = '';
+    const gdStart = Date.now();
+    try {
+      gdData = await gamesDropProvider.getBalance();
+      gdLatency = Date.now() - gdStart;
+      gdOnline = true;
+    } catch (e: any) {
+      gdLatency = Date.now() - gdStart;
+      gdError = e.message;
+    }
+
+    // 4. Query G2Bulk status & balance
+    let g2Data: any = null;
+    let g2Latency = 0;
+    let g2Online = false;
+    let g2Error = '';
+    const g2Start = Date.now();
+    try {
+      g2Data = await g2BulkClient.getMe();
+      g2Latency = Date.now() - g2Start;
+      g2Online = true;
+    } catch (e: any) {
+      g2Latency = Date.now() - g2Start;
+      g2Error = e.message;
+    }
+
+    const providerList = [
       {
         id: 'gamesdrop',
+        provider: 'GAMESDROP',
         name: 'GamesDrop Partner API',
         region: 'Global / B2B Aggregator',
-        status: 'ONLINE',
-        latency: `${latency}ms`,
-        productsConnected: 1, // Test Offer 999 only in dev phase
+        status: gdOnline ? 'ONLINE' : 'OFFLINE',
+        connection: {
+          status: gdOnline ? 'ONLINE' : 'OFFLINE',
+          latency: `${gdLatency}ms`,
+          latencyMs: gdLatency
+        },
+        orders: {
+          enabled: Boolean(gdSettings.orders_enabled)
+        },
+        ordersEnabled: Boolean(gdSettings.orders_enabled),
+        catalog_sync: {
+          enabled: Boolean(gdSettings.catalog_sync_enabled)
+        },
+        catalogSyncEnabled: Boolean(gdSettings.catalog_sync_enabled),
+        latency: `${gdLatency}ms`,
+        productsConnected: countsMap['GAMESDROP'] || 1929,
         lastCheck: new Date().toISOString(),
-        balance: balanceData.balance,
-        draftBalance: balanceData.draftBalance,
-        currency: balanceData.currency?.code || 'USD',
-        balanceProfile: balanceData.balanceProfile,
-        isPostpaid: balanceData.isPostpaid,
-        partnerId: balanceData.partnerId,
-        shopId: balanceData.shopId,
-        shopName: balanceData.shopName,
-        activeTestOffer: 999
-      }
-    ]);
-  } catch (err: any) {
-    const latency = Date.now() - startTime;
-    console.error('[Admin] GamesDrop provider health check failed:', err.message);
-    res.json([
+        balance: gdData?.balance ? Number(gdData.balance) : 0,
+        draftBalance: gdData?.draftBalance ? Number(gdData.draftBalance) : 0,
+        currency: gdData?.currency?.code || 'USD',
+        balanceProfile: gdData?.balanceProfile || 'PREPAID',
+        isPostpaid: Boolean(gdData?.isPostpaid),
+        partnerId: gdData?.partnerId,
+        shopId: gdData?.shopId,
+        shopName: gdData?.shopName,
+        error: gdError || undefined
+      },
       {
-        id: 'gamesdrop',
-        name: 'GamesDrop Partner API',
-        region: 'Global / B2B Aggregator',
-        status: 'OFFLINE',
-        latency: `${latency}ms`,
-        productsConnected: 0,
+        id: 'g2bulk',
+        provider: 'G2BULK',
+        name: 'G2Bulk API',
+        region: 'Global / Fast Top-up Aggregator',
+        status: g2Online ? 'ONLINE' : 'OFFLINE',
+        connection: {
+          status: g2Online ? 'ONLINE' : 'OFFLINE',
+          latency: `${g2Latency}ms`,
+          latencyMs: g2Latency
+        },
+        orders: {
+          enabled: Boolean(g2Settings.orders_enabled)
+        },
+        ordersEnabled: Boolean(g2Settings.orders_enabled),
+        catalog_sync: {
+          enabled: Boolean(g2Settings.catalog_sync_enabled)
+        },
+        catalogSyncEnabled: Boolean(g2Settings.catalog_sync_enabled),
+        latency: `${g2Latency}ms`,
+        productsConnected: countsMap['G2BULK'] || 0,
         lastCheck: new Date().toISOString(),
-        error: err.message,
-        balance: 0,
+        balance: g2Data?.balance !== undefined ? Number(g2Data.balance) : 0,
+        draftBalance: 0,
         currency: 'USD',
-        balanceProfile: 'UNKNOWN',
-        isPostpaid: false
+        balanceProfile: 'PREPAID',
+        isPostpaid: false,
+        partnerId: g2Data?.id,
+        shopId: undefined,
+        shopName: g2Data?.username ? `G2Bulk (${g2Data.username})` : 'G2Bulk',
+        error: g2Error || undefined
       }
-    ]);
+    ];
+
+    res.json(providerList);
+  } catch (err: any) {
+    console.error('[Admin] Providers status fetch failed:', err.message);
+    res.status(500).json({ error: 'Failed to fetch providers status: ' + err.message });
   }
 });
 
-// Admin Providers: Test Connection explicitly
+// Admin Providers: Update Global Settings (Enable/Disable Orders, Catalog Sync)
+router.patch('/providers/:provider', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const rawProvider = String(req.params.provider || '').trim().toUpperCase();
+  const provider = rawProvider === 'GAMESDROP' ? 'GAMESDROP' : rawProvider === 'G2BULK' ? 'G2BULK' : null;
+
+  if (!provider) {
+    return res.status(400).json({ error: 'المزود غير مدعوم. المزودات المدعومة: GAMESDROP, G2BULK' });
+  }
+
+  const { orders_enabled, ordersEnabled, catalog_sync_enabled, health_check_enabled } = req.body;
+  const adminId = req.user?.id;
+
+  try {
+    // Current settings
+    const currentRes = await pool.query('SELECT * FROM provider_settings WHERE provider = $1', [provider]);
+    const current = currentRes.rows[0] || { orders_enabled: provider === 'GAMESDROP', catalog_sync_enabled: true, health_check_enabled: true };
+
+    const finalOrdersEnabled = orders_enabled !== undefined ? Boolean(orders_enabled) : (ordersEnabled !== undefined ? Boolean(ordersEnabled) : Boolean(current.orders_enabled));
+    const finalSyncEnabled = catalog_sync_enabled !== undefined ? Boolean(catalog_sync_enabled) : Boolean(current.catalog_sync_enabled);
+    const finalHealthEnabled = health_check_enabled !== undefined ? Boolean(health_check_enabled) : Boolean(current.health_check_enabled);
+
+    await pool.query(
+      `INSERT INTO provider_settings (provider, orders_enabled, catalog_sync_enabled, health_check_enabled, updated_at, updated_by)
+       VALUES ($1, $2, $3, $4, NOW(), $5)
+       ON CONFLICT (provider) DO UPDATE SET
+         orders_enabled = EXCLUDED.orders_enabled,
+         catalog_sync_enabled = EXCLUDED.catalog_sync_enabled,
+         health_check_enabled = EXCLUDED.health_check_enabled,
+         updated_at = NOW(),
+         updated_by = EXCLUDED.updated_by`,
+      [provider, finalOrdersEnabled, finalSyncEnabled, finalHealthEnabled, adminId || null]
+    );
+
+    // Audit Logging
+    try {
+      const logReason = `تحديث حالة استقبال الطلبات للمزود ${provider}: ${finalOrdersEnabled ? 'تفعيل (ENABLED)' : 'تعطيل (DISABLED)'}`;
+      await pool.query(
+        'INSERT INTO "AuditLog" (id, "adminId", action, reason) VALUES ($1, $2, $3, $4)',
+        [uuidv4(), adminId || null, 'PROVIDER_SETTINGS_UPDATE', logReason]
+      );
+    } catch (auditErr: any) {
+      console.warn('[AuditLog] Provider settings update log warning:', auditErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `تم تحديث إعدادات المزود ${provider} بنجاح. استقبال الطلبات: ${finalOrdersEnabled ? 'مفعّل (ENABLED)' : 'معطّل (DISABLED)'}.`,
+      provider,
+      settings: {
+        provider,
+        orders_enabled: finalOrdersEnabled,
+        ordersEnabled: finalOrdersEnabled,
+        catalog_sync_enabled: finalSyncEnabled,
+        health_check_enabled: finalHealthEnabled
+      }
+    });
+  } catch (err: any) {
+    console.error('[Admin] Failed to update provider settings:', err.message);
+    res.status(500).json({ error: 'فشل تحديث إعدادات المزود: ' + err.message });
+  }
+});
+
+// Admin Providers: GamesDrop Test Connection
 router.post('/providers/gamesdrop/test-connection', requireAdmin, async (req: AuthRequest, res: Response) => {
   const startTime = Date.now();
   try {
@@ -998,6 +1141,91 @@ router.post('/providers/gamesdrop/test-connection', requireAdmin, async (req: Au
       error: err.message,
       message: 'فشل الاتصال بـ GamesDrop Partner API. يرجى التأكد من التوكن وصلاحية الشبكة.'
     });
+  }
+});
+
+// Admin Providers: G2Bulk Test Connection
+router.post('/providers/g2bulk/test-connection', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const startTime = Date.now();
+  try {
+    const me = await g2BulkClient.getMe();
+    const latency = Date.now() - startTime;
+    res.json({
+      success: true,
+      connected: true,
+      latency: `${latency}ms`,
+      balance: Number(me.balance || 0),
+      currency: 'USD',
+      username: me.username,
+      message: `تم الاتصال بنجاح بـ G2Bulk API (المستخدم: ${me.username}، الرصيد: $${me.balance})`
+    });
+  } catch (err: any) {
+    const latency = Date.now() - startTime;
+    res.status(502).json({
+      success: false,
+      connected: false,
+      latency: `${latency}ms`,
+      error: err.message,
+      message: 'فشل الاتصال بـ G2Bulk API. يرجى التحقق من مفتاح API_G2BULK والشبكة.'
+    });
+  }
+});
+
+// Admin Providers: G2Bulk Catalog Sync
+router.post('/providers/g2bulk/sync', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const adminId = req.user?.id;
+  const startTime = Date.now();
+  const { games } = req.body;
+
+  try {
+    const targetGames = Array.isArray(games) && games.length > 0 && !games.includes('all') ? games : undefined;
+    const stats = await g2BulkSyncService.syncGames(targetGames);
+
+    await pool.query(
+      `INSERT INTO "AuditLog" (id, "adminId", action, reason)
+       VALUES ($1, $2, 'G2BULK_CATALOG_SYNC', $3)`,
+      [
+        uuidv4(),
+        adminId,
+        `G2Bulk catalog sync completed in ${Date.now() - startTime}ms. Games: ${stats.gamesFetched}, Items: ${stats.cataloguesChecked}, Matched: ${stats.matched}, New: ${stats.newProducts}, Ambiguous: ${stats.ambiguous}, Updated: ${stats.updated}`
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: 'تمت مزامنة كتالوج وأسعار G2Bulk بنجاح ودمج المنتجات المطابقة في الكتالوج الموحد.',
+      stats
+    });
+  } catch (err: any) {
+    console.error('[Admin] G2Bulk sync error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      message: 'فشلت عملية مزامنة الكتالوج مع G2Bulk: ' + err.message
+    });
+  }
+});
+
+// Admin Providers: G2Bulk Catalog Sync Status
+router.get('/providers/g2bulk/sync-status', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const stats = await g2BulkSyncService.getSyncStats();
+    res.json({
+      success: true,
+      stats: stats || {
+        gamesFetched: 0,
+        cataloguesChecked: 0,
+        matched: 0,
+        newProducts: 0,
+        ambiguous: 0,
+        rejected: 0,
+        updated: 0,
+        priceChanges: 0,
+        lastSyncTime: null
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to fetch G2Bulk sync stats' });
   }
 });
 

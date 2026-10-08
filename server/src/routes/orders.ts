@@ -13,6 +13,7 @@ import { getOrCreateOrderReviewToken } from '../services/reviewTokenService';
 import { getGeneralSettings } from './admin';
 import { decryptPassword } from '../utils/cryptoAccount';
 import { decryptCardData, formatCardNumber, maskCardNumber } from '../utils/cryptoCard';
+import { providerRouter, ProductProviderResolution } from '../providers/router';
 
 const router = Router();
 
@@ -86,12 +87,14 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
 
     let providerOfferId = 0;
     let effectiveServerId: string | null = null;
+    let routing: ProductProviderResolution | null = null;
 
     if (!isInternalFulfillment) {
-      providerOfferId = Number(localProduct.offerId || localProduct.providerOfferId);
-      if (!providerOfferId || isNaN(providerOfferId)) {
-        return res.status(400).json({ error: 'معرف مزود الخدمة للمنتج غير صالح.' });
+      routing = await providerRouter.resolveProductProviders(localProduct.id);
+      if (!routing.hasAnyOrderableProvider) {
+        return res.status(400).json({ error: 'نعتذر، هذا المنتج غير متاح للشحن مؤقتاً نظراً لتعطيل مزودات الخدمة المرتبطة به.' });
       }
+      providerOfferId = Number(routing.primaryProductId || localProduct.providerOfferId || 0);
 
       // Server ID validation strictly based on localProduct.requiresGameServerId
       if (localProduct.requiresGameServerId) {
@@ -100,23 +103,24 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
           return res.status(400).json({ error: 'يرجى اختيار سيرفر اللعبة (Server ID) لإتمام الطلب.' });
         }
 
-        // Validate that the server belongs to GamesDrop allowed list
-        try {
-          const serversRecord = await gamesDropProvider.getServers(providerOfferId);
-          if (serversRecord && typeof serversRecord === 'object') {
-            const allowedKeys = Object.keys(serversRecord);
-            const allowedValues = Object.values(serversRecord);
-            const isValidServer = allowedKeys.includes(cleanServerId) || allowedValues.includes(cleanServerId);
-            if (!isValidServer && allowedKeys.length > 0) {
-              return res.status(400).json({ error: 'خادم اللعبة المحدد غير صالح.' });
+        // Validate that the server belongs to GamesDrop allowed list if primary is GamesDrop
+        if (routing.primaryProviderName === 'GAMESDROP' && providerOfferId > 0) {
+          try {
+            const serversRecord = await gamesDropProvider.getServers(providerOfferId);
+            if (serversRecord && typeof serversRecord === 'object') {
+              const allowedKeys = Object.keys(serversRecord);
+              const allowedValues = Object.values(serversRecord);
+              const isValidServer = allowedKeys.includes(cleanServerId) || allowedValues.includes(cleanServerId);
+              if (!isValidServer && allowedKeys.length > 0) {
+                return res.status(400).json({ error: 'خادم اللعبة المحدد غير صالح.' });
+              }
             }
+          } catch (serverErr: any) {
+            console.warn('[Orders] Could not verify server list upstream:', serverErr.message);
           }
-        } catch (serverErr: any) {
-          console.warn('[Orders] Could not verify server list upstream:', serverErr.message);
         }
         effectiveServerId = cleanServerId;
       } else {
-        // Product does NOT require game server: ignore any submitted serverId completely!
         effectiveServerId = null;
       }
     }
@@ -145,7 +149,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     let latestProviderPrice = 0;
     let providerCurrency = 'USD';
 
-    if (!isInternalFulfillment) {
+    if (!isInternalFulfillment && routing) {
       if (localProduct.requiresGameUserId) {
         if (!playerId || !playerId.trim()) {
           return res.status(400).json({ error: 'معرّف الحساب مطلوب لإتمام هذا الطلب.' });
@@ -173,39 +177,45 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         }
       }
 
-      // Fetch latest authoritative provider price from GamesDrop before creating order (find-one)
-      let latestOffer: any;
-      try {
-        latestOffer = await gamesDropProvider.findOffer(providerOfferId);
-      } catch (err: any) {
-        console.error(`[Internal Provider Error] Failed to query upstream find-one(${providerOfferId}):`, err.message);
-        const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
-        return res.status(502).json({ 
-          error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
-        });
-      }
+      if (routing.primaryProviderName === 'GAMESDROP' && providerOfferId > 0) {
+        // Fetch latest authoritative provider price from GamesDrop before creating order (find-one)
+        let latestOffer: any;
+        try {
+          latestOffer = await gamesDropProvider.findOffer(providerOfferId);
+        } catch (err: any) {
+          console.error(`[Internal Provider Error] Failed to query upstream find-one(${providerOfferId}):`, err.message);
+          const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
+          return res.status(502).json({ 
+            error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
+          });
+        }
 
-      latestProviderPrice = Number(latestOffer.price);
-      if (!Number.isFinite(latestProviderPrice) || latestProviderPrice <= 0) {
-        return res.status(502).json({ 
-          error: 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
-        });
-      }
+        latestProviderPrice = Number(latestOffer.price);
+        if (!Number.isFinite(latestProviderPrice) || latestProviderPrice <= 0) {
+          return res.status(502).json({ 
+            error: 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
+          });
+        }
 
-      // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
-      const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
-      if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
-        // Upstream cost increased by more than 5%: prevent under-pricing loss
-        await pool.query(
-          `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
-          [latestProviderPrice, localProduct.id]
-        );
-        return res.status(409).json({
-          error: 'تغير سعر المنتج لدى المزود. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
-        });
-      }
+        // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
+        const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
+        if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
+          // Upstream cost increased by more than 5%: prevent under-pricing loss
+          await pool.query(
+            `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
+            [latestProviderPrice, localProduct.id]
+          );
+          return res.status(409).json({
+            error: 'تغير سعر المنتج لدى المزود. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
+          });
+        }
 
-      providerCurrency = latestOffer.currency || 'USD';
+        providerCurrency = latestOffer.currency || 'USD';
+      } else {
+        // G2Bulk or secondary provider: use authoritative routed cost
+        latestProviderPrice = Number(routing.primaryCostUsd || localProduct.providerCostUsd || 0);
+        providerCurrency = 'USD';
+      }
     }
 
     const effectivePackageName = packageName || localProduct.arabicName || localProduct.offerName || 'منتج رقمي';
@@ -213,6 +223,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     // Database Transaction: Validate Promo, Check & Lock Wallet, Insert Order, Debit Balance
     const client = await pool.connect();
     let orderId = uuidv4();
+    let idempotencyKey = uuidv4();
     let finalChargeAmount = basePriceInUserCurrency;
     let discountApplied = 0;
     let promoRecord: any = null;
@@ -475,6 +486,9 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         }
       } else {
         // Section 11: Create Initial Order record with authoritative pricing & locked exchange rate
+        const effectiveProvider = routing?.primaryProviderName || 'GAMESDROP';
+        const effectiveOfferId = effectiveProvider === 'GAMESDROP' ? providerOfferId : null;
+
         await client.query(
           `INSERT INTO "Order" (
             id, "userId", "gameId", "packageId", "packageName", "playerId", 
@@ -482,9 +496,10 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
             amount, "originalAmount", "discountAmount", "promoCode", 
             status, provider, "providerOfferId", "providerPrice", "providerCurrency", 
             "customerPrice", "finalPrice", "customerPriceUsd", "chargedAmount", 
-            "chargedCurrency", "exchangeRateUsed", "cashbackAmount"
+            "chargedCurrency", "exchangeRateUsed", "cashbackAmount",
+            "idempotencyKey", "providerCostUsd"
           ) 
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PROCESSING', 'GAMESDROP', $13, $14, $15, $16, $17, $18, $19, $20, $21, 0.0)`,
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PROCESSING', $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 0.0, $23, $24)`,
           [
             orderId, 
             user.id, 
@@ -498,7 +513,8 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
             basePriceInUserCurrency, 
             discountApplied, 
             promoRecord ? promoRecord.code : null,
-            providerOfferId,
+            effectiveProvider,
+            effectiveOfferId,
             latestProviderPrice,
             providerCurrency,
             authoritativeCustomerPriceUsd,
@@ -506,7 +522,9 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
             authoritativeCustomerPriceUsd,
             finalChargeAmount,
             userCurrency,
-            exchangeRate
+            exchangeRate,
+            idempotencyKey,
+            latestProviderPrice
           ]
         );
       }
@@ -644,25 +662,83 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       });
     }
 
-    // Section 8 & 9: Dispatch Order to GamesDrop API with provider's price
-    const transactionId = `KIROPRO-${orderId}`;
-    let gdResponse: any;
+    // Section 8 & 9: Dispatch Order via ProviderRouter (GamesDrop & G2Bulk)
+    let dispatchResult: any;
     try {
-      gdResponse = await gamesDropProvider.createOrder({
-        offerId: providerOfferId,
-        price: latestProviderPrice, // Upstream GamesDrop price ONLY, never customerPriceUsd
-        transactionId: transactionId,
-        useBalance: true, // Prepaid balance settlement
-        customer: {
-          email: playerId && playerId.includes('@') ? playerId : (user.email || 'customer@kiropro.store'),
-          gameUserId: deliveryGameUserId,
-          ...(effectiveServerId ? { gameServerId: effectiveServerId } : {})
-        }
-      });
-    } catch (gdErr: any) {
-      console.error('[Orders] GamesDrop create-order call failed:', gdErr.message, gdErr.stack);
+      dispatchResult = await providerRouter.executeTopupOrder({
+        koaraOrderId: orderId,
+        playerUserId: deliveryGameUserId,
+        serverZoneId: effectiveServerId || undefined,
+        customerEmail: playerId && playerId.includes('@') ? playerId : (user.email || 'customer@kiropro.store'),
+        idempotencyKey: idempotencyKey,
+        expectedPriceUsd: latestProviderPrice,
+        gameCode: routing?.primaryMetadata?.gameCode || localProduct.gameCategoryId
+      }, routing!);
+    } catch (dispatchErr: any) {
+      console.error('[Orders] Provider execution exception:', dispatchErr.message);
+      dispatchResult = {
+        success: false,
+        provider: routing?.primaryProviderName || 'UNKNOWN',
+        providerOrderId: null,
+        providerStatus: 'EXCEPTION',
+        canonicalStatus: 'FAILED',
+        isAmbiguous: false,
+        message: dispatchErr.message
+      };
+    }
 
-      // Section 10: Auto-Refund user wallet and revert promo redemption on provider error
+    const rawStatus = dispatchResult.providerStatus;
+    const mappedStatus = dispatchResult.canonicalStatus;
+    const providerOrderId = dispatchResult.providerOrderId || null;
+    const fulfillmentKey = dispatchResult.fulfillmentKey || null;
+    let bonusSpinGranted = false;
+
+    if (dispatchResult.isAmbiguous) {
+      // Ambiguous state (timeout / network disconnection after submit):
+      // Transition strictly to PROVIDER_UNKNOWN to prevent double fulfillment!
+      // Do NOT auto-refund customer wallet!
+      await pool.query(
+        `UPDATE "Order" 
+         SET status = 'PROVIDER_UNKNOWN',
+             "provider" = $1,
+             "providerStatus" = $2,
+             "failureReason" = $3,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [
+          dispatchResult.provider,
+          rawStatus || 'UNKNOWN',
+          dispatchResult.message || 'حالة الطلب غير مؤكدة لدى مزود الخدمة (Timeout/Network). يرجى التحقق اليدوي لمنع التكرار.',
+          orderId
+        ]
+      );
+
+      // Trigger Order Processing Email
+      sendOrderProcessingEmail({
+        to: user.email,
+        userId: user.id,
+        orderId: orderId,
+        customerName: (user as any)?.name || undefined,
+        productName: effectivePackageName,
+        orderNumber: orderId.slice(0, 8).toUpperCase(),
+        amount: finalChargeAmount,
+        currency: userCurrency
+      }).catch(mailErr => console.error('[Orders] Processing email error:', mailErr));
+
+      return res.status(201).json({
+        id: orderId,
+        status: 'PROVIDER_UNKNOWN',
+        message: 'تم استلام طلبك وجارٍ معالجته والتحقق من حالة التنفيذ تلقائياً لدى مزود الخدمة.',
+        chargedAmount: finalChargeAmount,
+        discountApplied,
+        promoCode: promoRecord ? promoRecord.code : null,
+        key: null,
+        bonusSpinGranted: false
+      });
+    }
+
+    if (!dispatchResult.success) {
+      // Definitive failure: Safe to auto-refund
       const refundClient = await pool.connect();
       try {
         await refundClient.query('BEGIN');
@@ -677,15 +753,14 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
           );
         }
 
-        // Section 6: Revert promo code consumption
         if (promoRecord) {
           await refundClient.query('DELETE FROM promo_code_redemptions WHERE order_id = $1', [orderId]);
           await refundClient.query('UPDATE promo_codes SET usage_count = GREATEST(0, usage_count - 1), updated_at = CURRENT_TIMESTAMP WHERE id = $1', [promoRecord.id]);
         }
 
         await refundClient.query(
-          'UPDATE "Order" SET status = $1, "failureReason" = $2, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $3',
-          ['FAILED', gdErr.message || 'Provider communication failed', orderId]
+          'UPDATE "Order" SET status = $1, "provider" = $2, "providerOrderId" = $3, "providerStatus" = $4, "failureReason" = $5, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $6',
+          ['FAILED', dispatchResult.provider, providerOrderId, rawStatus, dispatchResult.message || 'Provider communication failed', orderId]
         );
         await refundClient.query('COMMIT');
       } catch (refundErr) {
@@ -695,17 +770,11 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         refundClient.release();
       }
 
-      const friendlyErrMsg = mapGamesDropErrorMessage(gdErr.code || gdErr.errorCode || gdErr.message);
+      const friendlyErrMsg = mapGamesDropErrorMessage(dispatchResult.message || 'Provider failed');
       return res.status(400).json({ error: friendlyErrMsg || 'تعذر تنفيذ الطلب حاليًا. حاول مرة أخرى.' });
     }
 
-    // Handle GamesDrop Response
-    const rawStatus = gdResponse.status;
-    const mappedStatus = mapGamesDropStatus(rawStatus);
-    const providerOrderId = gdResponse.order_id || gdResponse.orderId;
-    const fulfillmentKey = gdResponse.key || null;
-    let bonusSpinGranted = false;
-
+    // Handle Completed or Processing State
     const updateClient = await pool.connect();
     try {
       await updateClient.query('BEGIN');
@@ -714,52 +783,27 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         await updateClient.query(
           `UPDATE "Order" 
            SET status = 'COMPLETED',
-               "providerOrderId" = $1,
-               "providerStatus" = $2,
-               "fulfillmentKey" = $3,
+               "provider" = $1,
+               "providerOrderId" = $2,
+               "providerStatus" = $3,
+               "fulfillmentKey" = $4,
                "completedAt" = CURRENT_TIMESTAMP,
                "updatedAt" = CURRENT_TIMESTAMP
-           WHERE id = $4`,
-          [providerOrderId, rawStatus, fulfillmentKey, orderId]
+           WHERE id = $5`,
+          [dispatchResult.provider, providerOrderId, rawStatus, fulfillmentKey, orderId]
         );
-      } else if (mappedStatus === 'PROCESSING') {
+      } else {
+        // PROCESSING / PENDING
         await updateClient.query(
           `UPDATE "Order" 
            SET status = 'PROCESSING',
-               "providerOrderId" = $1,
-               "providerStatus" = $2,
-               "lastPolledAt" = CURRENT_TIMESTAMP,
-               "updatedAt" = CURRENT_TIMESTAMP
-           WHERE id = $3`,
-          [providerOrderId, rawStatus, orderId]
-        );
-      } else if (mappedStatus === 'FAILED' || mappedStatus === 'REFUNDED') {
-        // Refund user immediately and revert promo code
-        const wRes = await updateClient.query('SELECT id, balance FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [user.id]);
-        const w = wRes.rows[0];
-        if (w && finalChargeAmount > 0) {
-          const restoredBalance = Math.round((Number(w.balance) + finalChargeAmount) * 100) / 100;
-          await updateClient.query('UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2', [restoredBalance, w.id]);
-          await updateClient.query(
-            'INSERT INTO "WalletTransaction" (id, "walletId", amount, type, description, "created_by_type") VALUES ($1, $2, $3, $4, $5, $6)',
-            [uuidv4(), w.id, finalChargeAmount, 'REFUND', `استرجاع تلقائي: تعذر استكمال الطلب (${rawStatus})`, 'SYSTEM']
-          );
-        }
-
-        if (promoRecord) {
-          await updateClient.query('DELETE FROM promo_code_redemptions WHERE order_id = $1', [orderId]);
-          await updateClient.query('UPDATE promo_codes SET usage_count = GREATEST(0, usage_count - 1), updated_at = CURRENT_TIMESTAMP WHERE id = $1', [promoRecord.id]);
-        }
-
-        await updateClient.query(
-          `UPDATE "Order" 
-           SET status = $1,
+               "provider" = $1,
                "providerOrderId" = $2,
                "providerStatus" = $3,
-               "failureReason" = $4,
+               "lastPolledAt" = CURRENT_TIMESTAMP,
                "updatedAt" = CURRENT_TIMESTAMP
-           WHERE id = $5`,
-          [mappedStatus, providerOrderId, rawStatus, gdResponse.message || `Provider status: ${rawStatus}`, orderId]
+           WHERE id = $4`,
+          [dispatchResult.provider, providerOrderId, rawStatus, orderId]
         );
       }
 

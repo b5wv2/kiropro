@@ -43,7 +43,7 @@ interface Order {
   cashbackStatus?: string;
   discountAmount?: number;
   cost?: number;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'PROVIDER_UNKNOWN';
   provider?: string;
   providerOrderId?: number | string;
   providerOfferId?: number;
@@ -58,7 +58,7 @@ export const AdminOrders: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'PROVIDER_UNKNOWN'>('ALL');
 
   // Selected Order Modal
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -241,6 +241,13 @@ export const AdminOrders: React.FC = () => {
             فاشلة / مرفوضة ({orders.filter(o => o.status === 'FAILED').length})
           </button>
           <button 
+            className={`admin-btn ${statusFilter === 'PROVIDER_UNKNOWN' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
+            style={statusFilter === 'PROVIDER_UNKNOWN' ? { background: '#f59e0b', borderColor: '#d97706', color: '#0f172a', fontWeight: 800 } : undefined}
+            onClick={() => setStatusFilter('PROVIDER_UNKNOWN')}
+          >
+            معلق عند المزود ({orders.filter(o => o.status === 'PROVIDER_UNKNOWN').length})
+          </button>
+          <button 
             className={`admin-btn ${statusFilter === 'REFUNDED' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
             onClick={() => setStatusFilter('REFUNDED')}
           >
@@ -311,7 +318,20 @@ export const AdminOrders: React.FC = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{order.packageName}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>ID: {order.playerId}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                          <span>ID: {order.playerId}</span>
+                          <span style={{ 
+                            fontSize: '0.68rem', 
+                            fontWeight: 800, 
+                            padding: '1px 5px', 
+                            borderRadius: '4px',
+                            background: order.provider === 'G2BULK' ? '#f5f3ff' : '#eff6ff',
+                            color: order.provider === 'G2BULK' ? '#7c3aed' : '#2563eb',
+                            border: `1px solid ${order.provider === 'G2BULK' ? '#ddd6fe' : '#bfdbfe'}`
+                          }}>
+                            {order.provider === 'G2BULK' ? '⚡ G2Bulk' : '🎮 GamesDrop'}
+                          </span>
+                        </div>
                       </td>
                       <td style={{ fontWeight: 800, color: '#0f172a', fontFamily: 'var(--font-latin)' }}>
                         ${saleUsd.toFixed(2)}
@@ -356,7 +376,7 @@ export const AdminOrders: React.FC = () => {
                             <span>تفاصيل</span>
                           </button>
 
-                          {['PENDING', 'FAILED'].includes(order.status) && (
+                          {['PENDING', 'FAILED', 'PROVIDER_UNKNOWN'].includes(order.status) && (
                             <button
                               onClick={() => {
                                 setExecutingOrder(order);
@@ -568,18 +588,37 @@ export const AdminOrders: React.FC = () => {
 
                 {/* Provider & Fulfillment Information */}
                 <div style={{ gridColumn: 'span 2', padding: '12px', background: '#f1f5f9', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  <div className="admin-label">تفاصيل المزود (GamesDrop Partner API)</div>
-                  <div style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 700 }}>
-                    المزود: {selectedOrder.provider || 'GAMESDROP'} • رقم طلب المزود: {selectedOrder.providerOrderId ? `#${selectedOrder.providerOrderId}` : 'قيد الإنشاء / محلي'}
+                  <div className="admin-label">تفاصيل المزود ({selectedOrder.provider === 'G2BULK' ? 'G2Bulk API' : 'GamesDrop Partner API'})</div>
+                  <div style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      background: selectedOrder.provider === 'G2BULK' ? '#f5f3ff' : '#eff6ff',
+                      color: selectedOrder.provider === 'G2BULK' ? '#7c3aed' : '#2563eb',
+                      border: `1px solid ${selectedOrder.provider === 'G2BULK' ? '#ddd6fe' : '#bfdbfe'}`
+                    }}>
+                      {selectedOrder.provider === 'G2BULK' ? '⚡ G2Bulk' : '🎮 GamesDrop'}
+                    </span>
+                    <span>رقم طلب المزود: {selectedOrder.providerOrderId ? `#${selectedOrder.providerOrderId}` : 'قيد الإنشاء / محلي'}</span>
                   </div>
                   {selectedOrder.providerStatus && (
-                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 4 }}>
                       حالة المزود الخام: <code>{selectedOrder.providerStatus}</code>
                     </div>
                   )}
                   {selectedOrder.failureReason && (
                     <div style={{ fontSize: '0.8rem', color: '#b91c1c', marginTop: 4 }}>
                       سبب الفشل / التعثر: {selectedOrder.failureReason}
+                    </div>
+                  )}
+                  {selectedOrder.status === 'PROVIDER_UNKNOWN' && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: '0.78rem', color: '#92400e', lineHeight: 1.5 }}>
+                      ⚠️ <strong>حالة معلقة غير مؤكدة (PROVIDER_UNKNOWN):</strong> تم إرسال الطلب للمزود لكن لم يتم استلام رد قطعي. يرجى مراجعة بوابة المزود قبل عمل أي استرجاع مالي للعميل تفادياً للشحن المزدوج.
                     </div>
                   )}
                 </div>

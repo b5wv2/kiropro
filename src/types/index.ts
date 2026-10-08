@@ -92,9 +92,9 @@ export interface Order {
   discountAmount?: number;
   cashbackAmount?: number;
   providerCostUsd?: number;
-  providerPrice?: number;
-  promoCode?: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'PROVIDER_UNKNOWN';
+  provider?: string;
+  providerOrderId?: number | string;
   orderType?: 'DIRECT_TOPUP' | 'DIGITAL_ACCOUNT' | 'VIRTUAL_CARD' | string;
   isVirtualCard?: boolean;
   cardLast4?: string;
@@ -196,13 +196,13 @@ export interface AdminProduct {
   platformName?: string;
   regionCode?: string;
   regionName?: string;
-  supplierCostUsd: number;
-  gamesDropCostUsd: number;
+  supplierCostUsd?: number;
+  gamesDropCostUsd?: number | null;
   gamesDropAddedPercent?: number;
   gamesDropFxRate?: number;
-  providerCostUsd: number;
+  providerCostUsd?: number;
   customerPriceUsd: number | null;
-  profitUsd: number | null;
+  profitUsd?: number | null;
   isActive: boolean;
   inStock: boolean;
   imageUrl?: string | null;
@@ -217,6 +217,25 @@ export interface AdminProduct {
   gameCategoryId?: string | null;
   category?: string;
   lastProviderSyncAt?: string | null;
+  primaryProvider?: string;
+  fallbackProvider?: string | null;
+  fallbackEnabled?: boolean;
+  providerMappings?: Array<{
+    id: string;
+    provider: string;
+    providerProductId: string;
+    costUsd: number;
+    isPrimary: boolean;
+    isFallback: boolean;
+    isActive: boolean;
+  }>;
+  hasGamesDrop?: boolean;
+  hasG2Bulk?: boolean;
+  g2BulkCostUsd?: number | null;
+  gamesDropMarginUsd?: number | null;
+  g2BulkMarginUsd?: number | null;
+  lowestProvider?: 'GAMESDROP' | 'G2BULK' | 'SAME' | null;
+  lowestCostUsd?: number | null;
 }
 
 export interface AdminCatalogResponse {
@@ -225,10 +244,18 @@ export interface AdminCatalogResponse {
   page: number;
   limit: number;
   totalPages: number;
+  providerOrdersEnabled?: Record<string, boolean>;
   stats: {
     totalCatalog: number;
     activeCount: number;
     inactiveCount: number;
+    outOfStockCount?: number;
+    hasGamesDropCount?: number;
+    hasG2BulkCount?: number;
+    bothProvidersCount?: number;
+    gamesDropOnlyCount?: number;
+    g2BulkOnlyCount?: number;
+    missingProviderCount?: number;
   };
 }
 

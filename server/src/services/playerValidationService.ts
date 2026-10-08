@@ -1,6 +1,7 @@
 import pool from '../db';
 import { gamesDropProvider } from '../providers/gamesdrop';
 import { mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
+import { providerRouter } from '../providers/router';
 
 // In-memory sliding-window rate limiter: 5 requests per 10 minutes (600,000 ms)
 const WINDOW_MS = 10 * 60 * 1000;
@@ -48,9 +49,9 @@ export function checkPlayerValidationRateLimit(key: string): { allowed: boolean;
 
 export interface PlayerValidationResult {
   valid: boolean;
-  playerName?: string;
-  telegramUserId?: number;
-  message?: string;
+  playerName?: string | undefined;
+  telegramUserId?: number | undefined;
+  message?: string | undefined;
 }
 
 /**
@@ -149,13 +150,12 @@ export async function validatePlayerAccount(params: {
     };
   }
 
-  // 2. Extract numeric GamesDrop offerGroupId (Rule 10)
-  const numericOfferId = Number(product.providerOfferId);
-  if (!numericOfferId || isNaN(numericOfferId) || numericOfferId <= 0) {
-    return {
-      valid: false,
-      message: 'خدمة التحقق غير متاحة لهذا المنتج حالياً.'
-    };
+  // 2. Resolve Provider Routing for Product
+  let routing;
+  try {
+    routing = await providerRouter.resolveProductProviders(product.id);
+  } catch (rErr: any) {
+    console.warn('[PlayerValidation] Provider resolution fallback:', rErr.message);
   }
 
   // 3. Server ID validation strictly based on product.requiresGameServerId
@@ -169,31 +169,59 @@ export async function validatePlayerAccount(params: {
       };
     }
 
-    try {
-      const serversResponse = await gamesDropProvider.getServers(numericOfferId);
-      if (serversResponse && typeof serversResponse === 'object') {
-        const allowedKeys = Object.keys(serversResponse);
-        const allowedValues = Object.values(serversResponse);
-        const isValidServer = allowedKeys.includes(cleanServerId) || allowedValues.includes(cleanServerId);
-        
-        if (!isValidServer && allowedKeys.length > 0) {
-          return {
-            valid: false,
-            message: 'خادم اللعبة المحدد غير صالح.'
-          };
+    if (routing?.primaryProviderName === 'GAMESDROP' || !routing) {
+      const numericOfferId = Number(routing?.primaryProductId || product.providerOfferId);
+      if (numericOfferId) {
+        try {
+          const serversResponse = await gamesDropProvider.getServers(numericOfferId);
+          if (serversResponse && typeof serversResponse === 'object') {
+            const allowedKeys = Object.keys(serversResponse);
+            const allowedValues = Object.values(serversResponse);
+            const isValidServer = allowedKeys.includes(cleanServerId) || allowedValues.includes(cleanServerId);
+            
+            if (!isValidServer && allowedKeys.length > 0) {
+              return {
+                valid: false,
+                message: 'خادم اللعبة المحدد غير صالح.'
+              };
+            }
+          }
+        } catch (serverErr: any) {
+          console.warn('[PlayerValidation] Server list check warning:', serverErr.message);
         }
       }
-    } catch (serverErr: any) {
-      console.warn('[PlayerValidation] Server list check warning:', serverErr.message);
     }
     validatedServerId = cleanServerId;
   } else {
-    // If product does NOT require server ID, ignore any submitted serverId and do NOT send to upstream
     validatedServerId = undefined;
   }
 
-  // 4. Call GamesDrop check-game-data API (for Likee and other direct top-ups)
+  // 4. Validate player account via Primary Provider Adapter
   try {
+    if (routing?.primaryAdapter) {
+      const valResult = await routing.primaryAdapter.validatePlayer({
+        playerUserId: cleanUserId,
+        serverZoneId: validatedServerId,
+        providerProductId: routing.primaryProductId,
+        gameCode: routing.primaryMetadata?.gameCode || product.gameCategoryId
+      });
+
+      return {
+        valid: valResult.valid,
+        playerName: valResult.playerName || cleanUserId,
+        message: valResult.message
+      };
+    }
+
+    // Fallback legacy GamesDrop validation
+    const numericOfferId = Number(product.providerOfferId);
+    if (!numericOfferId || isNaN(numericOfferId) || numericOfferId <= 0) {
+      return {
+        valid: false,
+        message: 'خدمة التحقق غير متاحة لهذا المنتج حالياً.'
+      };
+    }
+
     const gdResult = await gamesDropProvider.checkGameData({
       offerId: numericOfferId,
       gameUserId: cleanUserId,
@@ -212,7 +240,7 @@ export async function validatePlayerAccount(params: {
       };
     }
   } catch (err: any) {
-    console.error('[PlayerValidation] GamesDrop API error:', err.message);
+    console.error('[PlayerValidation] Provider API error:', err.message);
     const friendly = mapGamesDropErrorMessage(err.errorCode || err.message);
     return {
       valid: false,

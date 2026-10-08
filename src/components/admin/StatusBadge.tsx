@@ -4,7 +4,8 @@ export type StatusType =
   | 'PENDING' | 'COMPLETED' | 'FAILED' | 'PROCESSING' | 'CANCELLED'
   | 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'SUSPENDED'
   | 'ONLINE' | 'OFFLINE'
-  | 'WALLET_CREDIT' | 'WALLET_DEBIT' | 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADMIN_ADJUSTMENT';
+  | 'WALLET_CREDIT' | 'WALLET_DEBIT' | 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADMIN_ADJUSTMENT'
+  | 'PROVIDER_UNKNOWN';
 
 interface StatusBadgeProps {
   status: StatusType | string;
@@ -18,6 +19,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, customLabel })
   let defaultLabel = status;
 
   switch (normalized) {
+    case 'PROVIDER_UNKNOWN':
+      className = 'admin-badge-warning';
+      defaultLabel = 'معلق عند المزود (غير مؤكد)';
+      break;
+
     case 'COMPLETED':
     case 'ACTIVE':
     case 'ONLINE':

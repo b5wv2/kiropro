@@ -15,6 +15,7 @@ import { partnerService } from '../services/partnerService';
 import { partnerLedgerService } from '../services/partnerLedgerService';
 import { gamesDropProvider } from '../providers/gamesdrop';
 import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
+import { providerRouter } from '../providers/router';
 
 const router = Router();
 
@@ -415,6 +416,7 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
         ppp.partner_price_usd as "customPartnerPriceUsd",
         ppp.markup_usd as "customMarkupUsd",
         ppp.is_available as "customIsAvailable",
+        p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
         p."inStock", p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
         p."gameCategoryId",
         c."imageUrl" as "categoryImageUrl",
@@ -430,7 +432,15 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
       ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
     `;
 
-    const result = await pool.query(query, [partnerId]);
+    const [result, provSettingsRes] = await Promise.all([
+      pool.query(query, [partnerId]),
+      pool.query('SELECT provider, orders_enabled FROM provider_settings')
+    ]);
+
+    const provOrdersEnabledMap = new Map<string, boolean>();
+    for (const r of provSettingsRes.rows) {
+      provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
+    }
 
     // Calculate authoritative Partner Price = Supplier Cost + Small Markup ($0.01 - $0.05)
     const products = result.rows.map(row => {
@@ -467,11 +477,22 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
       const isCardOrDigital = fulfillmentType === 'KIROPRO_CARD' || fulfillmentType === 'DIGITAL_ACCOUNT';
       const requiresPlayerId = !isCardOrDigital && (row.requires_player_id !== false && row.requiresGameUserId !== false);
       const availableStock = row.availableStock !== null ? Number(row.availableStock) : undefined;
-      const inStock = isCardOrDigital ? (availableStock !== undefined ? availableStock > 0 : row.inStock) : row.inStock;
+
+      let hasOrderableProvider = true;
+      if (!isCardOrDigital) {
+        const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
+        const primEnabled = provOrdersEnabledMap.get(primName) !== false;
+        const fallName = row.fallbackProvider ? String(row.fallbackProvider).toUpperCase() : null;
+        const fallEnabled = Boolean(row.fallbackEnabled && fallName && provOrdersEnabledMap.get(fallName) === true);
+        hasOrderableProvider = primEnabled || fallEnabled;
+      }
+
+      const inStock = isCardOrDigital 
+        ? (availableStock !== undefined ? availableStock > 0 : Boolean(row.inStock)) 
+        : (Boolean(row.inStock) && hasOrderableProvider);
 
       return {
         id: row.id,
-        providerOfferId: row.providerOfferId,
         name: row.arabicName || row.offerName || row.productName,
         nameEn: row.productName,
         productName: row.productName,
@@ -664,7 +685,21 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
       });
     }
 
-    // 5. Debit Wallet under Database Transaction & Insert Order
+    // 5. Pre-validate Provider Routing and Availability
+    let routing: any;
+    try {
+      routing = await providerRouter.resolveProductProviders(product.id);
+      if (!routing.hasAnyOrderableProvider) {
+        return res.status(400).json({
+          error: 'نعتذر، هذا المنتج غير متاح للشحن حالياً نظراً لتعطيل مزودات الخدمة المرتبطة به.'
+        });
+      }
+    } catch (routeErr: any) {
+      console.error('[QuickBuy] Failed to resolve providers for product:', routeErr.message);
+      return res.status(500).json({ error: 'تعذر التحقق من مزود الخدمة المعتمد للباقة.' });
+    }
+
+    // 6. Debit Wallet under Database Transaction & Insert Order
     const client = await pool.connect();
     let orderId = uuidv4();
 
@@ -716,83 +751,72 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
       client.release();
     }
 
-    // 6. Dispatch to GamesDrop Provider
-    const transactionId = `PARTNER-${orderId}`;
-    let gdResponse: any;
+    // 7. Dispatch via ProviderRouter (Multi-Provider: GamesDrop & G2Bulk)
 
-    try {
-      gdResponse = await gamesDropProvider.createOrder({
-        offerId: providerOfferId,
-        price: pricing.supplierCostUsd,
-        transactionId,
-        customer: {
-          email: 'partner@kiropro.store',
-          gameUserId: cleanPlayerId,
-          ...(effectiveServerId ? { gameServerId: effectiveServerId } : {})
-        }
-      });
-    } catch (gdErr: any) {
-      console.error('[QuickBuy Execution] GamesDrop order failed:', gdErr.message);
-      const friendlyError = mapGamesDropErrorMessage(gdErr.errorCode || gdErr.message);
+    const dispatchResult = await providerRouter.executeTopupOrder({
+      koaraOrderId: orderId,
+      playerUserId: cleanPlayerId,
+      serverZoneId: effectiveServerId || undefined,
+      customerEmail: 'partner@kiropro.store',
+      idempotencyKey: idempotencyKey || undefined,
+      expectedPriceUsd: pricing.supplierCostUsd
+    }, routing);
 
-      // Automatic immediate refund on synchronous failure
-      await partnerLedgerService.executeSafeOrderRefund({
-        orderId,
-        partnerId: partner.id,
-        refundAmountUsd: chargeAmountUsd,
-        reason: friendlyError || 'فشل إرسال الطلب لمزود الخدمة وتم رد الرصيد تلقائياً.',
-        actorId: partner.userId,
-        actorType: 'SYSTEM'
-      });
+    const providerName = dispatchResult.provider;
+    const rawStatus = dispatchResult.providerStatus;
+    const canonicalStatus = dispatchResult.canonicalStatus;
+    const providerOrderId = dispatchResult.providerOrderId || null;
+    const fulfillmentKey = dispatchResult.fulfillmentKey || null;
 
-      return res.status(502).json({
-        error: friendlyError || 'تعذر استكمال الشحن من المزود، وتمت إعادة الرصيد إلى محفظتك بالكامل.',
-        refunded: true
-      });
-    }
-
-    // 7. Update order with provider response
-    const rawStatus = gdResponse.status;
-    const mappedStatus = mapGamesDropStatus(rawStatus);
-    const providerOrderId = gdResponse.order_id || gdResponse.orderId || null;
-    const fulfillmentKey = gdResponse.key || null;
-
-    if (mappedStatus === 'COMPLETED') {
+    if (dispatchResult.isAmbiguous) {
+      // Ambiguous state (timeout / network disconnect): do not refund immediately to prevent double fulfillment!
+      await pool.query(
+        `UPDATE partner_orders 
+         SET status = 'PROVIDER_UNKNOWN',
+             provider = $1,
+             provider_status = $2,
+             failure_reason = $3
+         WHERE id = $4`,
+        [providerName, rawStatus || 'UNKNOWN', dispatchResult.message, orderId]
+      );
+    } else if (canonicalStatus === 'COMPLETED') {
       await pool.query(
         `UPDATE partner_orders 
          SET status = 'COMPLETED',
-             provider_order_id = $1,
-             provider_status = $2,
-             fulfillment_key = $3,
+             provider = $1,
+             provider_order_id = $2,
+             provider_status = $3,
+             fulfillment_key = $4,
              completed_at = CURRENT_TIMESTAMP
-         WHERE id = $4`,
-        [providerOrderId, rawStatus, fulfillmentKey, orderId]
+         WHERE id = $5`,
+        [providerName, providerOrderId, rawStatus, fulfillmentKey, orderId]
       );
 
       // Award points and check promotion
       partnerService.awardPointsAndCheckPromotion(partner.id, chargeAmountUsd).catch(() => {});
-    } else if (mappedStatus === 'PROCESSING') {
+    } else if (canonicalStatus === 'PROCESSING' || canonicalStatus === 'PENDING') {
       await pool.query(
         `UPDATE partner_orders 
          SET status = 'PROCESSING',
-             provider_order_id = $1,
-             provider_status = $2
-         WHERE id = $3`,
-        [providerOrderId, rawStatus, orderId]
+             provider = $1,
+             provider_order_id = $2,
+             provider_status = $3
+         WHERE id = $4`,
+        [providerName, providerOrderId, rawStatus, orderId]
       );
     } else {
-      // Failed upstream
+      // Definitive failure upstream
       await partnerLedgerService.executeSafeOrderRefund({
         orderId,
         partnerId: partner.id,
         refundAmountUsd: chargeAmountUsd,
-        reason: gdResponse.message || `Provider returned status: ${rawStatus}`,
+        reason: dispatchResult.message || `Provider returned status: ${rawStatus}`,
         actorId: partner.userId,
         actorType: 'SYSTEM'
       });
 
       return res.status(502).json({
-        error: 'فشل الشحن لدى المزود وتمت إعادة الرصيد فورياً إلى محفظتك.',
+        error: 'فشل الشحن لدى مزود الخدمة وتمت إعادة الرصيد فورياً إلى محفظتك.',
         refunded: true
       });
     }
@@ -802,6 +826,8 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
       'SELECT balance FROM partner_wallets WHERE partner_id = $1',
       [partner.id]
     );
+
+    const mappedStatus = dispatchResult.isAmbiguous ? 'PROVIDER_UNKNOWN' : canonicalStatus;
 
     res.json({
       success: true,

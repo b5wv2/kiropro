@@ -8,7 +8,6 @@ import {
   Edit3, 
   Upload, 
   X, 
-  DollarSign, 
   TrendingUp, 
   AlertCircle, 
   EyeOff,
@@ -20,7 +19,8 @@ import {
   Trash2,
   Sparkles,
   Key,
-  CreditCard
+  CreditCard,
+  Zap
 } from 'lucide-react';
 import { 
   fetchAdminCatalog, 
@@ -32,7 +32,9 @@ import {
   uploadAdminCategoryImage,
   removeAdminCategoryImage,
   triggerGamesDropCatalogSync,
-  GamesDropCatalogSyncResult
+  GamesDropCatalogSyncResult,
+  triggerG2BulkCatalogSync,
+  G2BulkCatalogSyncResult
 } from '../../services/api';
 import { getProductImageUrl } from '../../utils/imageUrl';
 import { AdminProduct, AdminCatalogResponse, GameCategory } from '../../types';
@@ -46,10 +48,23 @@ export const AdminProducts: React.FC = () => {
   const [limit] = useState(50);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState({ totalCatalog: 0, activeCount: 0, inactiveCount: 0 });
+  const [stats, setStats] = useState({ 
+    totalCatalog: 0, 
+    activeCount: 0, 
+    inactiveCount: 0,
+    outOfStockCount: 0,
+    hasGamesDropCount: 0,
+    hasG2BulkCount: 0,
+    bothProvidersCount: 0,
+    gamesDropOnlyCount: 0,
+    g2BulkOnlyCount: 0,
+    missingProviderCount: 0
+  });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [providerFilter, setProviderFilter] = useState<string>('all');
+  const [stockFilter, setStockFilter] = useState<string>('all');
   
   // Selected products for bulk actions
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -63,9 +78,18 @@ export const AdminProducts: React.FC = () => {
     description: string;
     customerPriceUsd: string;
     isActive: boolean;
+    inStock: boolean;
     imageUrl: string;
     displayOrder: number;
     isFeatured: boolean;
+    primaryProvider: string;
+    fallbackProvider: string;
+    fallbackEnabled: boolean;
+    providerMappings: Array<{
+      provider: string;
+      isActive: boolean;
+      costUsd: number;
+    }>;
   }>({
     productName: '',
     offerName: '',
@@ -73,9 +97,14 @@ export const AdminProducts: React.FC = () => {
     description: '',
     customerPriceUsd: '',
     isActive: false,
+    inStock: true,
     imageUrl: '',
     displayOrder: 0,
     isFeatured: false,
+    primaryProvider: 'GAMESDROP',
+    fallbackProvider: '',
+    fallbackEnabled: false,
+    providerMappings: []
   });
 
   const [savingProduct, setSavingProduct] = useState(false);
@@ -86,6 +115,10 @@ export const AdminProducts: React.FC = () => {
   const [catalogSyncModalOpen, setCatalogSyncModalOpen] = useState(false);
   const [catalogSyncing, setCatalogSyncing] = useState(false);
   const [catalogSyncStats, setCatalogSyncStats] = useState<GamesDropCatalogSyncResult['stats'] | null>(null);
+  const [g2BulkSyncing, setG2BulkSyncing] = useState(false);
+  const [g2BulkSyncModalOpen, setG2BulkSyncModalOpen] = useState(false);
+  const [g2BulkSyncStats, setG2BulkSyncStats] = useState<G2BulkCatalogSyncResult['stats'] | null>(null);
+  const [providerOrdersEnabled, setProviderOrdersEnabled] = useState<Record<string, boolean>>({ GAMESDROP: true, G2BULK: false });
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog) vs 'digital-accounts' (Digital Accounts Inventory) vs 'kiropro-cards' (Mastercard Cards Vault)
@@ -161,7 +194,14 @@ export const AdminProducts: React.FC = () => {
     }
   };
 
-  const loadCatalog = useCallback(async (targetPage = page, querySearch = search, filter = statusFilter, catFilter = categoryFilter) => {
+  const loadCatalog = useCallback(async (
+    targetPage = page, 
+    querySearch = search, 
+    filter = statusFilter, 
+    catFilter = categoryFilter,
+    provFilter = providerFilter,
+    stkFilter = stockFilter
+  ) => {
     setLoading(true);
     try {
       const res: AdminCatalogResponse = await fetchAdminCatalog({
@@ -170,14 +210,30 @@ export const AdminProducts: React.FC = () => {
         search: querySearch.trim() || undefined,
         status: filter,
         gameCategory: catFilter !== 'all' ? catFilter : undefined,
+        providerFilter: provFilter !== 'all' ? provFilter : undefined,
+        stockFilter: stkFilter !== 'all' ? stkFilter : undefined,
       });
 
       setProducts(res.products);
       setTotal(res.total);
       setTotalPages(res.totalPages || 1);
       setPage(res.page);
+      if (res.providerOrdersEnabled) {
+        setProviderOrdersEnabled(res.providerOrdersEnabled);
+      }
       if (res.stats) {
-        setStats(res.stats);
+        setStats({
+          totalCatalog: res.stats.totalCatalog || 0,
+          activeCount: res.stats.activeCount || 0,
+          inactiveCount: res.stats.inactiveCount || 0,
+          outOfStockCount: res.stats.outOfStockCount || 0,
+          hasGamesDropCount: res.stats.hasGamesDropCount || 0,
+          hasG2BulkCount: res.stats.hasG2BulkCount || 0,
+          bothProvidersCount: res.stats.bothProvidersCount || 0,
+          gamesDropOnlyCount: res.stats.gamesDropOnlyCount || 0,
+          g2BulkOnlyCount: res.stats.g2BulkOnlyCount || 0,
+          missingProviderCount: res.stats.missingProviderCount || 0
+        });
       }
     } catch (err: any) {
       console.error('Failed to load admin catalog:', err);
@@ -185,16 +241,16 @@ export const AdminProducts: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, statusFilter, categoryFilter]);
+  }, [page, limit, search, statusFilter, categoryFilter, providerFilter, stockFilter]);
 
   useEffect(() => {
-    loadCatalog(page, search, statusFilter, categoryFilter);
-  }, [page, statusFilter, categoryFilter]);
+    loadCatalog(page, search, statusFilter, categoryFilter, providerFilter, stockFilter);
+  }, [page, statusFilter, categoryFilter, providerFilter, stockFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    loadCatalog(1, search, statusFilter, categoryFilter);
+    loadCatalog(1, search, statusFilter, categoryFilter, providerFilter, stockFilter);
   };
 
   const handleFilterChange = (newFilter: 'all' | 'active' | 'inactive') => {
@@ -204,6 +260,16 @@ export const AdminProducts: React.FC = () => {
 
   const handleCategoryFilterChange = (newCat: string) => {
     setCategoryFilter(newCat);
+    setPage(1);
+  };
+
+  const handleProviderFilterChange = (newProv: string) => {
+    setProviderFilter(newProv);
+    setPage(1);
+  };
+
+  const handleStockFilterChange = (newStock: string) => {
+    setStockFilter(newStock);
     setPage(1);
   };
 
@@ -227,16 +293,34 @@ export const AdminProducts: React.FC = () => {
 
   const handleOpenEdit = (product: AdminProduct) => {
     setEditingProduct(product);
+    const gdMapping = product.providerMappings?.find(m => m.provider === 'GAMESDROP');
+    const g2Mapping = product.providerMappings?.find(m => m.provider === 'G2BULK');
     setEditForm({
       productName: product.productName,
       offerName: product.offerName,
       arabicName: product.arabicName || '',
       description: product.description || '',
-      customerPriceUsd: product.customerPriceUsd !== null ? String(product.customerPriceUsd) : '',
+      customerPriceUsd: product.customerPriceUsd !== null && product.customerPriceUsd !== undefined ? String(product.customerPriceUsd) : '',
       isActive: product.isActive,
+      inStock: Boolean(product.inStock),
       imageUrl: product.imageUrl || '',
       displayOrder: product.displayOrder || 0,
       isFeatured: product.isFeatured || false,
+      primaryProvider: product.primaryProvider || 'GAMESDROP',
+      fallbackProvider: product.fallbackProvider || '',
+      fallbackEnabled: Boolean(product.fallbackEnabled),
+      providerMappings: [
+        {
+          provider: 'GAMESDROP',
+          isActive: gdMapping ? gdMapping.isActive : Boolean(product.hasGamesDrop),
+          costUsd: gdMapping ? gdMapping.costUsd : Number(product.gamesDropCostUsd || product.providerCostUsd || 0)
+        },
+        {
+          provider: 'G2BULK',
+          isActive: g2Mapping ? g2Mapping.isActive : Boolean(product.hasG2Bulk),
+          costUsd: g2Mapping ? g2Mapping.costUsd : Number(product.g2BulkCostUsd || 0)
+        }
+      ]
     });
   };
 
@@ -258,14 +342,20 @@ export const AdminProducts: React.FC = () => {
         description: editForm.description.trim() || null,
         customerPriceUsd: priceNum,
         isActive: editForm.isActive,
+        inStock: editForm.inStock,
         imageUrl: editForm.imageUrl.trim() || null,
         displayOrder: Number(editForm.displayOrder) || 0,
         isFeatured: editForm.isFeatured,
+        primaryProvider: editForm.primaryProvider,
+        fallbackProvider: editForm.fallbackProvider || null,
+        fallbackEnabled: editForm.fallbackEnabled,
+        providerMappings: editForm.providerMappings
       });
 
-      setProducts(prev => prev.map(p => p.id === editingProduct.id ? res.product : p));
+      setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...res.product } : p));
       setAlertInfo({ type: 'success', text: `تم حفظ تعديلات المنتج "${res.product.productName}" بنجاح.` });
       setEditingProduct(null);
+      loadCatalog(page, search, statusFilter, categoryFilter, providerFilter, stockFilter);
     } catch (err: any) {
       setAlertInfo({ type: 'error', text: err.message || 'فشل حفظ بيانات المنتج' });
     } finally {
@@ -304,7 +394,7 @@ export const AdminProducts: React.FC = () => {
         type: 'success',
         text: `تم تحديث تكلفة المزود (${res.results?.updated || 0} منتج). أسعار البيع للعملاء لم تتغير ومحمية تماماً.`,
       });
-      loadCatalog(page, search, statusFilter);
+      loadCatalog(page, search, statusFilter, categoryFilter, providerFilter, stockFilter);
     } catch (err: any) {
       setAlertInfo({ type: 'error', text: err.message || 'فشل مزامنة الأسعار من المزود' });
     } finally {
@@ -319,12 +409,31 @@ export const AdminProducts: React.FC = () => {
       setCatalogSyncStats(res.stats);
       setCatalogSyncModalOpen(true);
       await loadCategories();
-      await loadCatalog(page, search, statusFilter, categoryFilter);
+      await loadCatalog(page, search, statusFilter, categoryFilter, providerFilter, stockFilter);
       setAlertInfo({ type: 'success', text: 'تمت مزامنة الكتالوج وتحديث أحدث العروض والأسعار من GamesDrop بنجاح!' });
     } catch (err: any) {
       setAlertInfo({ type: 'error', text: err.message || 'فشلت مزامنة الكتالوج من GamesDrop' });
     } finally {
       setCatalogSyncing(false);
+    }
+  };
+
+  const handleRunG2BulkSync = async () => {
+    setG2BulkSyncing(true);
+    try {
+      const res = await triggerG2BulkCatalogSync();
+      setG2BulkSyncStats(res.stats);
+      setG2BulkSyncModalOpen(true);
+      await loadCategories();
+      await loadCatalog(page, search, statusFilter, categoryFilter, providerFilter, stockFilter);
+      setAlertInfo({
+        type: 'success',
+        text: `تمت مزامنة كتالوج G2Bulk بنجاح! تم فحص ${res.stats?.gamesFetched || 0} لعبة، ودمج ${res.stats?.matched || 0} باقة وإضافة ${res.stats?.newProducts || 0} باقة جديدة.`
+      });
+    } catch (err: any) {
+      setAlertInfo({ type: 'error', text: err.message || 'فشلت مزامنة كتالوج G2Bulk' });
+    } finally {
+      setG2BulkSyncing(false);
     }
   };
 
@@ -342,10 +451,6 @@ export const AdminProducts: React.FC = () => {
     );
   };
 
-  // Calculate live profit margin inside edit modal
-  const editPriceNum = Number(editForm.customerPriceUsd);
-  const editCostNum = editingProduct ? Number(editingProduct.gamesDropCostUsd || editingProduct.providerCostUsd || 0) : 0;
-  const liveProfit = !isNaN(editPriceNum) && editPriceNum > 0 ? (editPriceNum - editCostNum).toFixed(2) : null;
 
   return (
     <>
@@ -738,97 +843,199 @@ export const AdminProducts: React.FC = () => {
       {activeAdminTab === 'products' && (
         <>
           {/* Action and Filter Bar */}
-          <div className="admin-filter-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between' }}>
-            <form onSubmit={handleSearchSubmit} className="admin-search-wrapper" style={{ flex: '1 1 320px' }}>
-          <Search size={18} className="admin-search-icon" />
-          <input
-            type="text"
-            className="admin-input admin-search-input"
-            placeholder="ابحث باسم اللعبة، الباقة، أو الدولة/الريجون..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </form>
+          <div className="admin-filter-bar" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between', alignItems: 'center' }}>
+              <form onSubmit={handleSearchSubmit} className="admin-search-wrapper" style={{ flex: '1 1 320px' }}>
+                <Search size={18} className="admin-search-icon" />
+                <input
+                  type="text"
+                  className="admin-input admin-search-input"
+                  placeholder="ابحث باسم اللعبة، الباقة، أو الدولة/الريجون..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </form>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Game Category Filter Dropdown */}
-          <select
-            className="admin-input"
-            style={{ width: 'auto', minWidth: '180px', fontWeight: 700, padding: '6px 12px', fontSize: '0.85rem' }}
-            value={categoryFilter}
-            onChange={(e) => handleCategoryFilterChange(e.target.value)}
-          >
-            <option value="all">جميع الألعاب ({stats.totalCatalog})</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.arabicName || c.name} ({c.totalProductCount ?? 0})
-              </option>
-            ))}
-          </select>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Game Category Filter Dropdown */}
+                <select
+                  className="admin-input"
+                  style={{ width: 'auto', minWidth: '180px', fontWeight: 700, padding: '6px 12px', fontSize: '0.85rem' }}
+                  value={categoryFilter}
+                  onChange={(e) => handleCategoryFilterChange(e.target.value)}
+                >
+                  <option value="all">جميع الألعاب ({stats.totalCatalog})</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.arabicName || c.name} ({c.totalProductCount ?? 0})
+                    </option>
+                  ))}
+                </select>
 
-          {/* Status Filter Tabs */}
-          <div className="admin-filter-group">
-            <button 
-              className={`admin-btn ${statusFilter === 'all' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
-              onClick={() => handleFilterChange('all')}
-            >
-              الكل ({stats.totalCatalog})
-            </button>
-            <button 
-              className={`admin-btn ${statusFilter === 'active' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
-              onClick={() => handleFilterChange('active')}
-            >
-              النشطة ({stats.activeCount})
-            </button>
-            <button 
-              className={`admin-btn ${statusFilter === 'inactive' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
-              onClick={() => handleFilterChange('inactive')}
-            >
-              المعطلة ({stats.inactiveCount})
-            </button>
+                {/* Status Filter Tabs */}
+                <div className="admin-filter-group">
+                  <button 
+                    className={`admin-btn ${statusFilter === 'all' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
+                    onClick={() => handleFilterChange('all')}
+                  >
+                    الكل ({stats.totalCatalog})
+                  </button>
+                  <button 
+                    className={`admin-btn ${statusFilter === 'active' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
+                    onClick={() => handleFilterChange('active')}
+                  >
+                    النشطة ({stats.activeCount})
+                  </button>
+                  <button 
+                    className={`admin-btn ${statusFilter === 'inactive' ? 'admin-btn-primary' : 'admin-btn-secondary'} admin-btn-sm`}
+                    onClick={() => handleFilterChange('inactive')}
+                  >
+                    المعطلة ({stats.inactiveCount})
+                  </button>
+                </div>
+
+                {/* GamesDrop Catalog Sync Button */}
+                <button 
+                  type="button"
+                  className="admin-btn admin-btn-sm"
+                  style={{ 
+                    background: 'linear-gradient(135deg, #059669, #047857)', 
+                    borderColor: '#059669', 
+                    color: '#ffffff', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    fontWeight: 700,
+                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)'
+                  }}
+                  onClick={handleRunCatalogSync}
+                  disabled={catalogSyncing}
+                >
+                  <Sparkles size={14} className={catalogSyncing ? 'spin' : ''} />
+                  <span>{catalogSyncing ? 'مزامنة GamesDrop...' : 'مزامنة GamesDrop'}</span>
+                </button>
+
+                {/* G2Bulk Catalog Sync Button (Requirement 25) */}
+                <button 
+                  type="button"
+                  className="admin-btn admin-btn-sm"
+                  style={{ 
+                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', 
+                    borderColor: '#7c3aed', 
+                    color: '#ffffff', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    fontWeight: 700,
+                    boxShadow: '0 2px 6px rgba(124, 58, 237, 0.25)'
+                  }}
+                  onClick={handleRunG2BulkSync}
+                  disabled={g2BulkSyncing}
+                >
+                  <Zap size={14} className={g2BulkSyncing ? 'spin' : ''} />
+                  <span>{g2BulkSyncing ? 'مزامنة G2Bulk...' : 'مزامنة ألعاب G2Bulk'}</span>
+                </button>
+
+                {/* Sync Provider Prices Button */}
+                <button 
+                  type="button"
+                  className="admin-btn admin-btn-primary admin-btn-sm"
+                  style={{ background: '#0f172a', borderColor: '#0f172a', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setSyncModalOpen(true)}
+                  disabled={syncingPrices}
+                >
+                  <RefreshCw size={14} className={syncingPrices ? 'spin' : ''} />
+                  <span>مزامنة التكلفة</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Multi-Provider Filter Pills & Counters Bar (Requirement 23 & 24) */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', marginLeft: '4px' }}>
+                فلترة الكتالوج الموحد:
+              </span>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'all' && stockFilter === 'all' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px' }}
+                onClick={() => { setProviderFilter('all'); setStockFilter('all'); setPage(1); }}
+              >
+                الكل ({stats.totalCatalog.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'has_gamesdrop' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px', borderColor: providerFilter === 'has_gamesdrop' ? undefined : '#bfdbfe', color: providerFilter === 'has_gamesdrop' ? undefined : '#1d4ed8' }}
+                onClick={() => handleProviderFilterChange('has_gamesdrop')}
+              >
+                🎮 GamesDrop ({stats.hasGamesDropCount.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'has_g2bulk' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px', borderColor: providerFilter === 'has_g2bulk' ? undefined : '#ddd6fe', color: providerFilter === 'has_g2bulk' ? undefined : '#6d28d9' }}
+                onClick={() => handleProviderFilterChange('has_g2bulk')}
+              >
+                ⚡ G2Bulk ({stats.hasG2BulkCount.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'both' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px', borderColor: providerFilter === 'both' ? undefined : '#a7f3d0', color: providerFilter === 'both' ? undefined : '#047857' }}
+                onClick={() => handleProviderFilterChange('both')}
+              >
+                ✨ كلا المزودين ({stats.bothProvidersCount.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'gamesdrop_only' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px' }}
+                onClick={() => handleProviderFilterChange('gamesdrop_only')}
+              >
+                GamesDrop فقط ({stats.gamesDropOnlyCount.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'g2bulk_only' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px' }}
+                onClick={() => handleProviderFilterChange('g2bulk_only')}
+              >
+                G2Bulk فقط ({stats.g2BulkOnlyCount.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${providerFilter === 'missing_provider' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px', borderColor: providerFilter === 'missing_provider' ? undefined : '#fecaca', color: providerFilter === 'missing_provider' ? undefined : '#b91c1c' }}
+                onClick={() => handleProviderFilterChange('missing_provider')}
+              >
+                بدون مزود ({stats.missingProviderCount.toLocaleString()})
+              </button>
+
+              <button
+                type="button"
+                className={`admin-btn admin-btn-sm ${stockFilter === 'out_of_stock' ? 'admin-btn-primary' : 'admin-btn-secondary'}`}
+                style={{ fontSize: '0.78rem', padding: '3px 10px', borderRadius: '14px', borderColor: stockFilter === 'out_of_stock' ? undefined : '#fed7aa', color: stockFilter === 'out_of_stock' ? undefined : '#c2410c' }}
+                onClick={() => handleStockFilterChange(stockFilter === 'out_of_stock' ? 'all' : 'out_of_stock')}
+              >
+                غير متوفر بالمخزون ({stats.outOfStockCount.toLocaleString()})
+              </button>
+            </div>
           </div>
-
-          {/* GamesDrop Catalog Sync Button (Live Import & Upsert) */}
-          <button 
-            type="button"
-            className="admin-btn admin-btn-sm"
-            style={{ 
-              background: 'linear-gradient(135deg, #059669, #047857)', 
-              borderColor: '#059669', 
-              color: '#ffffff', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '8px',
-              fontWeight: 700,
-              boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)'
-            }}
-            onClick={handleRunCatalogSync}
-            disabled={catalogSyncing}
-          >
-            <Sparkles size={15} className={catalogSyncing ? 'spin' : ''} />
-            <span>{catalogSyncing ? 'جاري المزامنة...' : 'مزامنة الكتالوج الآن'}</span>
-          </button>
-
-          {/* Sync Provider Prices Button (Admin Only) */}
-          <button 
-            type="button"
-            className="admin-btn admin-btn-primary admin-btn-sm"
-            style={{ background: '#0f172a', borderColor: '#0f172a', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}
-            onClick={() => setSyncModalOpen(true)}
-            disabled={syncingPrices}
-          >
-            <RefreshCw size={15} className={syncingPrices ? 'spin' : ''} />
-            <span>مزامنة تكلفة المزود</span>
-          </button>
-        </div>
-      </div>
 
       {/* Products Catalog Table Card */}
       <div className="admin-card">
         <div className="admin-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 className="admin-card-title">
             <Package size={18} color="#f59e0b" />
-            <span>كتالوج المنتجات المحلي ({total.toLocaleString()} منتج)</span>
+            <span>الكتالوج الموحد ({total.toLocaleString()} منتج)</span>
           </h3>
           <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
             صفحة {page} من {totalPages}
@@ -849,10 +1056,10 @@ export const AdminProducts: React.FC = () => {
                 <th>الصورة</th>
                 <th>اللعبة والمنصة</th>
                 <th>الباقة / الفئة</th>
-                <th>تكلفة المورد (Supplier)</th>
-                <th>تكلفة المزود (GamesDrop)</th>
+                <th>تكلفة المزودين (GamesDrop & G2Bulk)</th>
                 <th>سعر البيع للعميل</th>
-                <th>هامش الربح</th>
+                <th>هامش الربح (Margin)</th>
+                <th>التوجيه (Routing)</th>
                 <th>المخزون</th>
                 <th>الحالة في المتجر</th>
                 <th>آخر مزامنة</th>
@@ -865,24 +1072,24 @@ export const AdminProducts: React.FC = () => {
                   <td colSpan={12} style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
                       <RefreshCw size={18} className="spin" />
-                      <span>جاري تحميل قائمة المنتجات من قاعدة البيانات المحلية...</span>
+                      <span>جاري تحميل الكتالوج الموحد من قاعدة البيانات...</span>
                     </div>
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
                   <td colSpan={12} style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
-                    لا توجد منتجات مطابقة لخيارات البحث الحالية.
+                    لا توجد منتجات مطابقة لخيارات البحث والفلترة المحددة.
                   </td>
                 </tr>
               ) : (
                 products.map((prod) => {
                   const isSelected = selectedIds.includes(prod.id);
-                  const supplierCost = Number(prod.supplierCostUsd !== undefined ? prod.supplierCostUsd : (prod.gamesDropCostUsd || prod.providerCostUsd || 0));
-                  const gdCost = Number(prod.gamesDropCostUsd !== undefined ? prod.gamesDropCostUsd : (prod.providerCostUsd || 0));
+                  const gdCost = prod.gamesDropCostUsd !== null && prod.gamesDropCostUsd !== undefined ? Number(prod.gamesDropCostUsd) : null;
+                  const g2Cost = prod.g2BulkCostUsd !== null && prod.g2BulkCostUsd !== undefined ? Number(prod.g2BulkCostUsd) : null;
                   const sale = prod.customerPriceUsd !== null && prod.customerPriceUsd !== undefined ? Number(prod.customerPriceUsd) : null;
-                  const profit = sale !== null ? (sale - gdCost).toFixed(2) : null;
-                  const isProfitable = profit !== null && Number(profit) >= 0;
+                  const isLowestGd = prod.lowestProvider === 'GAMESDROP' && g2Cost !== null;
+                  const isLowestG2 = prod.lowestProvider === 'G2BULK' && gdCost !== null;
 
                   return (
                     <tr key={prod.id} style={{ background: isSelected ? '#f8fafc' : undefined }}>
@@ -928,7 +1135,7 @@ export const AdminProducts: React.FC = () => {
                                 {prod.regionName}
                               </span>
                             ) : null}
-                            <span style={{ opacity: 0.8 }}>ID: {prod.providerOfferId}</span>
+                            <span style={{ opacity: 0.8 }}>ID: {prod.providerOfferId || prod.id.slice(0, 8)}</span>
                           </div>
                         </div>
                       </td>
@@ -947,62 +1154,147 @@ export const AdminProducts: React.FC = () => {
                           </span>
                         )}
                       </td>
+
+                      {/* Provider Costs (Side-by-Side Unified View - Requirement 8 & 26) */}
                       <td>
-                        <div style={{ fontWeight: 700, color: '#64748b', fontSize: '0.85rem' }}>
-                          ${supplierCost.toFixed(2)}
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem' }}>
-                          ${gdCost.toFixed(2)}
-                          {prod.gamesDropAddedPercent ? (
-                            <span style={{ fontSize: '0.72rem', color: '#f59e0b', marginRight: '4px', fontWeight: 600 }}>
-                              (+{prod.gamesDropAddedPercent}%)
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', minWidth: '155px' }}>
+                          {/* GamesDrop Cost */}
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'space-between', 
+                            padding: '3px 6px', 
+                            borderRadius: '4px',
+                            background: isLowestGd ? '#ecfdf5' : '#f8fafc',
+                            border: `1px solid ${isLowestGd ? '#a7f3d0' : '#e2e8f0'}`
+                          }}>
+                            <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              🎮 GD:
                             </span>
-                          ) : null}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: 800, fontSize: '0.85rem', color: gdCost !== null ? '#0f172a' : '#94a3b8' }}>
+                                {gdCost !== null ? `$${gdCost.toFixed(2)}` : 'غير متوفر'}
+                              </span>
+                              {isLowestGd && (
+                                <span style={{ fontSize: '0.62rem', background: '#059669', color: '#ffffff', padding: '0 4px', borderRadius: '3px', fontWeight: 800 }}>الأرخص</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* G2Bulk Cost */}
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'space-between', 
+                            padding: '3px 6px', 
+                            borderRadius: '4px',
+                            background: isLowestG2 ? '#ecfdf5' : '#f8fafc',
+                            border: `1px solid ${isLowestG2 ? '#a7f3d0' : '#e2e8f0'}`
+                          }}>
+                            <span style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              ⚡ G2:
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: 800, fontSize: '0.85rem', color: g2Cost !== null ? '#0f172a' : '#94a3b8' }}>
+                                {g2Cost !== null ? `$${g2Cost.toFixed(2)}` : 'غير متوفر'}
+                              </span>
+                              {isLowestG2 && (
+                                <span style={{ fontSize: '0.62rem', background: '#059669', color: '#ffffff', padding: '0 4px', borderRadius: '3px', fontWeight: 800 }}>الأرخص</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </td>
+
+                      {/* Single Sale Price (Requirement 9 & 27) */}
                       <td>
                         {sale !== null ? (
-                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '1rem' }}>
+                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem' }}>
                             ${sale.toFixed(2)}
                           </div>
                         ) : (
-                          <span style={{ fontSize: '0.8rem', color: '#ef4444', fontWeight: 600 }}>
+                          <span style={{ fontSize: '0.78rem', color: '#ef4444', fontWeight: 700 }}>
                             غير محدد
                           </span>
                         )}
                       </td>
+
+                      {/* Margins for Each Provider (Requirement 10) */}
                       <td>
-                        {profit !== null ? (
-                          <span 
-                            style={{
-                              display: 'inline-block',
-                              padding: '2px 8px',
-                              borderRadius: '6px',
-                              fontSize: '0.8rem',
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '0.78rem' }}>
+                          {prod.gamesDropMarginUsd !== null && prod.gamesDropMarginUsd !== undefined ? (
+                            <span style={{ 
+                              color: prod.gamesDropMarginUsd >= 0 ? '#059669' : '#dc2626', 
                               fontWeight: 700,
-                              background: isProfitable ? '#ecfdf5' : '#fef2f2',
-                              color: isProfitable ? '#059669' : '#dc2626',
-                            }}
-                          >
-                            {Number(profit) >= 0 ? `+$${profit}` : `-$${Math.abs(Number(profit)).toFixed(2)}`}
-                          </span>
-                        ) : (
-                          <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>-</span>
-                        )}
+                              background: prod.gamesDropMarginUsd >= 0 ? '#ecfdf5' : '#fef2f2',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              display: 'inline-block'
+                            }}>
+                              GD: {prod.gamesDropMarginUsd >= 0 ? `+$${prod.gamesDropMarginUsd.toFixed(2)}` : `-$${Math.abs(prod.gamesDropMarginUsd).toFixed(2)}`}
+                            </span>
+                          ) : null}
+                          {prod.g2BulkMarginUsd !== null && prod.g2BulkMarginUsd !== undefined ? (
+                            <span style={{ 
+                              color: prod.g2BulkMarginUsd >= 0 ? '#059669' : '#dc2626', 
+                              fontWeight: 700,
+                              background: prod.g2BulkMarginUsd >= 0 ? '#ecfdf5' : '#fef2f2',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              display: 'inline-block'
+                            }}>
+                              G2: {prod.g2BulkMarginUsd >= 0 ? `+$${prod.g2BulkMarginUsd.toFixed(2)}` : `-$${Math.abs(prod.g2BulkMarginUsd).toFixed(2)}`}
+                            </span>
+                          ) : null}
+                          {prod.gamesDropMarginUsd === null && prod.g2BulkMarginUsd === null && (
+                            <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>-</span>
+                          )}
+                        </div>
                       </td>
+
+                      {/* Routing (Primary & Fallback - Requirement 11 & 12) */}
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            background: prod.primaryProvider === 'G2BULK' ? '#f5f3ff' : '#eff6ff',
+                            color: prod.primaryProvider === 'G2BULK' ? '#7c3aed' : '#2563eb',
+                            border: `1px solid ${prod.primaryProvider === 'G2BULK' ? '#ddd6fe' : '#bfdbfe'}`
+                          }}>
+                            أساسي: {prod.primaryProvider === 'G2BULK' ? '⚡ G2Bulk' : '🎮 GamesDrop'}
+                          </span>
+                          {prod.fallbackEnabled && prod.fallbackProvider && (
+                            <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 600 }}>
+                              احتياطي: {prod.fallbackProvider === 'G2BULK' ? '⚡ G2Bulk' : '🎮 GamesDrop'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Stock (Requirement 20) */}
                       <td>
                         <span 
                           style={{
                             fontSize: '0.75rem',
                             fontWeight: 700,
                             color: prod.inStock ? '#10b981' : '#ef4444',
+                            background: prod.inStock ? '#ecfdf5' : '#fef2f2',
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            display: 'inline-block'
                           }}
                         >
                           {prod.inStock ? 'متوفر' : 'غير متوفر'}
                         </span>
                       </td>
+
+                      {/* Storefront Active Toggle */}
                       <td>
                         <button
                           type="button"
@@ -1025,7 +1317,8 @@ export const AdminProducts: React.FC = () => {
                           <span>{prod.isActive ? 'معروض للعملاء' : 'معطل'}</span>
                         </button>
                       </td>
-                      <td style={{ fontSize: '0.75rem', color: '#64748b' }}>
+
+                      <td style={{ fontSize: '0.72rem', color: '#64748b' }}>
                         {prod.lastProviderSyncAt 
                           ? new Date(prod.lastProviderSyncAt).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                           : 'لم تتم المزامنة'}
@@ -1195,70 +1488,300 @@ export const AdminProducts: React.FC = () => {
                 </div>
               </div>
 
-              {/* Pricing Section (Authoritative Separation) */}
-              <div style={{ background: '#fdfbf7', padding: '14px', borderRadius: '8px', border: '1px solid #fef3c7' }}>
-                <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#92400e', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <DollarSign size={16} />
-                  <span>التحكم المستقل في الأسعار وهامش الربح</span>
+              {/* Unified Multi-Provider Cards & Costs (Requirement 12, 13, 26, 27) */}
+              {(() => {
+                const editPriceNum = Number(editForm.customerPriceUsd);
+                return (
+                  <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Zap size={17} color="#f59e0b" />
+                        <span>مزودو الخدمة والتكاليف (Provider Mappings & Costs)</span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>منتج موحد • تكاليف متعددة</span>
+                    </div>
+
+                    {/* 2 Side-by-side Provider Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      {/* GamesDrop Provider Card */}
+                      {(() => {
+                        const gdMap = editForm.providerMappings.find(m => m.provider === 'GAMESDROP');
+                    const gdCost = gdMap ? gdMap.costUsd : Number(editingProduct.gamesDropCostUsd || editingProduct.providerCostUsd || 0);
+                    const gdProfit = !isNaN(editPriceNum) && editPriceNum > 0 ? (editPriceNum - gdCost).toFixed(2) : null;
+                    const gdEnabled = gdMap ? gdMap.isActive : Boolean(editingProduct.hasGamesDrop);
+                    const gdGlobalOff = providerOrdersEnabled['GAMESDROP'] === false;
+
+                    return (
+                      <div style={{ 
+                        background: '#ffffff', 
+                        padding: '12px', 
+                        borderRadius: '8px', 
+                        border: `1.5px solid ${gdEnabled ? '#bfdbfe' : '#e2e8f0'}`,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#1d4ed8' }}>
+                            🎮 GamesDrop
+                          </span>
+                          <span style={{ 
+                            fontSize: '0.7rem', 
+                            padding: '1px 6px', 
+                            borderRadius: '4px', 
+                            fontWeight: 700,
+                            background: gdEnabled ? '#ecfdf5' : '#f1f5f9',
+                            color: gdEnabled ? '#059669' : '#64748b'
+                          }}>
+                            {gdEnabled ? 'مفعّل' : 'معطّل'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>التكلفة (Cost):</span>
+                          <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                            ${gdCost.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>الهامش (Margin):</span>
+                          <span style={{ fontWeight: 800, fontSize: '0.85rem', color: gdProfit && Number(gdProfit) >= 0 ? '#10b981' : '#ef4444' }}>
+                            {gdProfit ? `${Number(gdProfit) >= 0 ? '+' : ''}$${gdProfit}` : '-'}
+                          </span>
+                        </div>
+
+                        <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, color: '#334155' }}>
+                            <input
+                              type="checkbox"
+                              checked={gdEnabled}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setEditForm(prev => ({
+                                  ...prev,
+                                  providerMappings: prev.providerMappings.map(m => m.provider === 'GAMESDROP' ? { ...m, isActive: checked } : m)
+                                }));
+                              }}
+                            />
+                            <span>مفعّل للمنتج (Status: {gdEnabled ? 'Enabled' : 'Disabled'})</span>
+                          </label>
+                          {gdGlobalOff && (
+                            <div style={{ fontSize: '0.68rem', color: '#dc2626', marginTop: '4px' }}>
+                              * معطل عالمياً عن استقبال الطلبات
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* G2Bulk Provider Card */}
+                  {(() => {
+                    const g2Map = editForm.providerMappings.find(m => m.provider === 'G2BULK');
+                    const hasG2 = editingProduct.hasG2Bulk || (g2Map && g2Map.costUsd > 0);
+                    const g2Cost = g2Map ? g2Map.costUsd : Number(editingProduct.g2BulkCostUsd || 0);
+                    const g2Profit = !isNaN(editPriceNum) && editPriceNum > 0 && hasG2 ? (editPriceNum - g2Cost).toFixed(2) : null;
+                    const g2Enabled = g2Map ? g2Map.isActive : Boolean(editingProduct.hasG2Bulk);
+                    const g2GlobalOff = providerOrdersEnabled['G2BULK'] === false;
+
+                    return (
+                      <div style={{ 
+                        background: '#ffffff', 
+                        padding: '12px', 
+                        borderRadius: '8px', 
+                        border: `1.5px solid ${g2Enabled && hasG2 ? '#ddd6fe' : '#e2e8f0'}`,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#7c3aed' }}>
+                            ⚡ G2Bulk
+                          </span>
+                          <span style={{ 
+                            fontSize: '0.7rem', 
+                            padding: '1px 6px', 
+                            borderRadius: '4px', 
+                            fontWeight: 700,
+                            background: !hasG2 ? '#fef2f2' : (g2Enabled ? '#ecfdf5' : '#f1f5f9'),
+                            color: !hasG2 ? '#dc2626' : (g2Enabled ? '#059669' : '#64748b')
+                          }}>
+                            {!hasG2 ? 'غير مسجل' : (g2Enabled ? 'مفعّل' : 'معطّل')}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>التكلفة (Cost):</span>
+                          <span style={{ fontWeight: 800, fontSize: '0.95rem', color: hasG2 ? '#0f172a' : '#94a3b8' }}>
+                            {hasG2 ? `$${g2Cost.toFixed(2)}` : 'غير متوفر'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>الهامش (Margin):</span>
+                          <span style={{ fontWeight: 800, fontSize: '0.85rem', color: g2Profit && Number(g2Profit) >= 0 ? '#10b981' : '#ef4444' }}>
+                            {g2Profit ? `${Number(g2Profit) >= 0 ? '+' : ''}$${g2Profit}` : '-'}
+                          </span>
+                        </div>
+
+                        <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, color: '#334155' }}>
+                            <input
+                              type="checkbox"
+                              checked={g2Enabled}
+                              disabled={!hasG2}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setEditForm(prev => ({
+                                  ...prev,
+                                  providerMappings: prev.providerMappings.map(m => m.provider === 'G2BULK' ? { ...m, isActive: checked } : m)
+                                }));
+                              }}
+                            />
+                            <span>مفعّل للمنتج (Status: {g2Enabled ? 'Enabled' : 'Disabled'})</span>
+                          </label>
+                          {g2GlobalOff && (
+                            <div style={{ fontSize: '0.68rem', color: '#dc2626', marginTop: '4px' }}>
+                              * معطل عالمياً عن استقبال الطلبات
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px', alignItems: 'center' }}>
-                  {/* Supplier Cost */}
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>تكلفة المورد (Supplier)</span>
-                    <div style={{ fontWeight: 800, fontSize: '1rem', color: '#475569', marginTop: '4px' }}>
-                      ${Number(editingProduct.supplierCostUsd || editingProduct.gamesDropCostUsd || editingProduct.providerCostUsd || 0).toFixed(2)}
+                {/* Single Customer Sale Price Input (Requirement 9 & 27) */}
+                <div style={{ marginTop: '14px', background: '#fdfbf7', padding: '12px 14px', borderRadius: '8px', border: '1.5px solid #fde68a' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.82rem', color: '#92400e', fontWeight: 800, display: 'block' }}>
+                        سعر البيع الموحد للعميل في المتجر ($) — One Sale Price
+                      </label>
+                      <span style={{ fontSize: '0.72rem', color: '#78350f' }}>
+                        سعر موحد في المتجر لجميع المزودين ولا يتأثر بمزامنة التكلفة.
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#0f172a' }}>$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="admin-input"
+                        style={{ fontWeight: 900, fontSize: '1.1rem', borderColor: '#f59e0b', width: '130px', padding: '6px 10px', textAlign: 'center' }}
+                        value={editForm.customerPriceUsd}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, customerPriceUsd: e.target.value }))}
+                        placeholder="1.00"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Provider Routing & Failover Controls (Requirement 11 & 12) */}
+                <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Zap size={15} color="#3b82f6" />
+                    <span>توجيه المزود ومسار التنفيذ (Routing: Primary & Fallback)</span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label className="admin-label">المزود الأساسي (Primary)</label>
+                      <select
+                        className="admin-input"
+                        value={editForm.primaryProvider}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (providerOrdersEnabled[val] === false) {
+                            setAlertInfo({
+                              type: 'error',
+                              text: `المزود (${val}) معطل حالياً لاستقبال الطلبات من صفحة المزودين ولا يمكن اختياره كمزود أساسي.`
+                            });
+                            return;
+                          }
+                          setEditForm(prev => ({ 
+                            ...prev, 
+                            primaryProvider: val,
+                            fallbackProvider: prev.fallbackProvider === val ? '' : prev.fallbackProvider
+                          }));
+                        }}
+                      >
+                        <option value="GAMESDROP" disabled={providerOrdersEnabled['GAMESDROP'] === false}>
+                          GamesDrop {providerOrdersEnabled['GAMESDROP'] === false ? '❌ (معطّل للاستقبال)' : ''}
+                        </option>
+                        <option value="G2BULK" disabled={providerOrdersEnabled['G2BULK'] === false}>
+                          G2Bulk {providerOrdersEnabled['G2BULK'] === false ? '❌ (معطّل للاستقبال)' : ''}
+                        </option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="admin-label">المزود الاحتياطي (Fallback)</label>
+                      <select
+                        className="admin-input"
+                        value={editForm.fallbackProvider}
+                        disabled={!editForm.fallbackEnabled}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val && providerOrdersEnabled[val] === false) {
+                            setAlertInfo({
+                              type: 'error',
+                              text: `المزود (${val}) معطل حالياً لاستقبال الطلبات من صفحة المزودين ولا يمكن اختياره كمزود احتياطي.`
+                            });
+                            return;
+                          }
+                          setEditForm(prev => ({ ...prev, fallbackProvider: val }));
+                        }}
+                      >
+                        <option value="">بدون مزود احتياطي</option>
+                        {editForm.primaryProvider !== 'GAMESDROP' && (
+                          <option value="GAMESDROP" disabled={providerOrdersEnabled['GAMESDROP'] === false}>
+                            GamesDrop {providerOrdersEnabled['GAMESDROP'] === false ? '❌ (معطّل للاستقبال)' : ''}
+                          </option>
+                        )}
+                        {editForm.primaryProvider !== 'G2BULK' && (
+                          <option value="G2BULK" disabled={providerOrdersEnabled['G2BULK'] === false}>
+                            G2Bulk {providerOrdersEnabled['G2BULK'] === false ? '❌ (معطّل للاستقبال)' : ''}
+                          </option>
+                        )}
+                      </select>
                     </div>
                   </div>
 
-                  {/* GamesDrop Cost */}
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>تكلفة المزود (GamesDrop)</span>
-                    <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a', marginTop: '4px' }}>
-                      ${Number(editingProduct.gamesDropCostUsd || editingProduct.providerCostUsd || 0).toFixed(2)}
-                      {editingProduct.gamesDropAddedPercent ? (
-                        <span style={{ fontSize: '0.7rem', color: '#f59e0b', marginRight: '4px' }}>
-                          (+{editingProduct.gamesDropAddedPercent}%)
-                        </span>
-                      ) : null}
-                    </div>
+                  <div style={{ marginTop: '10px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={editForm.fallbackEnabled}
+                        onChange={(e) => setEditForm(prev => ({ 
+                          ...prev, 
+                          fallbackEnabled: e.target.checked,
+                          fallbackProvider: e.target.checked ? (prev.primaryProvider === 'GAMESDROP' ? 'G2BULK' : 'GAMESDROP') : ''
+                        }))}
+                      />
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155' }}>
+                        تفعيل التبديل التلقائي إلى المزود الاحتياطي عند فشل المزود الأساسي (Safe Failover)
+                      </span>
+                    </label>
                   </div>
+                </div>
 
-                  {/* Customer Sale Price (Direct Input) */}
-                  <div>
-                    <label style={{ fontSize: '0.72rem', color: '#0f172a', fontWeight: 700 }}>سعر البيع للعميل ($)</label>
+                {/* Stock Checkbox (Requirement 20) */}
+                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="admin-input"
-                      style={{ fontWeight: 800, fontSize: '1rem', marginTop: '4px', borderColor: '#f59e0b', padding: '6px 8px' }}
-                      value={editForm.customerPriceUsd}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, customerPriceUsd: e.target.value }))}
-                      placeholder="مثال: 1.20"
-                      required
+                      type="checkbox"
+                      checked={editForm.inStock}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, inStock: e.target.checked }))}
                     />
-                  </div>
-
-                  {/* Realtime Profit Preview */}
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>هامش الربح المتوقع</span>
-                    <div 
-                      style={{ 
-                        fontWeight: 800, 
-                        fontSize: '1.05rem', 
-                        marginTop: '4px',
-                        color: liveProfit !== null && Number(liveProfit) >= 0 ? '#10b981' : '#ef4444' 
-                      }}
-                    >
-                      {liveProfit !== null ? `${Number(liveProfit) >= 0 ? '+' : ''}$${liveProfit}` : '-'}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#78350f', marginTop: '8px' }}>
-                  * ملاحظة: مزامنة الأسعار لاحقاً ستقوم بتحديث تكلفة المزود فقط، ولن تغير سعر البيع للعميل أبداً.
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
+                      المنتج متوفر في المخزون (In Stock)
+                    </span>
+                  </label>
                 </div>
               </div>
+            );
+          })()}
 
               {/* Product Image Section */}
               <div>
@@ -1544,6 +2067,91 @@ export const AdminProducts: React.FC = () => {
                   onClick={() => setCatalogSyncModalOpen(false)}
                 >
                   إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* G2Bulk Catalog Sync Result Modal (Requirement 25) */}
+      {g2BulkSyncModalOpen && g2BulkSyncStats && (
+        <div className="admin-modal-backdrop" onClick={() => setG2BulkSyncModalOpen(false)}>
+          <div className="admin-modal" style={{ maxWidth: '620px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3 className="admin-modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#7c3aed' }}>
+                <Zap size={20} color="#7c3aed" />
+                <span>تقرير مزامنة كتالوج G2Bulk الموحد (G2Bulk Sync Complete)</span>
+              </h3>
+              <button 
+                type="button" 
+                className="admin-modal-close" 
+                onClick={() => setG2BulkSyncModalOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="admin-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: '#f5f3ff', padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd6fe', color: '#5b21b6', fontSize: '0.88rem', fontWeight: 600 }}>
+                تمت مزامنة الكتالوج بنجاح مع G2Bulk API وإدخال الباقات في الكتالوج الموحد دون تكرار أي منتج مشترك.
+              </div>
+
+              {/* 6 Stats Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>الألعاب (Fetched)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a' }}>{g2BulkSyncStats.gamesFetched}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>لعبة مفحوصة</div>
+                </div>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>الباقات (Products)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a' }}>{g2BulkSyncStats.cataloguesChecked}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>باقة معالجة</div>
+                </div>
+
+                <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#065f46', fontWeight: 700, marginBottom: '4px' }}>تم دمجها (Matched)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#059669' }}>+{g2BulkSyncStats.matched}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#10b981' }}>باقة موحدة</div>
+                </div>
+
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#1e40af', fontWeight: 700, marginBottom: '4px' }}>جديدة (New Products)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#2563eb' }}>+{g2BulkSyncStats.newProducts}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#3b82f6' }}>باقة حصرية</div>
+                </div>
+
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 700, marginBottom: '4px' }}>ملتبسة (Ambiguous)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#d97706' }}>{g2BulkSyncStats.ambiguous}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#f59e0b' }}>تخطي بأمان</div>
+                </div>
+
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#991b1b', fontWeight: 700, marginBottom: '4px' }}>مستبعدة (Rejected)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#dc2626' }}>{g2BulkSyncStats.rejected}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#ef4444' }}>بدون مطابقة</div>
+                </div>
+              </div>
+
+              {/* Pricing Safety Reminder (Requirement 28) */}
+              <div style={{ background: '#ecfdf5', padding: '12px 14px', borderRadius: '8px', border: '1px solid #a7f3d0', fontSize: '0.82rem', color: '#065f46', lineHeight: 1.5 }}>
+                🔒 <strong>حماية أسعار البيع:</strong> تمت إضافة وتحديث تكاليف المزود (Provider Cost) والمخططات فقط. لم يتم تعديل أي سعر بيع للعملاء (<code style={{ color: '#047857' }}>customerPriceUsd</code>) حفاظاً على هوامش الربح.
+              </div>
+
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center' }}>
+                وقت المزامنة: {new Date(g2BulkSyncStats.lastSyncTime).toLocaleString('ar-EG')}
+              </div>
+
+              <div className="admin-modal-footer" style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-primary"
+                  onClick={() => setG2BulkSyncModalOpen(false)}
+                >
+                  إغلاق التقرير
                 </button>
               </div>
             </div>

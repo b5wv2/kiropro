@@ -1,7 +1,6 @@
 import pool from '../db';
 import { v4 as uuidv4 } from 'uuid';
-import { gamesDropProvider } from '../providers/gamesdrop';
-import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
+import { providerRouter } from '../providers/router';
 import { awardOrderCashback } from './cashbackService';
 import { grantBonusSpinForOrder } from './wheelService';
 import { getOrCreateOrderReviewToken } from './reviewTokenService';
@@ -13,13 +12,15 @@ export interface ExecuteOrderResult {
   orderId: string;
   previousStatus: string;
   newStatus: string;
-  providerOrderId?: number | null;
+  provider?: string | null;
+  providerOrderId?: number | string | null;
   providerStatus?: string | null;
+  fallbackUsed?: boolean | undefined;
 }
 
 /**
- * Authoritative Order Execution with GamesDrop Provider
- * Used by both Customer order creation and Admin Manual Execution.
+ * Authoritative Order Execution with ProviderRouter (Multi-Provider: GamesDrop & G2Bulk)
+ * Used by Customer order creation and Admin Manual Execution.
  * Strictly guarantees idempotency, locking, and zero duplicate executions.
  */
 export async function executeOrderWithProvider(params: {
@@ -54,107 +55,107 @@ export async function executeOrderWithProvider(params: {
       throw new Error('الطلب قيد المعالجة بالفعل لدى مزود الخدمة، جارٍ استلام التحديثات تلقائياً.');
     }
 
-    // 3. Load authoritative Product from PostgreSQL
-    const prodRes = await client.query(
-      `SELECT id, "productName", "offerName", "providerOfferId", "customerPriceUsd" 
-       FROM "Product" 
-       WHERE (id::text = $1 OR "productId"::text = $1)
-       LIMIT 1`,
-      [order.packageId]
-    );
+    // 3. Resolve authoritative Provider Routing for Product
+    const routing = await providerRouter.resolveProductProviders(order.packageId);
 
-    const product = prodRes.rows[0];
-    const providerOfferId = Number(order.providerOfferId || product?.providerOfferId);
-
-    if (!providerOfferId || isNaN(providerOfferId)) {
-      throw new Error('معرّف مزود الخدمة للمنتج غير صالح.');
-    }
-
-    // 4. Fetch latest authoritative provider price from GamesDrop
-    let latestOffer: any;
-    try {
-      latestOffer = await gamesDropProvider.findOffer(providerOfferId);
-    } catch (offerErr: any) {
-      console.error('[OrderExecution] Failed to fetch latest offer from GamesDrop:', offerErr.message);
-      throw new Error('تعذر التواصل مع مزود الخدمة لتحديث أسعار العرض حالياً.');
-    }
-
-    const latestProviderPrice = Number(latestOffer?.price || order.providerPrice || 0);
-
-    // 5. Dispatch Order to GamesDrop API
-    const transactionId = `KIROPRO-${orderId}`;
-    let gdResponse: any;
-
-    try {
-      gdResponse = await gamesDropProvider.createOrder({
-        offerId: providerOfferId,
-        price: latestProviderPrice,
-        transactionId: transactionId,
-        customer: {
-          email: order.playerId && order.playerId.includes('@') ? order.playerId : 'customer@kiropro.store',
-          gameUserId: order.playerId || order.userId,
-          ...(order.serverId ? { gameServerId: order.serverId } : {})
-        }
-      });
-    } catch (gdErr: any) {
-      console.error('[OrderExecution] GamesDrop create-order call failed:', gdErr.message);
-      const friendly = mapGamesDropErrorMessage(gdErr.errorCode || gdErr.message);
-
+    // Ensure persistent UUID idempotency key per order
+    let idempotencyKey = order.idempotencyKey;
+    if (!idempotencyKey) {
+      idempotencyKey = uuidv4();
       await client.query(
-        `UPDATE "Order" 
-         SET "failureReason" = $1, "updatedAt" = CURRENT_TIMESTAMP 
-         WHERE id = $2`,
-        [gdErr.message || 'Provider execution failed', orderId]
+        'UPDATE "Order" SET "idempotencyKey" = $1 WHERE id = $2',
+        [idempotencyKey, orderId]
       );
-      await client.query('COMMIT');
-
-      throw new Error(friendly || 'تعذر إرسال الطلب لمزود الخدمة. يرجى التحقق من تفاصيل الطلب والمحاولة لاحقاً.');
     }
 
-    // 6. Handle GamesDrop Response
-    const rawStatus = gdResponse.status;
-    const mappedStatus = mapGamesDropStatus(rawStatus);
-    const providerOrderId = gdResponse.order_id || gdResponse.orderId || null;
-    const fulfillmentKey = gdResponse.key || null;
+    // 4. Dispatch Top-up via ProviderRouter with Safe Fallback protection
+    const dispatchResult = await providerRouter.executeTopupOrder({
+      koaraOrderId: orderId,
+      playerUserId: (order.playerId || order.userId || '').trim(),
+      serverZoneId: order.serverId ? String(order.serverId).trim() : undefined,
+      customerEmail: order.playerId && order.playerId.includes('@') ? order.playerId : 'customer@kiropro.store',
+      idempotencyKey: idempotencyKey,
+      expectedPriceUsd: Number(order.providerCostUsd || order.providerPrice || routing.primaryCostUsd || 0)
+    }, routing);
 
-    if (mappedStatus === 'COMPLETED') {
+    const providerName = dispatchResult.provider;
+    const providerOrderId = dispatchResult.providerOrderId || null;
+    const rawStatus = dispatchResult.providerStatus;
+    const canonicalStatus = dispatchResult.canonicalStatus;
+    const fulfillmentKey = dispatchResult.fulfillmentKey || null;
+    const costSnapshot = dispatchResult.costUsd || routing.primaryCostUsd || 0;
+
+    // 5. Update Order State based on Canonical Status
+    let mappedStatus = 'PROCESSING';
+
+    if (dispatchResult.isAmbiguous) {
+      // Ambiguous state (timeout / network disconnection after submit):
+      // Transition strictly to PROVIDER_UNKNOWN to prevent double fulfillment!
+      mappedStatus = 'PROVIDER_UNKNOWN';
       await client.query(
         `UPDATE "Order" 
-         SET status = 'COMPLETED',
-             "providerOrderId" = $1,
+         SET status = 'PROVIDER_UNKNOWN',
+             "provider" = $1,
              "providerStatus" = $2,
-             "fulfillmentKey" = $3,
-             "completedAt" = CURRENT_TIMESTAMP,
-             "updatedAt" = CURRENT_TIMESTAMP
-         WHERE id = $4`,
-        [providerOrderId, rawStatus, fulfillmentKey, orderId]
-      );
-    } else if (mappedStatus === 'PROCESSING') {
-      await client.query(
-        `UPDATE "Order" 
-         SET status = 'PROCESSING',
-             "providerOrderId" = $1,
-             "providerStatus" = $2,
-             "lastPolledAt" = CURRENT_TIMESTAMP,
-             "updatedAt" = CURRENT_TIMESTAMP
-         WHERE id = $3`,
-        [providerOrderId, rawStatus, orderId]
-      );
-    } else {
-      // FAILED / REFUNDED from provider
-      await client.query(
-        `UPDATE "Order" 
-         SET status = $1,
-             "providerOrderId" = $2,
-             "providerStatus" = $3,
+             "providerCostUsd" = COALESCE("providerCostUsd", $3),
              "failureReason" = $4,
              "updatedAt" = CURRENT_TIMESTAMP
          WHERE id = $5`,
-        [mappedStatus, providerOrderId, rawStatus, gdResponse.message || `Provider status: ${rawStatus}`, orderId]
+        [
+          providerName,
+          rawStatus || 'UNKNOWN',
+          costSnapshot,
+          dispatchResult.message || 'حالة الطلب غير مؤكدة لدى مزود الخدمة (Timeout/Network). يرجى التحقق اليدوي لمنع التكرار.',
+          orderId
+        ]
+      );
+    } else if (canonicalStatus === 'COMPLETED') {
+      mappedStatus = 'COMPLETED';
+      await client.query(
+        `UPDATE "Order" 
+         SET status = 'COMPLETED',
+             "provider" = $1,
+             "providerOrderId" = $2,
+             "providerStatus" = $3,
+             "providerCostUsd" = COALESCE("providerCostUsd", $4),
+             "fulfillmentKey" = $5,
+             "completedAt" = CURRENT_TIMESTAMP,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $6`,
+        [providerName, providerOrderId, rawStatus, costSnapshot, fulfillmentKey, orderId]
+      );
+    } else if (canonicalStatus === 'PROCESSING' || canonicalStatus === 'PENDING') {
+      mappedStatus = 'PROCESSING';
+      await client.query(
+        `UPDATE "Order" 
+         SET status = 'PROCESSING',
+             "provider" = $1,
+             "providerOrderId" = $2,
+             "providerStatus" = $3,
+             "providerCostUsd" = COALESCE("providerCostUsd", $4),
+             "lastPolledAt" = CURRENT_TIMESTAMP,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $5`,
+        [providerName, providerOrderId, rawStatus, costSnapshot, orderId]
+      );
+    } else {
+      // Definitive failure
+      mappedStatus = 'FAILED';
+      await client.query(
+        `UPDATE "Order" 
+         SET status = 'FAILED',
+             "provider" = $1,
+             "providerOrderId" = $2,
+             "providerStatus" = $3,
+             "providerCostUsd" = COALESCE("providerCostUsd", $4),
+             "failureReason" = $5,
+             "updatedAt" = CURRENT_TIMESTAMP
+         WHERE id = $6`,
+        [providerName, providerOrderId, rawStatus, costSnapshot, dispatchResult.message || 'Provider execution failed', orderId]
       );
     }
 
-    // 7. Audit Log for Admin Execution
+    // 6. Audit Log for Admin Execution
     if (adminId) {
       await client.query(
         `INSERT INTO "AuditLog" (id, "adminId", action, "targetUserId", reason) 
@@ -164,14 +165,14 @@ export async function executeOrderWithProvider(params: {
           adminId,
           'MANUAL_ORDER_EXECUTION',
           order.userId,
-          `تنفيذ يدوي للطلب #${orderId.slice(0, 8)} (الحالة السابقة: ${previousStatus}، الحالة الجديدة: ${mappedStatus}، مزود: ${providerOrderId})`
+          `تنفيذ يدوي للطلب #${orderId.slice(0, 8)} عبر [${providerName}] (الحالة السابقة: ${previousStatus}، الحالة الجديدة: ${mappedStatus}، مزود: ${providerOrderId || 'N/A'}${dispatchResult.fallbackUsed ? ' [Fallback Used]' : ''})`
         ]
       );
     }
 
     await client.query('COMMIT');
 
-    // 8. Trigger Post-Commit Cashback and Customer Notifications
+    // 7. Trigger Post-Commit Cashback and Customer Notifications
     if (mappedStatus === 'COMPLETED' || mappedStatus === 'PROCESSING') {
       try {
         const uRes = await pool.query(
@@ -231,15 +232,21 @@ export async function executeOrderWithProvider(params: {
     }
 
     return {
-      success: true,
+      success: mappedStatus === 'COMPLETED' || mappedStatus === 'PROCESSING',
       message: mappedStatus === 'COMPLETED' 
         ? 'تم تنفيذ الطلب بنجاح واكتمل الشحن فوراً!' 
-        : 'تم إرسال الطلب بنجاح لمزود الخدمة وهو الآن قيد التنفيذ والمتابعة التلقائية.',
+        : mappedStatus === 'PROVIDER_UNKNOWN'
+          ? 'تم تعليق الطلب كـ PROVIDER_UNKNOWN لعدم استقرار اتصال المزود، لمنع الشحن المزدوج.'
+          : mappedStatus === 'PROCESSING'
+            ? 'تم إرسال الطلب بنجاح لمزود الخدمة وهو الآن قيد التنفيذ والمتابعة التلقائية.'
+            : 'فشل تنفيذ الطلب لدى مزود الخدمة.',
       orderId,
       previousStatus,
       newStatus: mappedStatus,
+      provider: providerName,
       providerOrderId,
-      providerStatus: rawStatus
+      providerStatus: rawStatus,
+      fallbackUsed: dispatchResult.fallbackUsed
     };
   } catch (err: any) {
     await client.query('ROLLBACK');

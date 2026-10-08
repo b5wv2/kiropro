@@ -140,6 +140,7 @@ router.get('/', async (req: Request, res: Response) => {
         p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
         p."platformCode", p."platformName", p."regionCode", p."regionName",
         p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+        p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
         p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
         p."gameCategoryId",
         c."imageUrl" as "categoryImageUrl",
@@ -168,6 +169,13 @@ router.get('/', async (req: Request, res: Response) => {
       WHERE p."isActive" = true
       ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
     `);
+
+    // Fetch provider settings to calculate accurate real-time inStock
+    const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
+    const provOrdersEnabledMap = new Map<string, boolean>();
+    for (const r of provSettingsRes.rows) {
+      provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
+    }
 
     // Group items by curated game / category
     const groupedMap = new Map<string, any>();
@@ -323,7 +331,17 @@ router.get('/', async (req: Request, res: Response) => {
 
       const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';
       const availableStockCount = isInventoryTracked ? Number(row.availableStock || 0) : undefined;
-      const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : Boolean(row.inStock);
+
+      let hasOrderableProv = true;
+      if (!isInventoryTracked) {
+        const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
+        const primEnabled = provOrdersEnabledMap.get(primName) !== false;
+        const fallName = row.fallbackProvider ? String(row.fallbackProvider).toUpperCase() : null;
+        const fallEnabled = Boolean(row.fallbackEnabled && fallName && provOrdersEnabledMap.get(fallName) === true);
+        hasOrderableProv = primEnabled || fallEnabled;
+      }
+
+      const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : (Boolean(row.inStock) && hasOrderableProv);
 
       card.packages.push({
         id: row.id,
@@ -386,6 +404,7 @@ router.get('/:id', async (req: Request, res: Response) => {
           p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
           p."platformCode", p."platformName", p."regionCode", p."regionName",
           p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
           p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
           c."imageUrl" as "categoryImageUrl",
           COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
@@ -411,6 +430,12 @@ router.get('/:id', async (req: Request, res: Response) => {
         return res.status(404).json({ error: 'اللعبة غير متاحة حالياً أو لا توجد باقات مفعلة.' });
       }
 
+      const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
+      const provOrdersEnabledMap = new Map<string, boolean>();
+      for (const r of provSettingsRes.rows) {
+        provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
+      }
+
       const categoryImageUrl = resolveImageUrl(category.imageUrl, DEFAULT_PLACEHOLDER);
 
       const packages = result.rows.map((row, idx) => {
@@ -418,7 +443,17 @@ router.get('/:id', async (req: Request, res: Response) => {
         const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
         const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';
         const availableStockCount = isInventoryTracked ? Number(row.availableStock || 0) : undefined;
-        const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : Boolean(row.inStock);
+
+        let hasOrderableProv = true;
+        if (!isInventoryTracked) {
+          const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
+          const primEnabled = provOrdersEnabledMap.get(primName) !== false;
+          const fallName = row.fallbackProvider ? String(row.fallbackProvider).toUpperCase() : null;
+          const fallEnabled = Boolean(row.fallbackEnabled && fallName && provOrdersEnabledMap.get(fallName) === true);
+          hasOrderableProv = primEnabled || fallEnabled;
+        }
+
+        const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : (Boolean(row.inStock) && hasOrderableProv);
 
         return {
           id: row.id,
@@ -471,6 +506,7 @@ router.get('/:id', async (req: Request, res: Response) => {
         p."arabicName", p.description, p."subCategory", p."productType",
         p."platformCode", p."platformName", p."regionCode", p."regionName",
         p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+        p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
         p."requiresGameUserId", p."requiresGameServerId",
         c."imageUrl" as "categoryImageUrl"
       FROM "Product" p
@@ -484,6 +520,20 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     const row = singleRes.rows[0];
+
+    const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
+    const provOrdersEnabledMap = new Map<string, boolean>();
+    for (const r of provSettingsRes.rows) {
+      provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
+    }
+
+    const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
+    const primEnabled = provOrdersEnabledMap.get(primName) !== false;
+    const fallName = row.fallbackProvider ? String(row.fallbackProvider).toUpperCase() : null;
+    const fallEnabled = Boolean(row.fallbackEnabled && fallName && provOrdersEnabledMap.get(fallName) === true);
+    const hasOrderableProv = primEnabled || fallEnabled;
+    const finalInStock = Boolean(row.inStock) && hasOrderableProv;
+
     res.json({
       id: row.id,
       name: row.arabicName || row.offerName,
@@ -494,7 +544,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       productType: row.productType,
       imageUrl: resolveImageUrl(row.productImageUrl, row.categoryImageUrl),
       price: Number(row.price || 0),
-      inStock: row.inStock,
+      inStock: finalInStock,
       requiresGameUserId: row.requiresGameUserId,
       requiresGameServerId: row.requiresGameServerId,
       isRequiredGameServerId: row.requiresGameServerId
@@ -807,7 +857,9 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
   const search = (req.query.search as string || '').trim();
   const filterActive = req.query.active as string; // 'true' | 'false' | undefined
   const filterStatus = req.query.status as string; // 'all' | 'active' | 'inactive'
-  const filterGameCategory = req.query.gameCategory as string; // 'pubg-mobile' | 'freefire-me' | 'blood-strike-global' | 'blood-strike-me' | 'all'
+  const filterGameCategory = req.query.gameCategory as string; // 'pubg-mobile' | 'freefire-me' | ... | 'all'
+  const providerFilter = (req.query.providerFilter as string || 'all').toLowerCase();
+  const stockFilter = (req.query.stockFilter as string || 'all').toLowerCase();
 
   const offset = (page - 1) * limit;
   const whereClauses: string[] = [];
@@ -815,48 +867,88 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
   let paramIdx = 1;
 
   if (search) {
-    whereClauses.push(`("productName" ILIKE $${paramIdx} OR "offerName" ILIKE $${paramIdx} OR "providerOfferId"::text ILIKE $${paramIdx} OR "platformName" ILIKE $${paramIdx} OR "regionName" ILIKE $${paramIdx})`);
+    whereClauses.push(`(p."productName" ILIKE $${paramIdx} OR p."offerName" ILIKE $${paramIdx} OR p."providerOfferId"::text ILIKE $${paramIdx} OR p."platformName" ILIKE $${paramIdx} OR p."regionName" ILIKE $${paramIdx})`);
     params.push(`%${search}%`);
     paramIdx++;
   }
 
   if (filterActive === 'true' || filterStatus === 'active') {
-    whereClauses.push(`"isActive" = true`);
+    whereClauses.push(`p."isActive" = true`);
   } else if (filterActive === 'false' || filterStatus === 'inactive') {
-    whereClauses.push(`"isActive" = false`);
+    whereClauses.push(`p."isActive" = false`);
   }
 
   if (filterGameCategory && filterGameCategory !== 'all') {
-    whereClauses.push(`"gameCategoryId" = $${paramIdx}`);
+    whereClauses.push(`p."gameCategoryId" = $${paramIdx}`);
     params.push(filterGameCategory);
     paramIdx++;
+  }
+
+  // Stock Filter
+  if (stockFilter === 'in_stock') {
+    whereClauses.push(`p."inStock" = true`);
+  } else if (stockFilter === 'out_of_stock') {
+    whereClauses.push(`p."inStock" = false`);
+  }
+
+  // Multi-Provider Filter (Rule #23)
+  if (providerFilter === 'has_gamesdrop') {
+    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)`);
+  } else if (providerFilter === 'has_g2bulk') {
+    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)`);
+  } else if (providerFilter === 'both') {
+    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true) AND EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)`);
+  } else if (providerFilter === 'gamesdrop_only') {
+    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true) AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)`);
+  } else if (providerFilter === 'g2bulk_only') {
+    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true) AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)`);
+  } else if (providerFilter === 'missing_provider') {
+    whereClauses.push(`NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm."isActive" = true)`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
   try {
     const [countRes, statsRes, itemsRes] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM "Product" ${whereSql}`, params),
+      pool.query(`SELECT COUNT(*) FROM "Product" p ${whereSql}`, params),
       pool.query(`
         SELECT 
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE "isActive" = true) as active,
-          COUNT(*) FILTER (WHERE "isActive" = false) as inactive
-        FROM "Product"
+          COUNT(*) FILTER (WHERE "isActive" = false) as inactive,
+          COUNT(*) FILTER (WHERE "inStock" = false) as out_of_stock,
+          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)) as has_gamesdrop,
+          COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)) as has_g2bulk,
+          COUNT(*) FILTER (WHERE 
+            EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)
+            AND EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)
+          ) as both_providers,
+          COUNT(*) FILTER (WHERE 
+            EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)
+            AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)
+          ) as gamesdrop_only,
+          COUNT(*) FILTER (WHERE 
+            EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)
+            AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)
+          ) as g2bulk_only,
+          COUNT(*) FILTER (WHERE 
+            NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm."isActive" = true)
+          ) as missing_provider
+        FROM "Product" p
       `),
       pool.query(`
         SELECT 
-          id, "provider", "providerOfferId", "productId", "productName", "offerName",
-          "category", "platformCode", "platformName", "regionCode", "regionName",
-          "supplierCostUsd", "gamesDropCostUsd", "gamesDropAddedPercent", "gamesDropFxRate",
-          "providerCostUsd", "providerCurrency", "customerPriceUsd", "isActive",
-          "inStock", "imageUrl", "displayOrder", "isFeatured", "gameCategoryId",
-          "requiresGameUserId", "requiresGameServerId", "lastProviderSyncAt",
-          ("customerPriceUsd" - "gamesDropCostUsd") as "profitUsd",
-          "createdAt", "updatedAt"
-        FROM "Product"
+          p.id, p."provider", p."providerOfferId", p."productId", p."productName", p."offerName",
+          p."category", p."platformCode", p."platformName", p."regionCode", p."regionName",
+          p."supplierCostUsd", p."gamesDropCostUsd", p."gamesDropAddedPercent", p."gamesDropFxRate",
+          p."providerCostUsd", p."providerCurrency", p."customerPriceUsd", p."isActive",
+          p."inStock", p."imageUrl", p."displayOrder", p."isFeatured", p."gameCategoryId",
+          p."requiresGameUserId", p."requiresGameServerId", p."lastProviderSyncAt",
+          p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
+          p."createdAt", p."updatedAt"
+        FROM "Product" p
         ${whereSql}
-        ORDER BY "isActive" DESC, "displayOrder" ASC, "productName" ASC
+        ORDER BY p."isActive" DESC, p."displayOrder" ASC, p."productName" ASC
         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
       `, [...params, limit, offset])
     ]);
@@ -864,20 +956,123 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
     const total = parseInt(countRes.rows[0].count, 10);
     const globalStats = statsRes.rows[0];
 
+    // Batch query ALL provider mappings for the current page products (including active and inactive mappings)
+    const pageProductIds = itemsRes.rows.map(p => p.id);
+    const mappingsByProduct: Record<string, any[]> = {};
+    if (pageProductIds.length > 0) {
+      try {
+        const mapRes = await pool.query(
+          `SELECT id, "productId", "provider", "providerProductId", "providerCostUsd", "isPrimary", "isFallback", "isActive"
+           FROM product_provider_mappings
+           WHERE "productId" = ANY($1::uuid[])
+           ORDER BY "isPrimary" DESC, "isFallback" ASC, "provider" ASC`,
+          [pageProductIds]
+        );
+        for (const m of mapRes.rows) {
+          const list = mappingsByProduct[m.productId] || [];
+          list.push({
+            id: m.id,
+            provider: m.provider,
+            providerProductId: m.providerProductId,
+            costUsd: Number(m.providerCostUsd || 0),
+            isPrimary: Boolean(m.isPrimary),
+            isFallback: Boolean(m.isFallback),
+            isActive: Boolean(m.isActive)
+          });
+          mappingsByProduct[m.productId] = list;
+        }
+      } catch (mErr: any) {
+        console.warn('[Admin Catalog] Mappings lookup warning:', mErr.message);
+      }
+    }
+
+    // Fetch provider settings to inform admin UI of orders_enabled state per provider
+    let provSettingsMap: Record<string, boolean> = { GAMESDROP: true, G2BULK: false };
+    try {
+      const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
+      for (const r of provSettingsRes.rows) {
+        provSettingsMap[r.provider.toUpperCase()] = Boolean(r.orders_enabled);
+      }
+    } catch {}
+
     res.json({
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+      providerOrdersEnabled: provSettingsMap,
       stats: {
-        totalCatalog: parseInt(globalStats.total, 10),
-        activeCount: parseInt(globalStats.active, 10),
-        inactiveCount: parseInt(globalStats.inactive, 10),
+        totalCatalog: parseInt(globalStats.total, 10) || 0,
+        activeCount: parseInt(globalStats.active, 10) || 0,
+        inactiveCount: parseInt(globalStats.inactive, 10) || 0,
+        outOfStockCount: parseInt(globalStats.out_of_stock, 10) || 0,
+        hasGamesDropCount: parseInt(globalStats.has_gamesdrop, 10) || 0,
+        hasG2BulkCount: parseInt(globalStats.has_g2bulk, 10) || 0,
+        bothProvidersCount: parseInt(globalStats.both_providers, 10) || 0,
+        gamesDropOnlyCount: parseInt(globalStats.gamesdrop_only, 10) || 0,
+        g2BulkOnlyCount: parseInt(globalStats.g2bulk_only, 10) || 0,
+        missingProviderCount: parseInt(globalStats.missing_provider, 10) || 0,
       },
-      products: itemsRes.rows.map(p => ({
-        ...p,
-        imageUrl: p.imageUrl ? resolveImageUrl(p.imageUrl, null) : null
-      }))
+      products: itemsRes.rows.map(p => {
+        const prodMappings = mappingsByProduct[p.id] || [];
+        const gdMapping = prodMappings.find(m => m.provider === 'GAMESDROP');
+        const g2Mapping = prodMappings.find(m => m.provider === 'G2BULK');
+
+        const gdCost: number | null = gdMapping
+          ? gdMapping.costUsd
+          : (p.gamesDropCostUsd !== null && p.gamesDropCostUsd !== undefined ? Number(p.gamesDropCostUsd) : (p.providerCostUsd !== null && p.providerCostUsd !== undefined ? Number(p.providerCostUsd) : null));
+
+        const g2Cost: number | null = g2Mapping ? g2Mapping.costUsd : null;
+        const customerPrice: number | null = p.customerPriceUsd !== null && p.customerPriceUsd !== undefined ? Number(p.customerPriceUsd) : null;
+
+        const gdMargin: number | null = customerPrice !== null && gdCost !== null
+          ? Number((customerPrice - gdCost).toFixed(2))
+          : null;
+
+        const g2Margin: number | null = customerPrice !== null && g2Cost !== null
+          ? Number((customerPrice - g2Cost).toFixed(2))
+          : null;
+
+        let lowestProvider: 'GAMESDROP' | 'G2BULK' | 'SAME' | null = null;
+        let lowestCostUsd: number | null = null;
+
+        if (gdCost !== null && g2Cost !== null) {
+          if (gdCost < g2Cost) {
+            lowestProvider = 'GAMESDROP';
+            lowestCostUsd = gdCost;
+          } else if (g2Cost < gdCost) {
+            lowestProvider = 'G2BULK';
+            lowestCostUsd = g2Cost;
+          } else {
+            lowestProvider = 'SAME';
+            lowestCostUsd = gdCost;
+          }
+        } else if (gdCost !== null) {
+          lowestProvider = 'GAMESDROP';
+          lowestCostUsd = gdCost;
+        } else if (g2Cost !== null) {
+          lowestProvider = 'G2BULK';
+          lowestCostUsd = g2Cost;
+        }
+
+        return {
+          ...p,
+          primaryProvider: p.primaryProvider || (gdMapping?.isPrimary ? 'GAMESDROP' : (g2Mapping?.isPrimary ? 'G2BULK' : 'GAMESDROP')),
+          fallbackProvider: p.fallbackProvider || (gdMapping?.isFallback ? 'GAMESDROP' : (g2Mapping?.isFallback ? 'G2BULK' : null)),
+          fallbackEnabled: Boolean(p.fallbackEnabled),
+          providerMappings: prodMappings,
+          hasGamesDrop: Boolean(gdMapping && gdMapping.isActive),
+          hasG2Bulk: Boolean(g2Mapping && g2Mapping.isActive),
+          gamesDropCostUsd: gdCost,
+          g2BulkCostUsd: g2Cost,
+          customerPriceUsd: customerPrice,
+          gamesDropMarginUsd: gdMargin,
+          g2BulkMarginUsd: g2Margin,
+          lowestProvider,
+          lowestCostUsd,
+          imageUrl: p.imageUrl ? resolveImageUrl(p.imageUrl, null) : null
+        };
+      })
     });
   } catch (err: any) {
     console.error('[Admin Catalog] Error:', err);
@@ -887,7 +1082,7 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
 
 /**
  * ADMIN: PATCH /api/admin/products/:id
- * Updates operational fields: customer sale price, active status, image, display name.
+ * Updates operational fields: customer sale price, active status, image, display name, routing, and provider mappings.
  */
 router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
@@ -902,21 +1097,51 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
     arabicName,
     description,
     subCategory,
-    productType
+    productType,
+    primaryProvider,
+    fallbackProvider,
+    fallbackEnabled,
+    inStock,
+    providerMappings
   } = req.body;
 
   try {
+    // REQUIREMENT 4: Prevent selecting a provider as primary or fallback if its global orders_enabled is false
+    if (primaryProvider) {
+      const normPrimary = String(primaryProvider).toUpperCase();
+      const provCheck = await pool.query('SELECT orders_enabled FROM provider_settings WHERE UPPER(provider) = $1', [normPrimary]);
+      if (provCheck.rows.length > 0 && !provCheck.rows[0].orders_enabled) {
+        return res.status(400).json({
+          error: `لا يمكن تعيين المزود (${normPrimary}) كمزود أساسي لأن استقبال الطلبات معطل له حالياً من صفحة المزودين.`
+        });
+      }
+    }
+
+    if (fallbackEnabled && fallbackProvider) {
+      const normFallback = String(fallbackProvider).toUpperCase();
+      const provCheck = await pool.query('SELECT orders_enabled FROM provider_settings WHERE UPPER(provider) = $1', [normFallback]);
+      if (provCheck.rows.length > 0 && !provCheck.rows[0].orders_enabled) {
+        return res.status(400).json({
+          error: `لا يمكن تعيين المزود (${normFallback}) كمزود احتياطي لأن استقبال الطلبات معطل له حالياً من صفحة المزودين.`
+        });
+      }
+    }
+
     const updates: string[] = ['"updatedAt" = NOW()'];
     const values: any[] = [id];
     let paramIdx = 2;
 
     if (customerPriceUsd !== undefined) {
       updates.push(`"customerPriceUsd" = $${paramIdx++}`);
-      values.push(Number(customerPriceUsd));
+      values.push(customerPriceUsd !== null && customerPriceUsd !== '' ? Number(customerPriceUsd) : null);
     }
     if (isActive !== undefined) {
       updates.push(`"isActive" = $${paramIdx++}`);
       values.push(Boolean(isActive));
+    }
+    if (inStock !== undefined) {
+      updates.push(`"inStock" = $${paramIdx++}`);
+      values.push(Boolean(inStock));
     }
     if (imageUrl !== undefined) {
       updates.push(`"imageUrl" = $${paramIdx++}`);
@@ -954,6 +1179,18 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
       updates.push(`"productType" = $${paramIdx++}`);
       values.push(productType);
     }
+    if (primaryProvider !== undefined) {
+      updates.push(`"primaryProvider" = $${paramIdx++}`);
+      values.push(String(primaryProvider).toUpperCase());
+    }
+    if (fallbackProvider !== undefined) {
+      updates.push(`"fallbackProvider" = $${paramIdx++}`);
+      values.push(fallbackProvider ? String(fallbackProvider).toUpperCase() : null);
+    }
+    if (fallbackEnabled !== undefined) {
+      updates.push(`"fallbackEnabled" = $${paramIdx++}`);
+      values.push(Boolean(fallbackEnabled));
+    }
 
     const query = `
       UPDATE "Product" 
@@ -967,12 +1204,52 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
       return res.status(404).json({ error: 'Product not found' });
     }
 
+    // Synchronize product_provider_mappings if routing changed
+    if (primaryProvider !== undefined || fallbackProvider !== undefined || fallbackEnabled !== undefined) {
+      try {
+        if (primaryProvider) {
+          const normPrimary = String(primaryProvider).toUpperCase();
+          await pool.query(`UPDATE product_provider_mappings SET "isPrimary" = false WHERE "productId" = $1`, [id]);
+          await pool.query(`UPDATE product_provider_mappings SET "isPrimary" = true, "isFallback" = false WHERE "productId" = $1 AND UPPER("provider") = $2`, [id, normPrimary]);
+        }
+
+        if (fallbackEnabled !== undefined || fallbackProvider !== undefined) {
+          await pool.query(`UPDATE product_provider_mappings SET "isFallback" = false WHERE "productId" = $1`, [id]);
+          if (fallbackEnabled && fallbackProvider) {
+            const normFallback = String(fallbackProvider).toUpperCase();
+            await pool.query(`UPDATE product_provider_mappings SET "isFallback" = true, "isPrimary" = false WHERE "productId" = $1 AND UPPER("provider") = $2`, [id, normFallback]);
+          }
+        }
+      } catch (ppmErr: any) {
+        console.warn('[Admin Product Update] Mapping update warning:', ppmErr.message);
+      }
+    }
+
+    // Synchronize individual provider active status if provided in providerMappings array
+    if (Array.isArray(providerMappings) && providerMappings.length > 0) {
+      try {
+        for (const pm of providerMappings) {
+          if (pm.provider && pm.isActive !== undefined) {
+            await pool.query(
+              `UPDATE product_provider_mappings 
+               SET "isActive" = $1, "updatedAt" = NOW() 
+               WHERE "productId" = $2 AND UPPER("provider") = $3`,
+              [Boolean(pm.isActive), id, String(pm.provider).toUpperCase()]
+            );
+          }
+        }
+      } catch (pmsErr: any) {
+        console.warn('[Admin Product Update] Mapping isActive update warning:', pmsErr.message);
+      }
+    }
+
     res.json({ message: 'Product updated successfully', product: result.rows[0] });
   } catch (err: any) {
     console.error('[Admin Product Update] Error:', err);
     res.status(500).json({ error: 'Failed to update product' });
   }
 });
+
 
 /**
  * ADMIN: POST /api/admin/products/:id/toggle-active

@@ -186,13 +186,24 @@ export async function fetchAdminCatalog(params?: {
   search?: string; 
   status?: string;
   gameCategory?: string;
+  providerFilter?: string;
+  stockFilter?: string;
 }): Promise<import('../types').AdminCatalogResponse> {
   return api.get('/api/products/admin/catalog', { params });
 }
 
 export async function updateAdminProduct(
   id: string, 
-  data: Partial<import('../types').AdminProduct>
+  data: Partial<Omit<import('../types').AdminProduct, 'providerMappings'>> & {
+    providerMappings?: Array<{
+      provider: string;
+      isActive?: boolean;
+      costUsd?: number;
+      isPrimary?: boolean;
+      isFallback?: boolean;
+      providerProductId?: string;
+    }>;
+  }
 ): Promise<{ success: boolean; product: import('../types').AdminProduct }> {
   return api.patch(`/api/products/admin/products/${id}`, data);
 }
@@ -273,6 +284,41 @@ export async function triggerGamesDropCatalogSync(): Promise<GamesDropCatalogSyn
 
 export async function fetchGamesDropSyncStatus(): Promise<{ success: boolean; stats: GamesDropCatalogSyncResult['stats'] }> {
   return api.get('/api/admin/providers/gamesdrop/sync-status');
+}
+
+export interface G2BulkCatalogSyncResult {
+  success: boolean;
+  message: string;
+  stats: {
+    gamesFetched: number;
+    cataloguesChecked: number;
+    matched: number;
+    newProducts: number;
+    ambiguous: number;
+    rejected: number;
+    updated: number;
+    priceChanges: number;
+    lastSyncTime: string;
+    gamesChecked?: number;
+    newMappings?: number;
+    updatedMappings?: number;
+  };
+}
+
+export async function triggerG2BulkCatalogSync(games?: string[]): Promise<G2BulkCatalogSyncResult> {
+  return api.post('/api/admin/providers/g2bulk/sync', { games });
+}
+
+export async function testG2BulkConnection(): Promise<{
+  success: boolean;
+  connected: boolean;
+  latency: string;
+  balance: number;
+  currency: string;
+  username: string;
+  message: string;
+}> {
+  return api.post('/api/admin/providers/g2bulk/test-connection', {});
 }
 
 // ----------------------------------------------------
@@ -369,5 +415,13 @@ export async function fetchOrderCredentials(orderId: string): Promise<{
 }> {
   return api.get(`/api/orders/${orderId}/credentials`);
 }
+
+export async function updateProviderSettings(
+  provider: string,
+  settings: { orders_enabled?: boolean; ordersEnabled?: boolean; catalog_sync_enabled?: boolean; health_check_enabled?: boolean }
+): Promise<{ success: boolean; message: string; settings: any }> {
+  return api.patch(`/api/admin/providers/${provider}`, settings);
+}
+
 
 
