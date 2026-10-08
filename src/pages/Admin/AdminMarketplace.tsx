@@ -1,39 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { marketplaceApi, MarketplaceSettings } from '../../services/marketplaceApi';
+import { marketplaceApi } from '../../services/marketplaceApi';
 import {
   Store,
-  CheckCircle,
   XCircle,
-  AlertTriangle,
-  RotateCcw,
   Search,
   Eye,
   Settings,
-  Phone,
-  Mail,
-  Calendar,
-  Clock,
-  Coins,
   ShieldAlert,
-  Layers,
-  Check,
-  Ban,
-  PauseCircle
+  Check
 } from 'lucide-react';
 
 export const AdminMarketplace: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
-  const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [currentTab, setCurrentTab] = useState<string>('PENDING_REVIEW');
   const [search, setSearch] = useState<string>('');
   const [page, setPage] = useState<number>(1);
-  const [totalPages, setTotalPages] = useState<number>(1);
+  const [_totalPages, setTotalPages] = useState<number>(1);
 
   // Detail Modal
   const [selectedListing, setSelectedListing] = useState<any | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
 
   // Reject Modal
   const [rejectingListing, setRejectingListing] = useState<any | null>(null);
@@ -48,7 +35,6 @@ export const AdminMarketplace: React.FC = () => {
   const [isRefunding, setIsRefunding] = useState<boolean>(false);
 
   // Settings Edit State
-  const [editingSettings, setEditingSettings] = useState<boolean>(false);
   const [fee15, setFee15] = useState<number>(1500);
   const [fee30, setFee30] = useState<number>(2500);
   const [marketEnabled, setMarketEnabled] = useState<boolean>(true);
@@ -58,7 +44,6 @@ export const AdminMarketplace: React.FC = () => {
     marketplaceApi.adminGetStats()
       .then(res => {
         setStats(res.stats);
-        setSettings(res.settings);
         setFee15(res.settings.fee_15_days);
         setFee30(res.settings.fee_30_days);
         setMarketEnabled(res.settings.enabled);
@@ -158,7 +143,6 @@ export const AdminMarketplace: React.FC = () => {
         enabled: marketEnabled
       });
       alert('تم تحديث إعدادات سوق الحسابات بنجاح!');
-      setEditingSettings(false);
       fetchStats();
     } catch (err: any) {
       alert(err.message || 'فشل تحديث الإعدادات.');
@@ -168,14 +152,11 @@ export const AdminMarketplace: React.FC = () => {
   };
 
   const openDetail = async (id: string) => {
-    setLoadingDetail(true);
     try {
       const res = await marketplaceApi.adminGetListing(id);
       setSelectedListing(res.listing);
     } catch (err: any) {
       alert('فشل جلب تفاصيل الإعلان.');
-    } finally {
-      setLoadingDetail(false);
     }
   };
 
@@ -898,6 +879,26 @@ export const AdminMarketplace: React.FC = () => {
                 type="text"
                 value={refundReason}
                 onChange={(e) => setRefundReason(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: '#1F2937',
+                  border: '1px solid #374151',
+                  color: '#F9FAFB',
+                  padding: '9px 12px',
+                  borderRadius: 8
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ color: '#9CA3AF', fontSize: '0.85rem', display: 'block', marginBottom: 6 }}>
+                ملاحظات إضافية للمستخدم (اختياري)
+              </label>
+              <textarea
+                rows={2}
+                value={refundNotes}
+                onChange={(e) => setRefundNotes(e.target.value)}
+                placeholder="اكتب توضيحاً للاسترداد..."
                 style={{
                   width: '100%',
                   background: '#1F2937',

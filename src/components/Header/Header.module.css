@@ -221,16 +221,113 @@
 
 @media (max-width: 480px) {
   .inner {
-    padding-inline: 14px;
-    gap: 8px;
-  }
-
-  .walletPill {
-    padding: 4px 8px 4px 4px;
+    padding-inline: 10px;
     gap: 6px;
   }
 
+  .menuToggle {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .logoWrapper {
+    gap: 6px;
+  }
+
+  .logoMark {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .logoText {
+    font-size: 1.25rem;
+    gap: 2px;
+  }
+
+  .brandBadge {
+    font-size: 0.85rem;
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+
+  .actions {
+    gap: 6px;
+  }
+
+  .walletPill {
+    padding: 3px 6px 3px 4px;
+    gap: 4px;
+    border-radius: 9999px;
+  }
+
+  .walletIcon {
+    width: 20px;
+    height: 20px;
+  }
+
   .walletBalance {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .walletDepositBtn {
+    width: 18px;
+    height: 18px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .inner {
+    padding-inline: 6px;
+    gap: 4px;
+  }
+
+  .menuToggle {
+    width: 34px;
+    height: 34px;
+  }
+
+  .logoMark {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+  }
+
+  .logoText {
+    font-size: 1.1rem;
+    gap: 2px;
+  }
+
+  .brandBadge {
+    font-size: 0.75rem;
+    padding: 0 3px;
+  }
+
+  .actions {
+    gap: 4px;
+  }
+
+  .walletPill {
+    padding: 2px 4px 2px 2px;
+    gap: 3px;
+  }
+
+  .walletIcon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .walletBalance {
+    font-size: 0.72rem;
+  }
+
+  .walletDepositBtn {
+    width: 16px;
+    height: 16px;
+    font-size: 0.75rem;
   }
 }

@@ -7,21 +7,18 @@ import {
   GameCategoryInfo
 } from '../../services/marketplaceApi';
 import {
-  Store,
   ChevronRight,
   ShieldCheck,
   CheckCircle2,
   AlertTriangle,
   Upload,
-  X,
-  CreditCard,
   Gamepad2,
   Flame,
-  Star,
   Info,
   Layers,
   Lock,
-  Wallet
+  Wallet,
+  UserCheck
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
@@ -31,8 +28,8 @@ interface CreateListingPageProps {
 }
 
 export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess, onCancel }) => {
-  const { user, isAuthenticated, navigateTo } = useAuth();
-  const { balance, formattedBalance, refreshBalance } = useWallet();
+  const { isAuthenticated, navigateTo } = useAuth();
+  const { balance, formattedBalance, refreshBalance, openDepositModal } = useWallet();
 
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [games, setGames] = useState<GameCategoryInfo[]>([]);
@@ -59,6 +56,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   const [description, setDescription] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [sellerWhatsapp, setSellerWhatsapp] = useState<string>('');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   // STEP 5: Images
   const [localFiles, setLocalFiles] = useState<File[]>([]);
@@ -85,10 +83,14 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   const fee15 = settings?.fee_15_days || 1500;
   const fee30 = settings?.fee_30_days || 2500;
   const currentFee = durationDays === 15 ? fee15 : fee30;
-  const hasEnoughBalance = (balance ?? 0) >= currentFee;
+  const currentBalanceNum = balance ?? 0;
+  const hasEnoughBalance = currentBalanceNum >= currentFee;
+  const remainingBalanceAfter = currentBalanceNum - currentFee;
 
-  // Handle Fee Payment (Deduction from Wallet)
+  // Handle Fee Payment (Deduction from Wallet via POST /api/marketplace/pay-fee)
   const handlePayFee = async () => {
+    if (!hasEnoughBalance || isPaying) return;
+
     setIsPaying(true);
     setPaymentError(null);
 
@@ -96,41 +98,42 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       const res = await marketplaceApi.payFee(durationDays);
       setPaymentId(res.paymentId);
       await refreshBalance();
-      setCurrentStep(4); // Unlock form after successful payment!
+      setCurrentStep(4); // Advance to Account Details Step
     } catch (err: any) {
-      setPaymentError(err.message || 'فشل إتمام عملية الدفع.');
+      setPaymentError(err.message || 'تعذر إتمام عملية الدفع. يرجى التحقق من رصيد محفظتك والمحاولة مجدداً.');
     } finally {
       setIsPaying(false);
     }
   };
 
-  // Image Selection & Validation
+  // Image Selection & Strict 10MB / 10 images limit
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageError(null);
     const files = Array.from(e.target.files || []);
-
     if (files.length === 0) return;
 
     if (localFiles.length + files.length > 10) {
-      setImageError('الحد الأقصى للصور هو 10 صور فقط لكل إعلان.');
+      setImageError(`الحد الأقصى هو 10 صور فقط لكل إعلان. يمكنك إضافة ${10 - localFiles.length} صور أخرى.`);
       return;
     }
 
     const MAX_MB = 10;
     const MAX_BYTES = MAX_MB * 1024 * 1024;
 
+    const acceptedFiles: File[] = [];
     for (const f of files) {
       if (f.size > MAX_BYTES) {
-        setImageError(`حجم الصورة (${f.name}) يتجاوز 10 MB. حجم الصورة يجب ألا يتجاوز 10 MB.`);
+        setImageError(`حجم الصورة "${f.name}" يتجاوز 10 MB (${(f.size / (1024 * 1024)).toFixed(1)} MB). تم رفضها.`);
         return;
       }
+      acceptedFiles.push(f);
     }
 
-    const updatedFiles = [...localFiles, ...files];
+    const updatedFiles = [...localFiles, ...acceptedFiles];
     setLocalFiles(updatedFiles);
 
     // Generate previews
-    const newPreviews = files.map(f => URL.createObjectURL(f));
+    const newPreviews = acceptedFiles.map(f => URL.createObjectURL(f));
     setImagePreviews(prev => [...prev, ...newPreviews]);
   };
 
@@ -149,36 +152,47 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
     }
   };
 
-  // Final Submission
-  const handleSubmitListing = async () => {
-    if (!paymentId) {
-      setSubmitError('يجب دفع رسوم الإعلان أولاً.');
-      return;
-    }
+  // Step 4 Validation
+  const validateStep4 = (): boolean => {
+    const errors: Record<string, string> = {};
 
     if (!title.trim() || title.trim().length < 3) {
-      setSubmitError('عنوان الإعلان يجب أن يكون 3 أحرف على الأقل.');
-      return;
+      errors.title = 'عنوان الإعلان يجب أن يتكون من 3 أحرف على الأقل.';
     }
 
-    const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice) || numericPrice <= 0) {
-      setSubmitError('يرجى كتابة سعر صحيح وأكبر من الصفر.');
-      return;
+    const numPrice = parseFloat(price);
+    if (isNaN(numPrice) || numPrice <= 0) {
+      errors.price = 'يرجى كتابة سعر صحيح وأكبر من الصفر.';
     }
 
     if (!description.trim() || description.trim().length < 10) {
-      setSubmitError('يرجى كتابة وصف تفصيلي للحساب (10 أحرف على الأقل).');
+      errors.description = 'يرجى كتابة وصف تفصيلي لمواصفات الحساب (10 أحرف على الأقل).';
+    }
+
+    const cleanPhone = sellerWhatsapp.trim().replace(/\D/g, '');
+    if (!sellerWhatsapp.trim() || cleanPhone.length < 8) {
+      errors.sellerWhatsapp = 'يرجى إدخال رقم واتساب صحيح للبائع للتواصل الإداري.';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Final Submission
+  const handleSubmitListing = async () => {
+    if (!paymentId) {
+      setSubmitError('يجب دفع رسوم الإعلان أولاً للمتابعة.');
       return;
     }
 
-    if (!sellerWhatsapp.trim() || sellerWhatsapp.trim().replace(/\D/g, '').length < 8) {
-      setSubmitError('يرجى إدخال رقم واتساب صحيح للبائع (للتواصل الداخلي من قبل الإدارة).');
+    if (!validateStep4()) {
+      setCurrentStep(4);
       return;
     }
 
     if (localFiles.length === 0) {
       setSubmitError('يجب إرفاق صورة واحدة على الأقل للحساب.');
+      setCurrentStep(5);
       return;
     }
 
@@ -210,7 +224,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
         paymentId,
         game,
         title: title.trim(),
-        price: numericPrice,
+        price: parseFloat(price),
         isNegotiable,
         accountLevel,
         bindingType: effectiveBinding,
@@ -227,7 +241,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       }
     } catch (err: any) {
       console.error('Submit listing error:', err);
-      setSubmitError(err.message || 'فشل إرسال الإعلان للمراجعة.');
+      setSubmitError(err.message || 'تعذر إرسال الإعلان للمراجعة. يرجى مراجعة البيانات والمحاولة مرة أخرى.');
     } finally {
       setIsSubmitting(false);
       setIsUploadingImages(false);
@@ -239,13 +253,61 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
     levels: ['1-20', '21-40', '41-60', '61-80', '81-100', '100+']
   };
 
+  // UNREGISTERED / GUEST GUARD
+  if (!isAuthenticated) {
+    return (
+      <div className={styles.pageContainer}>
+        <div className={styles.wizardContainer} style={{ textAlign: 'center', padding: '50px 24px' }}>
+          <div className={styles.emptyIconCircle} style={{ margin: '0 auto 16px' }}>
+            <UserCheck size={40} color="#F59E0B" />
+          </div>
+          <h2 style={{ color: '#F9FAFB', fontSize: '1.5rem', marginBottom: 10, fontWeight: 900 }}>
+            تسجيل الدخول مطلوب لعرض حساب للبيع
+          </h2>
+          <p style={{ color: '#9CA3AF', maxWidth: 480, margin: '0 auto 24px', lineHeight: 1.6, fontSize: '0.95rem' }}>
+            لعرض حسابك في سوق KIROPRO وتأكيد رسوم النشر من محفظتك، يرجى تسجيل الدخول إلى حسابك أو إنشاء حساب جديد.
+          </p>
+
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={styles.primaryBtn}
+              onClick={() => navigateTo('login')}
+            >
+              <span>تسجيل الدخول</span>
+            </button>
+
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => navigateTo('register')}
+            >
+              <span>إنشاء حساب جديد</span>
+            </button>
+
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => {
+                if (onCancel) onCancel();
+                else navigateTo('marketplace');
+              }}
+            >
+              <span>العودة إلى السوق</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // SUCCESS STEP 7
   if (currentStep === 7 && createdListing) {
     return (
       <div className={styles.pageContainer}>
-        <div className={styles.wizardContainer} style={{ textAlign: 'center', padding: '60px 24px' }}>
+        <div className={styles.wizardContainer} style={{ textAlign: 'center', padding: '50px 24px' }}>
           <CheckCircle2 size={64} color="#10B981" style={{ margin: '0 auto 16px' }} />
-          <h2 style={{ color: '#F9FAFB', fontSize: '1.6rem', marginBottom: 10 }}>
+          <h2 style={{ color: '#F9FAFB', fontSize: '1.6rem', marginBottom: 10, fontWeight: 900 }}>
             تم إرسال إعلانك بنجاح للمراجعة!
           </h2>
           <p style={{ color: '#9CA3AF', maxWidth: 500, margin: '0 auto 24px', lineHeight: 1.6 }}>
@@ -257,24 +319,24 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
             border: '1px solid #374151',
             borderRadius: 12,
             padding: '16px 24px',
-            maxWidth: 360,
+            maxWidth: 380,
             margin: '0 auto 28px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between'
           }}>
             <span style={{ color: '#9CA3AF', fontSize: '0.9rem' }}>كود الإعلان الخاص بك:</span>
-            <span style={{ color: '#F59E0B', fontFamily: 'monospace', fontWeight: 900, fontSize: '1.15rem' }}>
+            <span style={{ color: '#F59E0B', fontFamily: 'monospace', fontWeight: 900, fontSize: '1.2rem' }}>
               {createdListing.publicCode}
             </span>
           </div>
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
               className={styles.secondaryBtn}
               onClick={() => {
-                window.history.pushState({}, '', '/marketplace/my-ads');
+                window.history.pushState({}, '', '/marketplace/my-listings');
                 window.dispatchEvent(new PopStateEvent('popstate'));
               }}
             >
@@ -301,7 +363,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   return (
     <div className={styles.pageContainer}>
       {/* Top Back Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div className={styles.wizardTopBar}>
         <button
           type="button"
           className={styles.secondaryBtn}
@@ -318,9 +380,9 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
           <span>إلغاء والعودة إلى السوق</span>
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#9CA3AF', fontSize: '0.9rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#9CA3AF', fontSize: '0.88rem' }}>
           <Wallet size={16} color="#F59E0B" />
-          <span>رصيدك في المحفظة: </span>
+          <span>رصيدك الحالي: </span>
           <span style={{ color: '#F59E0B', fontWeight: 900 }}>{formattedBalance}</span>
         </div>
       </div>
@@ -353,28 +415,32 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
         {currentStep === 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
-              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px' }}>الخطوة 1: اختر اللعبة</h2>
+              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px', fontWeight: 900 }}>الخطوة 1: اختر اللعبة</h2>
               <p style={{ color: '#9CA3AF', fontSize: '0.9rem', margin: 0 }}>
-                حدد اللعبة التي ترغب في عرض حسابك فيها.
+                حدد اللعبة التي ترغب في عرض حسابك فيها للبيع.
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className={styles.gamesSelectGrid}>
               <div
-                className={`${styles.feeCard} ${game === 'PUBG_MOBILE' ? styles.feeCardSelected : ''}`}
+                className={`${styles.gameSelectCard} ${game === 'PUBG_MOBILE' ? styles.feeCardSelected : ''}`}
                 onClick={() => setGame('PUBG_MOBILE')}
+                role="button"
+                tabIndex={0}
               >
-                <Gamepad2 size={40} color="#F59E0B" />
-                <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#FFFFFF' }}>ببجي موبايل</span>
+                <Gamepad2 size={38} color="#F59E0B" />
+                <span style={{ fontSize: '1.15rem', fontWeight: 900, color: '#FFFFFF' }}>ببجي موبايل</span>
                 <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>PUBG Mobile</span>
               </div>
 
               <div
-                className={`${styles.feeCard} ${game === 'FREE_FIRE' ? styles.feeCardSelected : ''}`}
+                className={`${styles.gameSelectCard} ${game === 'FREE_FIRE' ? styles.feeCardSelected : ''}`}
                 onClick={() => setGame('FREE_FIRE')}
+                role="button"
+                tabIndex={0}
               >
-                <Flame size={40} color="#EF4444" />
-                <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#FFFFFF' }}>فري فاير</span>
+                <Flame size={38} color="#EF4444" />
+                <span style={{ fontSize: '1.15rem', fontWeight: 900, color: '#FFFFFF' }}>فري فاير</span>
                 <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>Free Fire</span>
               </div>
             </div>
@@ -394,7 +460,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
         {currentStep === 2 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
-              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px' }}>الخطوة 2: اختر مدة عرض الإعلان</h2>
+              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px', fontWeight: 900 }}>الخطوة 2: اختر مدة عرض الإعلان</h2>
               <p style={{ color: '#9CA3AF', fontSize: '0.9rem', margin: 0 }}>
                 رسوم النشر رسمية وتمنح إعلانك ظهوراً فعالاً في السوق طوال المدة المحددة.
               </p>
@@ -404,6 +470,8 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               <div
                 className={`${styles.feeCard} ${durationDays === 15 ? styles.feeCardSelected : ''}`}
                 onClick={() => setDurationDays(15)}
+                role="button"
+                tabIndex={0}
               >
                 <span className={styles.feeDuration}>15 يوماً</span>
                 <span className={styles.feeAmount}>{fee15.toLocaleString()} SDG</span>
@@ -413,6 +481,8 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               <div
                 className={`${styles.feeCard} ${durationDays === 30 ? styles.feeCardSelected : ''}`}
                 onClick={() => setDurationDays(30)}
+                role="button"
+                tabIndex={0}
               >
                 <span className={styles.feeDuration}>30 يوماً</span>
                 <span className={styles.feeAmount}>{fee30.toLocaleString()} SDG</span>
@@ -444,69 +514,62 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
         {currentStep === 3 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
-              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px' }}>الخطوة 3: تأكيد دفع رسوم النشر</h2>
+              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px', fontWeight: 900 }}>الخطوة 3: تأكيد دفع رسوم النشر</h2>
               <p style={{ color: '#9CA3AF', fontSize: '0.9rem', margin: 0 }}>
                 يتم خصم الرسوم مباشرة من محفظتك الحالية داخل KIROPRO قبل فتح نموذج البيانات.
               </p>
             </div>
 
-            <div style={{
-              background: '#1F2937',
-              border: '1px solid #374151',
-              borderRadius: 14,
-              padding: 20,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
-                <span style={{ color: '#9CA3AF' }}>اللعبة:</span>
+            <div className={styles.paymentSummaryBox}>
+              <div className={styles.paymentSummaryRow}>
+                <span style={{ color: '#9CA3AF' }}>اللعبة المختارة:</span>
                 <span style={{ color: '#F9FAFB', fontWeight: 800 }}>
                   {game === 'PUBG_MOBILE' ? 'ببجي موبايل' : 'فري فاير'}
                 </span>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
+              <div className={styles.paymentSummaryRow}>
                 <span style={{ color: '#9CA3AF' }}>مدة الإعلان:</span>
                 <span style={{ color: '#F9FAFB', fontWeight: 800 }}>{durationDays} يوماً</span>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', paddingTop: 10, borderTop: '1px solid #374151' }}>
-                <span style={{ color: '#9CA3AF' }}>رسوم النشر المطلوبة:</span>
-                <span style={{ color: '#F59E0B', fontWeight: 900 }}>{currentFee.toLocaleString()} SDG</span>
+              <div className={styles.paymentSummaryRow} style={{ paddingTop: 10, borderTop: '1px solid #374151' }}>
+                <span style={{ color: '#9CA3AF' }}>الرصيد الحالي في المحفظة:</span>
+                <span style={{ color: hasEnoughBalance ? '#10B981' : '#EF4444', fontWeight: 900 }}>
+                  {formattedBalance}
+                </span>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', paddingTop: 6 }}>
-                <span style={{ color: '#9CA3AF' }}>رصيد محفظتك المتاح:</span>
-                <span style={{ color: hasEnoughBalance ? '#10B981' : '#EF4444', fontWeight: 800 }}>
-                  {formattedBalance}
+              <div className={styles.paymentSummaryRow}>
+                <span style={{ color: '#9CA3AF', fontWeight: 700 }}>رسوم النشر المطلوبة:</span>
+                <span style={{ color: '#F59E0B', fontWeight: 900, fontSize: '1.15rem' }}>
+                  {currentFee.toLocaleString()} SDG
+                </span>
+              </div>
+
+              <div className={styles.paymentSummaryRow} style={{ paddingTop: 8, borderTop: '1px solid #374151' }}>
+                <span style={{ color: '#9CA3AF' }}>الرصيد المتبقي بعد الدفع:</span>
+                <span style={{ color: hasEnoughBalance ? '#9CA3AF' : '#EF4444', fontWeight: 800 }}>
+                  {hasEnoughBalance ? `${remainingBalanceAfter.toLocaleString()} SDG` : 'رصيد غير كافٍ'}
                 </span>
               </div>
             </div>
 
             {!hasEnoughBalance && (
-              <div style={{
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: 10,
-                padding: 14,
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10
-              }}>
-                <AlertTriangle size={20} color="#EF4444" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div className={styles.insufficientBalanceBox}>
+                <AlertTriangle size={22} color="#EF4444" style={{ flexShrink: 0, marginTop: 2 }} />
                 <div>
-                  <div style={{ color: '#EF4444', fontWeight: 800, fontSize: '0.95rem', marginBottom: 2 }}>
-                    رصيدك غير كافٍ لدفع رسوم الإعلان!
+                  <div style={{ color: '#EF4444', fontWeight: 800, fontSize: '0.95rem', marginBottom: 3 }}>
+                    رصيد المحفظة غير كافٍ!
                   </div>
-                  <div style={{ color: '#D1D5DB', fontSize: '0.85rem' }}>
-                    تحتاج إلى شحن محفظتك بمبلغ {(currentFee - (balance ?? 0)).toLocaleString()} SDG إضافية للمتابعة.
+                  <div style={{ color: '#D1D5DB', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                    المبلغ المتبقي في محفظتك أقل من الرسوم المطلوبة. تحتاج إلى إيداع {(currentFee - currentBalanceNum).toLocaleString()} SDG على الأقل للمتابعة.
                   </div>
                   <button
                     type="button"
                     className={styles.primaryBtn}
-                    onClick={() => navigateTo('account')}
-                    style={{ marginTop: 10, padding: '6px 14px', fontSize: '0.85rem' }}
+                    onClick={openDepositModal}
+                    style={{ marginTop: 12, padding: '7px 16px', fontSize: '0.85rem' }}
                   >
                     <span>شحن المحفظة الآن</span>
                   </button>
@@ -520,7 +583,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className={styles.secondaryBtn}
@@ -538,7 +601,9 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                 style={{ opacity: !hasEnoughBalance || isPaying ? 0.6 : 1 }}
               >
                 <Lock size={16} />
-                <span>{isPaying ? 'جارٍ تأكيد الدفع...' : `تأكيد ودفع ${currentFee.toLocaleString()} SDG`}</span>
+                <span>
+                  {isPaying ? 'جارٍ خصم الرسوم وتأكيد الدفع...' : `تأكيد ودفع ${currentFee.toLocaleString()} SDG`}
+                </span>
               </button>
             </div>
           </div>
@@ -550,9 +615,9 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#10B981', fontWeight: 800, fontSize: '0.85rem', marginBottom: 4 }}>
                 <CheckCircle2 size={16} />
-                <span>تم تأكيد دفع الرسوم بنجاح!</span>
+                <span>تم تأكيد دفع رسوم النشر بنجاح!</span>
               </div>
-              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: 0 }}>الخطوة 4: أدخل بيانات الحساب</h2>
+              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: 0, fontWeight: 900 }}>الخطوة 4: أدخل بيانات الحساب</h2>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -563,28 +628,36 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                   type="text"
                   placeholder="مثال: حساب ببجي مميز، أسلحة مطورة ماكس، بدلة إكس..."
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    if (formErrors.title) setFormErrors(prev => ({ ...prev, title: '' }));
+                  }}
                   className={styles.filterInput}
                   maxLength={120}
                 />
+                {formErrors.title && <span className={styles.fieldError}>{formErrors.title}</span>}
               </div>
 
               {/* Price & Negotiable */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div className={styles.formTwoColumns}>
                 <div className={styles.filterGroup}>
                   <label className={styles.filterLabel}>السعر المطلوب (SDG) *</label>
                   <input
                     type="number"
                     placeholder="مثال: 350000"
                     value={price}
-                    onChange={(e) => setPrice(e.target.value)}
+                    onChange={(e) => {
+                      setPrice(e.target.value);
+                      if (formErrors.price) setFormErrors(prev => ({ ...prev, price: '' }));
+                    }}
                     className={styles.filterInput}
                     min={1}
                   />
+                  {formErrors.price && <span className={styles.fieldError}>{formErrors.price}</span>}
                 </div>
 
                 <div className={styles.filterGroup} style={{ justifyContent: 'center' }}>
-                  <label className={styles.checkboxLabel} style={{ marginTop: 22 }}>
+                  <label className={styles.checkboxLabel} style={{ marginTop: 24 }}>
                     <input
                       type="checkbox"
                       checked={isNegotiable}
@@ -597,7 +670,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               </div>
 
               {/* Level & Binding */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div className={styles.formTwoColumns}>
                 <div className={styles.filterGroup}>
                   <label className={styles.filterLabel}>مستوى الحساب *</label>
                   <select
@@ -645,10 +718,14 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                   rows={4}
                   placeholder="اكتب تفاصيل الأسلحة، السكنات، الشدات، الشخصيات، الإنجازات..."
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    if (formErrors.description) setFormErrors(prev => ({ ...prev, description: '' }));
+                  }}
                   className={styles.filterInput}
                   style={{ resize: 'vertical' }}
                 />
+                {formErrors.description && <span className={styles.fieldError}>{formErrors.description}</span>}
               </div>
 
               {/* Notes */}
@@ -670,11 +747,15 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                   type="tel"
                   placeholder="مثال: +249912345678"
                   value={sellerWhatsapp}
-                  onChange={(e) => setSellerWhatsapp(e.target.value)}
+                  onChange={(e) => {
+                    setSellerWhatsapp(e.target.value);
+                    if (formErrors.sellerWhatsapp) setFormErrors(prev => ({ ...prev, sellerWhatsapp: '' }));
+                  }}
                   className={styles.filterInput}
                   dir="ltr"
                   style={{ textAlign: 'right' }}
                 />
+                {formErrors.sellerWhatsapp && <span className={styles.fieldError}>{formErrors.sellerWhatsapp}</span>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#F59E0B', fontSize: '0.78rem', marginTop: 4 }}>
                   <Info size={14} />
                   <span>هذا الرقم مشفر ومحفوظ للاستخدام الإداري فقط ولن يظهر للعامة أبداً.</span>
@@ -686,11 +767,9 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               type="button"
               className={styles.primaryBtn}
               onClick={() => {
-                if (!title.trim() || !price || !description.trim() || !sellerWhatsapp.trim()) {
-                  alert('يرجى تعبئة كافة الحقول الإلزامية المطلوبة.');
-                  return;
+                if (validateStep4()) {
+                  setCurrentStep(5);
                 }
-                setCurrentStep(5);
               }}
               style={{ alignSelf: 'flex-start', marginTop: 10 }}
             >
@@ -703,7 +782,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
         {currentStep === 5 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
-              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px' }}>الخطوة 5: صور الحساب</h2>
+              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px', fontWeight: 900 }}>الخطوة 5: صور الحساب</h2>
               <p style={{ color: '#9CA3AF', fontSize: '0.9rem', margin: 0 }}>
                 ارفع من 1 إلى 10 صور للحساب. الحد الأقصى لكل صورة هو 10 MB.
               </p>
@@ -733,14 +812,14 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               </div>
             )}
 
-            {/* Previews Grid */}
-            {imagePreviews.length > 0 && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#9CA3AF', fontSize: '0.85rem', marginBottom: 8 }}>
-                  <span>الصور المرفوعة ({imagePreviews.length}/10):</span>
-                  <span>اضغط على أي صورة لجعلها الصورة الرئيسية (الغلاف)</span>
-                </div>
+            {/* Previews Grid with Counter */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#9CA3AF', fontSize: '0.85rem', marginBottom: 8 }}>
+                <span>الصور المرفوعة (<strong style={{ color: '#F59E0B' }}>{imagePreviews.length}/10</strong>):</span>
+                <span>اضغط على أي صورة لجعلها الغلاف</span>
+              </div>
 
+              {imagePreviews.length > 0 && (
                 <div className={styles.imagesGrid}>
                   {imagePreviews.map((url, idx) => {
                     const isPrimary = idx === primaryIndex;
@@ -759,6 +838,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                             e.stopPropagation();
                             handleRemoveImage(idx);
                           }}
+                          aria-label="حذف الصورة"
                         >
                           ✕
                         </button>
@@ -769,8 +849,8 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                     );
                   })}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
               <button
@@ -798,7 +878,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
         {currentStep === 6 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
-              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px' }}>الخطوة 6: مراجعة الإعلان وتأكيد النشر</h2>
+              <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px', fontWeight: 900 }}>الخطوة 6: مراجعة الإعلان وتأكيد النشر</h2>
               <p style={{ color: '#9CA3AF', fontSize: '0.9rem', margin: 0 }}>
                 تأكد من صحة كافة البيانات المكتوبة قبل إرسال الحساب للمراجعة.
               </p>
@@ -856,7 +936,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className={styles.secondaryBtn}

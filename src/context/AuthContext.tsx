@@ -117,6 +117,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentView('virtual-numbers');
         } else if (window.location.pathname === '/wheel') {
           setCurrentView('wheel');
+        } else if (window.location.pathname === '/marketplace/create') {
+          setCurrentView('marketplace-create');
+        } else if (window.location.pathname === '/marketplace/my-ads' || window.location.pathname === '/marketplace/my-listings') {
+          setCurrentView('marketplace-my-ads');
+        } else if (window.location.pathname === '/marketplace/pubg' || window.location.pathname === '/market/pubg') {
+          setCurrentView('marketplace-pubg');
+        } else if (window.location.pathname === '/marketplace/freefire' || window.location.pathname === '/market/freefire') {
+          setCurrentView('marketplace-freefire');
+        } else if (window.location.pathname === '/marketplace') {
+          setCurrentView('marketplace');
         }
 
         const [authData, settingsData] = await Promise.all([
@@ -158,6 +168,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentView('leaderboard');
           } else if (window.location.pathname === '/virtual-numbers') {
             setCurrentView('virtual-numbers');
+          } else if (window.location.pathname === '/wheel') {
+            setCurrentView('wheel');
+          } else if (window.location.pathname === '/marketplace/create') {
+            setCurrentView('marketplace-create');
+          } else if (window.location.pathname === '/marketplace/my-ads' || window.location.pathname === '/marketplace/my-listings') {
+            setCurrentView('marketplace-my-ads');
+          } else if (window.location.pathname === '/marketplace/pubg' || window.location.pathname === '/market/pubg') {
+            setCurrentView('marketplace-pubg');
+          } else if (window.location.pathname === '/marketplace/freefire' || window.location.pathname === '/market/freefire') {
+            setCurrentView('marketplace-freefire');
+          } else if (window.location.pathname === '/marketplace') {
+            setCurrentView('marketplace');
           }
         } else {
           setUser(null);
@@ -217,10 +239,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (view === 'marketplace-create') {
         window.history.pushState(null, '', '/marketplace/create');
       } else if (view === 'marketplace-my-ads') {
-        window.history.pushState(null, '', '/marketplace/my-ads');
+        window.history.pushState(null, '', '/marketplace/my-listings');
       } else if (view === 'home') {
         window.history.pushState(null, '', '/');
       }
+      window.dispatchEvent(new PopStateEvent('popstate'));
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

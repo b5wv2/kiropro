@@ -13,13 +13,8 @@ import {
   Eye,
   CheckCircle,
   RefreshCw,
-  AlertCircle,
-  Gamepad2,
-  Flame,
   Clock,
-  ChevronRight,
-  ShieldAlert,
-  Wallet
+  ChevronRight
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
@@ -34,8 +29,8 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
   onNavigateDetail,
   onBack
 }) => {
-  const { user, isAuthenticated, navigateTo } = useAuth();
-  const { balance, formattedBalance, refreshBalance } = useWallet();
+  const { isAuthenticated } = useAuth();
+  const { formattedBalance, refreshBalance } = useWallet();
 
   const [listings, setListings] = useState<MyAccountListing[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -59,7 +54,7 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
         setLoading(false);
       })
       .catch(err => {
-        setError(err.message || 'فشل جلب إعلاناتك.');
+        setError(err.message || 'تعذر جلب إعلاناتك حالياً.');
         setLoading(false);
       });
   };
@@ -71,7 +66,7 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
   }, [isAuthenticated]);
 
   const handleCopyLink = (code: string, id: string) => {
-    const fullUrl = `${window.location.origin}/marketplace/${code}`;
+    const fullUrl = `${window.location.origin}/marketplace/listing/${code}`;
     navigator.clipboard.writeText(fullUrl).then(() => {
       setCopiedCodeId(id);
       setTimeout(() => setCopiedCodeId(null), 2500);
@@ -88,7 +83,7 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
       await marketplaceApi.markSold(id);
       fetchMyListings();
     } catch (err: any) {
-      alert(err.message || 'فشل تحديث حالة الإعلان.');
+      alert(err.message || 'تعذر تحديث حالة الإعلان.');
     } finally {
       setMarkingSoldId(null);
     }
@@ -106,7 +101,7 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
       fetchMyListings();
       alert('تم تجديد الإعلان بنجاح!');
     } catch (err: any) {
-      setRenewError(err.message || 'فشل تجديد الإعلان.');
+      setRenewError(err.message || 'تعذر تجديد الإعلان.');
     } finally {
       setIsRenewing(false);
     }
@@ -135,8 +130,8 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
 
   return (
     <div className={styles.pageContainer}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      {/* Top Bar */}
+      <div className={styles.wizardTopBar}>
         <button
           type="button"
           className={styles.secondaryBtn}
@@ -163,47 +158,62 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
               window.dispatchEvent(new PopStateEvent('popstate'));
             }
           }}
+          style={{ padding: '8px 16px', fontSize: '0.9rem' }}
         >
           <PlusCircle size={18} />
           <span>نشر إعلان جديد</span>
         </button>
       </div>
 
+      {/* Header Banner */}
       <div className={styles.marketHeader}>
         <div className={styles.headerMain}>
           <div className={styles.headerTitleRow}>
-            <h1 className={styles.headerTitle}>
-              <Layers size={28} color="#F59E0B" />
-              <span>إعلاناتي في سوق الحسابات</span>
-            </h1>
+            <div className={styles.heroIconBox}>
+              <Layers size={24} color="#F59E0B" />
+            </div>
+            <div>
+              <h1 className={styles.headerTitle}>إعلاناتي في سوق الحسابات</h1>
+              <p className={styles.headerSubtitle}>
+                إدارة كافة حساباتك المعروضة للبيع، تمديد وتجديد فترات الإعلانات، وتعليم الحسابات المباعة.
+              </p>
+            </div>
           </div>
-          <p className={styles.headerSubtitle}>
-            إدارة كافة حساباتك المعروضة للبيع، تمديد وتجديد فترات الإعلانات، وتعليم الحسابات المباعة.
-          </p>
         </div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF' }}>
-          <div className="spinner" style={{ margin: '0 auto 16px' }} />
-          <p>جارٍ تحميل إعلاناتك...</p>
+        <div className={styles.listingsGrid}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className={styles.skeletonCard}>
+              <div className={styles.skeletonImage} style={{ height: 120 }} />
+              <div className={styles.skeletonBody}>
+                <div className={styles.skeletonLine} style={{ width: '40%' }} />
+                <div className={styles.skeletonLine} style={{ width: '75%' }} />
+                <div className={styles.skeletonFooter} />
+              </div>
+            </div>
+          ))}
         </div>
       ) : error ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#EF4444' }}>
-          <p>{error}</p>
+        <div className={styles.emptyStateContainer} style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}>
+          <p style={{ color: '#EF4444', fontWeight: 800 }}>{error}</p>
+          <button
+            type="button"
+            className={styles.primaryBtn}
+            onClick={fetchMyListings}
+          >
+            <span>إعادة المحاولة</span>
+          </button>
         </div>
       ) : listings.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '80px 20px',
-          background: '#111827',
-          borderRadius: 16,
-          border: '1px solid #1F2937'
-        }}>
-          <Layers size={48} color="#6B7280" style={{ margin: '0 auto 16px' }} />
-          <h3 style={{ color: '#F9FAFB', fontSize: '1.25rem', marginBottom: 8 }}>لا توجد لديك إعلانات بعد</h3>
-          <p style={{ color: '#9CA3AF', maxWidth: 440, margin: '0 auto 20px', fontSize: '0.95rem' }}>
-            يمكنك نشر أول إعلان لحسابك في ببجي أو فري فاير للوصول إلى آلاف المشترين.
+        <div className={styles.emptyStateContainer}>
+          <div className={styles.emptyIconCircle}>
+            <Layers size={44} color="#6B7280" />
+          </div>
+          <h3 className={styles.emptyTitle}>لا توجد لديك إعلانات بعد</h3>
+          <p className={styles.emptyDesc}>
+            يمكنك نشر أول إعلان لحسابك في ببجي أو فري فاير للوصول إلى آلاف المشترين عبر المنصة.
           </p>
           <button
             type="button"
@@ -216,12 +226,12 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
               }
             }}
           >
-            <PlusCircle size={20} />
+            <PlusCircle size={18} />
             <span>نشر إعلان الآن</span>
           </button>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className={styles.myListingsList}>
           {listings.map(item => {
             const isPubg = item.game === 'PUBG_MOBILE';
             const gameTitle = isPubg ? 'ببجي موبايل' : 'فري فاير';
@@ -231,90 +241,60 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
             const imgUrl = item.primary_image || defaultImg;
 
             return (
-              <div
-                key={item.id}
-                style={{
-                  background: '#111827',
-                  border: '1px solid #1F2937',
-                  borderRadius: 14,
-                  padding: 18,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  gap: 18,
-                  flexWrap: 'wrap',
-                  alignItems: 'center'
-                }}
-              >
+              <div key={item.id} className={styles.myListingCard}>
                 {/* Thumbnail */}
-                <div style={{
-                  width: 120,
-                  height: 80,
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  background: '#1F2937',
-                  flexShrink: 0
-                }}>
-                  <img src={imgUrl} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div className={styles.myListingThumb}>
+                  <img src={imgUrl} alt={item.title} className={styles.previewImg} loading="lazy" />
+                  <span className={styles.adCodeBadge}>{item.public_code}</span>
                 </div>
 
                 {/* Details */}
-                <div style={{ flex: 1, minWidth: 240, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{
-                      fontFamily: 'monospace',
-                      fontWeight: 900,
-                      color: '#F59E0B',
-                      background: 'rgba(245, 158, 11, 0.1)',
-                      padding: '2px 8px',
-                      borderRadius: 6,
-                      fontSize: '0.8rem'
-                    }}>
-                      {item.public_code}
-                    </span>
+                <div className={styles.myListingInfo}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     {getStatusBadge(item.status)}
-                    <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>{gameTitle}</span>
+                    <span style={{ fontSize: '0.8rem', color: '#9CA3AF', fontWeight: 700 }}>{gameTitle}</span>
                   </div>
 
-                  <h3 style={{ color: '#F9FAFB', fontSize: '1.05rem', margin: 0, fontWeight: 800 }}>
+                  <h3 className={styles.myListingTitle}>
                     {item.title}
                   </h3>
 
-                  <div style={{ display: 'flex', gap: 14, color: '#9CA3AF', fontSize: '0.85rem', flexWrap: 'wrap' }}>
+                  <div className={styles.myListingMetaRow}>
                     <span>السعر: <strong style={{ color: '#F59E0B' }}>{Number(item.price).toLocaleString()} SDG</strong></span>
-                    <span>المستوى: {item.account_level}</span>
-                    <span>الربط: {item.binding_type}</span>
+                    <span>المستوى: <strong>{item.account_level}</strong></span>
+                    <span>الربط: <strong>{item.binding_type}</strong></span>
                     {item.status === 'PUBLISHED' && (
-                      <span style={{ color: '#10B981', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Clock size={14} />
-                        <span>متبقي: {item.days_remaining} يوم</span>
+                      <span style={{ color: '#10B981', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Clock size={13} />
+                        <span>متبقي {item.days_remaining} يوم</span>
                       </span>
                     )}
                   </div>
 
                   {item.rejection_reason && (
-                    <div style={{ color: '#EF4444', fontSize: '0.85rem', marginTop: 4 }}>
+                    <div style={{ color: '#EF4444', fontSize: '0.82rem', marginTop: 4 }}>
                       سبب الرفض: {item.rejection_reason} {item.rejection_notes && `(${item.rejection_notes})`}
                     </div>
                   )}
 
                   {item.cancellation_reason && (
-                    <div style={{ color: '#EF4444', fontSize: '0.85rem', marginTop: 4 }}>
+                    <div style={{ color: '#EF4444', fontSize: '0.82rem', marginTop: 4 }}>
                       سبب الإلغاء: {item.cancellation_reason}
                     </div>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div className={styles.myListingActions}>
                   {item.status === 'PUBLISHED' && (
                     <>
                       <button
                         type="button"
                         className={styles.secondaryBtn}
                         onClick={() => handleCopyLink(item.public_code, item.id)}
-                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                        style={{ padding: '8px 12px', fontSize: '0.82rem' }}
                       >
-                        {copiedCodeId === item.id ? <Check size={16} color="#10B981" /> : <Copy size={16} />}
+                        {copiedCodeId === item.id ? <Check size={14} color="#10B981" /> : <Copy size={14} />}
                         <span>{copiedCodeId === item.id ? 'تم النسخ!' : 'نسخ الرابط'}</span>
                       </button>
 
@@ -324,13 +304,13 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
                         onClick={() => {
                           if (onNavigateDetail) onNavigateDetail(item.public_code);
                           else {
-                            window.history.pushState({}, '', `/marketplace/${item.public_code}`);
+                            window.history.pushState({}, '', `/marketplace/listing/${item.public_code}`);
                             window.dispatchEvent(new PopStateEvent('popstate'));
                           }
                         }}
-                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                        style={{ padding: '8px 12px', fontSize: '0.82rem' }}
                       >
-                        <Eye size={16} />
+                        <Eye size={14} />
                         <span>عرض</span>
                       </button>
 
@@ -339,9 +319,9 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
                         className={styles.secondaryBtn}
                         disabled={markingSoldId === item.id}
                         onClick={() => handleMarkSold(item.id)}
-                        style={{ padding: '8px 12px', fontSize: '0.85rem', color: '#A78BFA' }}
+                        style={{ padding: '8px 12px', fontSize: '0.82rem', color: '#A78BFA', borderColor: 'rgba(167, 139, 250, 0.3)' }}
                       >
-                        <CheckCircle size={16} />
+                        <CheckCircle size={14} />
                         <span>تعليم كمباع</span>
                       </button>
                     </>
@@ -354,7 +334,7 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
                       onClick={() => setRenewalListing(item)}
                       style={{ padding: '8px 14px', fontSize: '0.85rem' }}
                     >
-                      <RefreshCw size={16} />
+                      <RefreshCw size={14} />
                       <span>تجديد الإعلان</span>
                     </button>
                   )}
@@ -367,36 +347,16 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
 
       {/* Renewal Modal */}
       {renewalListing && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0, 0, 0, 0.75)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: 16
-        }}>
-          <div style={{
-            background: '#111827',
-            border: '1px solid #374151',
-            borderRadius: 16,
-            maxWidth: 480,
-            width: '100%',
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 18,
-            direction: 'rtl'
-          }}>
-            <h3 style={{ color: '#F9FAFB', margin: 0, fontSize: '1.25rem' }}>
+        <div className={styles.filterSheetBackdrop} onClick={() => setRenewalListing(null)}>
+          <div className={styles.filterSheetContainer} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <h3 style={{ color: '#F9FAFB', margin: 0, fontSize: '1.25rem', fontWeight: 900 }}>
               تجديد عرض الإعلان ({renewalListing.public_code})
             </h3>
-            <p style={{ color: '#9CA3AF', margin: 0, fontSize: '0.9rem' }}>
+            <p style={{ color: '#9CA3AF', margin: '6px 0 16px', fontSize: '0.9rem' }}>
               اختر مدة التجديد المناسبة. سيتم خصم الرسوم من محفظتك مباشرة.
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className={styles.feeGrid} style={{ marginBottom: 16 }}>
               <div
                 className={`${styles.feeCard} ${renewDuration === 15 ? styles.feeCardSelected : ''}`}
                 onClick={() => setRenewDuration(15)}
@@ -420,19 +380,20 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
               padding: 12,
               display: 'flex',
               justifyContent: 'space-between',
-              fontSize: '0.9rem'
+              fontSize: '0.9rem',
+              marginBottom: 16
             }}>
               <span style={{ color: '#9CA3AF' }}>رصيدك المتاح:</span>
               <span style={{ color: '#F59E0B', fontWeight: 800 }}>{formattedBalance}</span>
             </div>
 
             {renewError && (
-              <div style={{ color: '#EF4444', fontSize: '0.85rem' }}>
+              <div style={{ color: '#EF4444', fontSize: '0.85rem', marginBottom: 14 }}>
                 {renewError}
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
                 type="button"
                 className={styles.secondaryBtn}

@@ -3,14 +3,12 @@ import {
   marketplaceApi,
   AccountListing,
   MarketplaceFilterParams,
-  GameCategoryInfo,
-  MarketplaceSettings
+  GameCategoryInfo
 } from '../../services/marketplaceApi';
 import { useAuth } from '../../context/AuthContext';
 import {
   Store,
   PlusCircle,
-  ListFilter,
   Gamepad2,
   Flame,
   Search,
@@ -21,7 +19,8 @@ import {
   ShieldCheck,
   Eye,
   Camera,
-  Layers
+  Layers,
+  X
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
@@ -42,7 +41,6 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
 
   const [listings, setListings] = useState<AccountListing[]>([]);
   const [games, setGames] = useState<GameCategoryInfo[]>([]);
-  const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,8 +59,16 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalCount, setTotalCount] = useState<number>(0);
 
-  // Show filter drawer on mobile
+  // Filter drawer/sheet
   const [showFilters, setShowFilters] = useState(false);
+
+  // Sync initialGame if changed by navigation
+  useEffect(() => {
+    if (initialGame) {
+      setSelectedGame(initialGame);
+      setCurrentPage(1);
+    }
+  }, [initialGame]);
 
   // Load Settings & Games once
   useEffect(() => {
@@ -70,7 +76,6 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
     marketplaceApi.getSettings()
       .then(res => {
         if (mounted) {
-          setSettings(res.settings);
           setGames(res.games);
         }
       })
@@ -110,7 +115,7 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
       })
       .catch(err => {
         if (mounted) {
-          setError(err.message || 'فشل جلب الإعلانات.');
+          setError(err.message || 'تعذر تحميل الإعلانات حالياً.');
           setLoading(false);
         }
       });
@@ -118,8 +123,19 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
     return () => { mounted = false; };
   }, [selectedGame, selectedLevel, selectedBinding, minPrice, maxPrice, negotiableOnly, sort, search, currentPage]);
 
+  const hasActiveFilters = Boolean(
+    (selectedGame !== 'ALL' && !initialGame) ||
+    selectedLevel ||
+    selectedBinding ||
+    minPrice ||
+    maxPrice ||
+    negotiableOnly ||
+    search.trim() ||
+    sort !== 'LATEST'
+  );
+
   const handleResetFilters = () => {
-    setSelectedGame('ALL');
+    setSelectedGame(initialGame || 'ALL');
     setSelectedLevel('');
     setSelectedBinding('');
     setMinPrice('');
@@ -128,13 +144,21 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
     setSort('LATEST');
     setSearch('');
     setCurrentPage(1);
+    setShowFilters(false);
+  };
+
+  const handleGameSelect = (gameId: string) => {
+    setSelectedGame(gameId);
+    setCurrentPage(1);
+    const newPath = gameId === 'PUBG_MOBILE' ? '/marketplace/pubg' : gameId === 'FREE_FIRE' ? '/marketplace/freefire' : '/marketplace';
+    window.history.replaceState(null, '', newPath);
   };
 
   const handleListingClick = (code: string) => {
     if (onNavigateDetail) {
       onNavigateDetail(code);
     } else {
-      window.history.pushState({}, '', `/marketplace/${code}`);
+      window.history.pushState({}, '', `/marketplace/listing/${code}`);
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
   };
@@ -160,7 +184,7 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
     if (onNavigateMyListings) {
       onNavigateMyListings();
     } else {
-      window.history.pushState({}, '', '/marketplace/my-ads');
+      window.history.pushState({}, '', '/marketplace/my-listings');
       window.dispatchEvent(new PopStateEvent('popstate'));
     }
   };
@@ -175,19 +199,23 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
 
   return (
     <div className={styles.pageContainer}>
-      {/* Marketplace Header */}
+      {/* Hero Section */}
       <div className={styles.marketHeader}>
         <div className={styles.headerMain}>
           <div className={styles.headerTitleRow}>
-            <h1 className={styles.headerTitle}>
-              <Store size={32} color="#F59E0B" />
-              <span>سوق الحسابات</span>
-            </h1>
-            <span className={styles.headerBadge}>KIRO MARKET</span>
+            <div className={styles.heroIconBox}>
+              <Store size={26} color="#F59E0B" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h1 className={styles.headerTitle}>سوق الحسابات</h1>
+                <span className={styles.headerBadge}>KIRO MARKET</span>
+              </div>
+              <p className={styles.headerSubtitle}>
+                سوق منظم وموثوق لعرض وشراء حسابات ببجي وفري فاير بأعلى درجات الخصوصية والأمان.
+              </p>
+            </div>
           </div>
-          <p className={styles.headerSubtitle}>
-            سوق منظم وموثوق لعرض وشراء حسابات ببجي وفري فاير بأعلى درجات الخصوصية والأمان.
-          </p>
         </div>
 
         <div className={styles.headerActions}>
@@ -207,213 +235,278 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
             className={styles.primaryBtn}
             onClick={handleCreateClick}
           >
-            <PlusCircle size={20} />
+            <PlusCircle size={18} />
             <span>عرض حساب للبيع</span>
           </button>
         </div>
       </div>
 
-      {/* Game Tabs */}
-      <div className={styles.categoryTabs}>
-        <button
-          type="button"
-          className={`${styles.catTab} ${selectedGame === 'ALL' ? styles.catTabActive : ''}`}
-          onClick={() => { setSelectedGame('ALL'); setCurrentPage(1); }}
-        >
-          <Store size={18} />
-          <span>جميع الألعاب</span>
-        </button>
+      {/* Game Tabs & Filters Control */}
+      <div className={styles.categoryTabsContainer}>
+        <div className={styles.categoryTabs}>
+          <button
+            type="button"
+            className={`${styles.catTab} ${selectedGame === 'ALL' ? styles.catTabActive : ''}`}
+            onClick={() => handleGameSelect('ALL')}
+          >
+            <Store size={18} />
+            <span>جميع الألعاب</span>
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.catTab} ${selectedGame === 'PUBG_MOBILE' ? styles.catTabActive : ''}`}
+            onClick={() => handleGameSelect('PUBG_MOBILE')}
+          >
+            <Gamepad2 size={18} color="#F59E0B" />
+            <span>ببجي موبايل</span>
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.catTab} ${selectedGame === 'FREE_FIRE' ? styles.catTabActive : ''}`}
+            onClick={() => handleGameSelect('FREE_FIRE')}
+          >
+            <Flame size={18} color="#EF4444" />
+            <span>فري فاير</span>
+          </button>
+        </div>
 
         <button
           type="button"
-          className={`${styles.catTab} ${selectedGame === 'PUBG_MOBILE' ? styles.catTabActive : ''}`}
-          onClick={() => { setSelectedGame('PUBG_MOBILE'); setCurrentPage(1); }}
-        >
-          <Gamepad2 size={18} color="#F59E0B" />
-          <span>ببجي موبايل (PUBG Mobile)</span>
-        </button>
-
-        <button
-          type="button"
-          className={`${styles.catTab} ${selectedGame === 'FREE_FIRE' ? styles.catTabActive : ''}`}
-          onClick={() => { setSelectedGame('FREE_FIRE'); setCurrentPage(1); }}
-        >
-          <Flame size={18} color="#EF4444" />
-          <span>فري فاير (Free Fire)</span>
-        </button>
-
-        <button
-          type="button"
-          className={styles.secondaryBtn}
-          style={{ marginRight: 'auto', padding: '8px 14px' }}
-          onClick={() => setShowFilters(!showFilters)}
+          className={`${styles.filterToggleBtn} ${hasActiveFilters ? styles.filterToggleActive : ''}`}
+          onClick={() => setShowFilters(prev => !prev)}
         >
           <SlidersHorizontal size={16} />
-          <span>{showFilters ? 'إخفاء الفلاتر' : 'تصفية وبحث'}</span>
+          <span>تصفية وبحث</span>
+          {hasActiveFilters && <span className={styles.filterDot} />}
         </button>
       </div>
 
-      {/* Filter Bar */}
+      {/* Filter Modal / Bottom Sheet for Mobile & Responsive Inline for Desktop */}
       {showFilters && (
-        <div className={styles.filterBar}>
-          <div className={styles.filterRow}>
-            {/* Search Input */}
-            <div className={styles.filterGroup}>
-              <label className={styles.filterLabel}>بحث بالاسم أو الكود</label>
-              <div style={{ position: 'relative' }}>
+        <div className={styles.filterSheetBackdrop} onClick={() => setShowFilters(false)}>
+          <div className={styles.filterSheetContainer} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.filterSheetHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <SlidersHorizontal size={18} color="#F59E0B" />
+                <h3 className={styles.filterSheetTitle}>تصفية وتخصيص البحث</h3>
+              </div>
+              <button
+                type="button"
+                className={styles.filterSheetClose}
+                onClick={() => setShowFilters(false)}
+                aria-label="إغلاق الفلاتر"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className={styles.filterRow}>
+              {/* Search Input */}
+              <div className={styles.filterGroup}>
+                <label className={styles.filterLabel}>بحث بالاسم أو الكود</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    placeholder="مثال: مثك كونكر، KPR-PUB..."
+                    value={search}
+                    onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                    className={styles.filterInput}
+                    style={{ width: '100%', paddingLeft: 32 }}
+                  />
+                  <Search size={16} style={{ position: 'absolute', left: 10, top: 12, color: '#6B7280' }} />
+                </div>
+              </div>
+
+              {/* Level Filter */}
+              <div className={styles.filterGroup}>
+                <label className={styles.filterLabel}>مستوى الحساب</label>
+                <select
+                  value={selectedLevel}
+                  onChange={(e) => { setSelectedLevel(e.target.value); setCurrentPage(1); }}
+                  className={styles.filterSelect}
+                >
+                  <option value="">جميع المستويات</option>
+                  {activeLevels.map(lvl => (
+                    <option key={lvl} value={lvl}>{lvl}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Binding Filter */}
+              <div className={styles.filterGroup}>
+                <label className={styles.filterLabel}>نوع الربط</label>
+                <select
+                  value={selectedBinding}
+                  onChange={(e) => { setSelectedBinding(e.target.value); setCurrentPage(1); }}
+                  className={styles.filterSelect}
+                >
+                  <option value="">جميع أنواع الربط</option>
+                  {activeBindings.map(b => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Min Price */}
+              <div className={styles.filterGroup}>
+                <label className={styles.filterLabel}>السعر من (SDG)</label>
                 <input
-                  type="text"
-                  placeholder="مثال: مثك كونكر، KPR-PUB..."
-                  value={search}
-                  onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                  type="number"
+                  placeholder="0"
+                  value={minPrice}
+                  onChange={(e) => { setMinPrice(e.target.value); setCurrentPage(1); }}
                   className={styles.filterInput}
-                  style={{ width: '100%', paddingLeft: 32 }}
                 />
-                <Search size={16} style={{ position: 'absolute', left: 10, top: 12, color: '#6B7280' }} />
+              </div>
+
+              {/* Max Price */}
+              <div className={styles.filterGroup}>
+                <label className={styles.filterLabel}>السعر إلى (SDG)</label>
+                <input
+                  type="number"
+                  placeholder="أعلى سعر"
+                  value={maxPrice}
+                  onChange={(e) => { setMaxPrice(e.target.value); setCurrentPage(1); }}
+                  className={styles.filterInput}
+                />
+              </div>
+
+              {/* Sorting */}
+              <div className={styles.filterGroup}>
+                <label className={styles.filterLabel}>الترتيب حسب</label>
+                <select
+                  value={sort}
+                  onChange={(e) => { setSort(e.target.value as any); setCurrentPage(1); }}
+                  className={styles.filterSelect}
+                >
+                  <option value="LATEST">الأحدث أولاً</option>
+                  <option value="PRICE_ASC">الأقل سعراً</option>
+                  <option value="PRICE_DESC">الأعلى سعراً</option>
+                  <option value="LEVEL_DESC">الأعلى مستوى</option>
+                </select>
               </div>
             </div>
 
-            {/* Level Filter */}
-            <div className={styles.filterGroup}>
-              <label className={styles.filterLabel}>مستوى الحساب</label>
-              <select
-                value={selectedLevel}
-                onChange={(e) => { setSelectedLevel(e.target.value); setCurrentPage(1); }}
-                className={styles.filterSelect}
-              >
-                <option value="">جميع المستويات</option>
-                {activeLevels.map(lvl => (
-                  <option key={lvl} value={lvl}>{lvl}</option>
-                ))}
-              </select>
+            <div className={styles.filterActions}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={negotiableOnly}
+                  onChange={(e) => { setNegotiableOnly(e.target.checked); setCurrentPage(1); }}
+                  style={{ accentColor: '#F59E0B' }}
+                />
+                <span>قابل للتفاوض فقط</span>
+              </label>
+
+              <div style={{ display: 'flex', gap: 10, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={handleResetFilters}
+                  style={{ flex: '1 1 140px' }}
+                >
+                  <RotateCcw size={16} />
+                  <span>إعادة ضبط الفلاتر</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  onClick={() => setShowFilters(false)}
+                  style={{ flex: '1 1 140px' }}
+                >
+                  <span>تطبيق الفلاتر</span>
+                </button>
+              </div>
             </div>
-
-            {/* Binding Filter */}
-            <div className={styles.filterGroup}>
-              <label className={styles.filterLabel}>نوع الربط</label>
-              <select
-                value={selectedBinding}
-                onChange={(e) => { setSelectedBinding(e.target.value); setCurrentPage(1); }}
-                className={styles.filterSelect}
-              >
-                <option value="">جميع أنواع الربط</option>
-                {activeBindings.map(b => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Min Price */}
-            <div className={styles.filterGroup}>
-              <label className={styles.filterLabel}>السعر من (SDG)</label>
-              <input
-                type="number"
-                placeholder="0"
-                value={minPrice}
-                onChange={(e) => { setMinPrice(e.target.value); setCurrentPage(1); }}
-                className={styles.filterInput}
-              />
-            </div>
-
-            {/* Max Price */}
-            <div className={styles.filterGroup}>
-              <label className={styles.filterLabel}>السعر إلى (SDG)</label>
-              <input
-                type="number"
-                placeholder="أعلى سعر"
-                value={maxPrice}
-                onChange={(e) => { setMaxPrice(e.target.value); setCurrentPage(1); }}
-                className={styles.filterInput}
-              />
-            </div>
-
-            {/* Sorting */}
-            <div className={styles.filterGroup}>
-              <label className={styles.filterLabel}>الترتيب حسب</label>
-              <select
-                value={sort}
-                onChange={(e) => { setSort(e.target.value as any); setCurrentPage(1); }}
-                className={styles.filterSelect}
-              >
-                <option value="LATEST">الأحدث أولاً</option>
-                <option value="PRICE_ASC">الأقل سعراً</option>
-                <option value="PRICE_DESC">الأعلى سعراً</option>
-                <option value="LEVEL_DESC">الأعلى مستوى</option>
-              </select>
-            </div>
-          </div>
-
-          <div className={styles.filterActions}>
-            <label className={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={negotiableOnly}
-                onChange={(e) => { setNegotiableOnly(e.target.checked); setCurrentPage(1); }}
-                style={{ accentColor: '#F59E0B' }}
-              />
-              <span>قابل للتفاوض فقط</span>
-            </label>
-
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              style={{ padding: '6px 14px', fontSize: '0.85rem' }}
-              onClick={handleResetFilters}
-            >
-              <RotateCcw size={14} />
-              <span>إعادة ضبط الفلاتر</span>
-            </button>
           </div>
         </div>
       )}
 
-      {/* Results Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ fontSize: '0.9rem', color: '#9CA3AF', fontWeight: 700 }}>
-          <span>نتائج البحث: </span>
-          <span style={{ color: '#F59E0B' }}>{totalCount} إعلان</span>
+      {/* Results Count Bar */}
+      <div className={styles.resultsBar}>
+        <div className={styles.resultsCountBox}>
+          <span className={styles.resultsLabel}>نتائج البحث:</span>
+          <span className={styles.resultsBadge}>{totalCount} إعلان</span>
         </div>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            className={styles.resetQuickBtn}
+            onClick={handleResetFilters}
+          >
+            <RotateCcw size={14} />
+            <span>إعادة ضبط الفلاتر</span>
+          </button>
+        )}
       </div>
 
       {/* Listings Grid / Loader / Error */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9CA3AF' }}>
-          <div className="spinner" style={{ margin: '0 auto 16px' }} />
-          <p>جارٍ تحميل الإعلانات من السوق...</p>
+        <div className={styles.listingsGrid}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className={styles.skeletonCard}>
+              <div className={styles.skeletonImage} />
+              <div className={styles.skeletonBody}>
+                <div className={styles.skeletonLine} style={{ width: '40%' }} />
+                <div className={styles.skeletonLine} style={{ width: '85%' }} />
+                <div className={styles.skeletonLine} style={{ width: '60%' }} />
+                <div className={styles.skeletonFooter} />
+              </div>
+            </div>
+          ))}
         </div>
       ) : error ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#EF4444' }}>
-          <p>{error}</p>
-          <button
-            type="button"
-            className={styles.primaryBtn}
-            onClick={() => handleResetFilters()}
-            style={{ margin: '12px auto' }}
-          >
-            إعادة المحاولة
-          </button>
-        </div>
-      ) : listings.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '80px 20px',
-          background: '#111827',
-          borderRadius: 16,
-          border: '1px solid #1F2937'
-        }}>
-          <Store size={48} color="#6B7280" style={{ margin: '0 auto 16px' }} />
-          <h3 style={{ color: '#F9FAFB', fontSize: '1.25rem', marginBottom: 8 }}>لا توجد حسابات معروضة حالياً</h3>
-          <p style={{ color: '#9CA3AF', maxWidth: 460, margin: '0 auto 20px', fontSize: '0.95rem' }}>
-            لم يتم العثور على إعلانات تطابق خيارات التصفية المحددة. كن أول من يعرض حسابه للبيع في السوق!
+        <div className={styles.emptyStateContainer} style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}>
+          <div className={styles.emptyIconCircle} style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+            <RotateCcw size={36} color="#EF4444" />
+          </div>
+          <h3 className={styles.emptyTitle} style={{ color: '#F87171' }}>{error}</h3>
+          <p className={styles.emptyDesc}>
+            حدث خطأ أثناء محاولة الاتصال بالخادم وجلب الإعلانات. يرجى المحاولة مرة أخرى.
           </p>
           <button
             type="button"
             className={styles.primaryBtn}
-            onClick={handleCreateClick}
+            onClick={() => handleResetFilters()}
           >
-            <PlusCircle size={20} />
-            <span>عرض حسابك للبيع الآن</span>
+            <span>إعادة المحاولة</span>
           </button>
+        </div>
+      ) : listings.length === 0 ? (
+        <div className={styles.emptyStateContainer}>
+          <div className={styles.emptyIconCircle}>
+            <Store size={44} color="#F59E0B" />
+          </div>
+          <h3 className={styles.emptyTitle}>لا توجد إعلانات متاحة حالياً</h3>
+          <p className={styles.emptyDesc}>
+            {hasActiveFilters
+              ? 'لم نعثر على حسابات تطابق خيارات التصفية والبحث الحالية. يمكنك إعادة ضبط الفلاتر لعرض كافة الإعلانات المتوفرة.'
+              : 'لا توجد حسابات معروضة للبيع في هذا القسم حالياً. كن أول من يعرض حسابه ويصل لآلاف المشترين!'}
+          </p>
+          <div className={styles.emptyActions}>
+            <button
+              type="button"
+              className={styles.primaryBtn}
+              onClick={handleCreateClick}
+            >
+              <PlusCircle size={18} />
+              <span>اعرض حسابك للبيع</span>
+            </button>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={handleResetFilters}
+              >
+                <RotateCcw size={16} />
+                <span>إعادة ضبط الفلاتر</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className={styles.listingsGrid}>
@@ -430,6 +523,8 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
                 key={item.id}
                 className={styles.adCard}
                 onClick={() => handleListingClick(item.public_code)}
+                role="button"
+                tabIndex={0}
               >
                 {/* Image Cover */}
                 <div className={styles.adImageContainer}>
@@ -440,7 +535,10 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
                     loading="lazy"
                   />
                   <span className={styles.adCodeBadge}>{item.public_code}</span>
-                  <span className={styles.adGameBadge}>{gameName}</span>
+                  <span className={styles.adGameBadge}>
+                    {isPubg ? <Gamepad2 size={13} /> : <Flame size={13} />}
+                    <span>{gameName}</span>
+                  </span>
                   {item.total_images > 1 && (
                     <span className={styles.adPhotoCount}>
                       <Camera size={12} />
@@ -451,8 +549,6 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
 
                 {/* Card Body */}
                 <div className={styles.adBody}>
-                  <h3 className={styles.adTitle}>{item.title}</h3>
-
                   <div className={styles.adBadgesRow}>
                     <span className={`${styles.metaBadge} ${styles.levelBadge}`}>
                       المستوى: {item.account_level}
@@ -462,8 +558,10 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
                     </span>
                   </div>
 
+                  <h3 className={styles.adTitle} title={item.title}>{item.title}</h3>
+
                   <div className={styles.adPriceRow}>
-                    <div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                       <span className={styles.adPrice}>{Number(item.price).toLocaleString()}</span>
                       <span className={styles.adCurrency}>SDG</span>
                     </div>
@@ -493,7 +591,7 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
 
       {/* Pagination Controls */}
       {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 36 }}>
+        <div className={styles.paginationRow}>
           <button
             type="button"
             className={styles.secondaryBtn}
@@ -505,7 +603,7 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
             <span>السابق</span>
           </button>
 
-          <span style={{ color: '#9CA3AF', fontSize: '0.9rem', fontWeight: 800 }}>
+          <span className={styles.pageInfoText}>
             صفحة {currentPage} من {totalPages}
           </span>
 

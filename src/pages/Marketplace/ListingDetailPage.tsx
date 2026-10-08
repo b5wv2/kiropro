@@ -6,8 +6,6 @@ import {
   Copy,
   Check,
   ShieldCheck,
-  Calendar,
-  Layers,
   Gamepad2,
   Flame,
   MessageCircle,
@@ -80,7 +78,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
       <div className={styles.pageContainer} style={{ textAlign: 'center', padding: '80px 20px' }}>
         <AlertCircle size={48} color="#EF4444" style={{ margin: '0 auto 16px' }} />
         <h2 style={{ color: '#F9FAFB', marginBottom: 12 }}>{error || 'الإعلان غير متاح'}</h2>
-        <p style={{ color: '#9CA3AF', marginBottom: 24 }}>
+        <p style={{ color: '#9CA3AF', marginBottom: 24, maxWidth: 450, margin: '0 auto 24px' }}>
           قد يكون الإعلان قد انتهت صلاحيته أو تم بيعه، أو أن الرابط غير صحيح.
         </p>
         <button
@@ -105,10 +103,15 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
   const gameTitle = isPubg ? 'ببجي موبايل (PUBG Mobile)' : 'فري فاير (Free Fire)';
   const currentImage = listing.images[selectedImageIndex]?.image_url || listing.primary_image || '';
 
+  // Admin WhatsApp Contact URL with fallback
+  const simpleGame = isPubg ? 'PUBG Mobile' : 'Free Fire';
+  const prefilledText = `السلام عليكم، أرغب في شراء الحساب رقم ${listing.public_code}.\nاللعبة: ${simpleGame}\nالسعر: ${Number(listing.price).toLocaleString()} SDG\nالسعر قابل للتفاوض: ${listing.is_negotiable ? 'نعم' : 'لا'}`;
+  const whatsappUrl = listing.whatsappContactUrl || `https://wa.me/249900000000?text=${encodeURIComponent(prefilledText)}`;
+
   return (
     <div className={styles.pageContainer}>
       {/* Top Navigation & Breadcrumbs */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div className={styles.wizardTopBar}>
         <button
           type="button"
           className={styles.secondaryBtn}
@@ -125,14 +128,14 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
           <span>الرجوع إلى السوق</span>
         </button>
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
             className={styles.secondaryBtn}
             onClick={handleCopyCode}
-            style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+            style={{ padding: '6px 12px', fontSize: '0.82rem' }}
           >
-            {copiedCode ? <Check size={16} color="#10B981" /> : <Copy size={16} />}
+            {copiedCode ? <Check size={14} color="#10B981" /> : <Copy size={14} />}
             <span>كود: {listing.public_code}</span>
           </button>
 
@@ -140,10 +143,10 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
             type="button"
             className={styles.secondaryBtn}
             onClick={handleCopyLink}
-            style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+            style={{ padding: '6px 12px', fontSize: '0.82rem' }}
           >
-            {copiedLink ? <Check size={16} color="#10B981" /> : <Share2 size={16} />}
-            <span>{copiedLink ? 'تم نسخ الرابط!' : 'مشاركة الرابط'}</span>
+            {copiedLink ? <Check size={14} color="#10B981" /> : <Share2 size={14} />}
+            <span>{copiedLink ? 'تم النسخ!' : 'مشاركة'}</span>
           </button>
         </div>
       </div>
@@ -151,7 +154,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
       {/* Main Detail Grid */}
       <div className={styles.detailContainer}>
         {/* Left Column: Media Gallery & Full Description */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Gallery Section */}
           <div className={styles.gallerySection}>
             <div className={styles.mainImageWrapper}>
@@ -162,7 +165,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
               />
               <span className={styles.adCodeBadge}>{listing.public_code}</span>
               <span className={styles.adGameBadge}>
-                {isPubg ? <Gamepad2 size={14} style={{ display: 'inline', marginLeft: 4 }} /> : <Flame size={14} style={{ display: 'inline', marginLeft: 4 }} />}
+                {isPubg ? <Gamepad2 size={13} style={{ display: 'inline', marginLeft: 4 }} /> : <Flame size={13} style={{ display: 'inline', marginLeft: 4 }} />}
                 {gameTitle}
               </span>
             </div>
@@ -176,6 +179,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
                     type="button"
                     className={`${styles.thumbnailBtn} ${selectedImageIndex === idx ? styles.thumbnailActive : ''}`}
                     onClick={() => setSelectedImageIndex(idx)}
+                    aria-label={`عرض الصورة ${idx + 1}`}
                   >
                     <img src={img.image_url} alt={`صورة ${idx + 1}`} className={styles.thumbnailImg} />
                   </button>
@@ -221,7 +225,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Main Summary Box */}
           <div className={styles.detailCard}>
-            <h1 style={{ fontSize: '1.45rem', fontWeight: 900, color: '#FFFFFF', margin: 0, lineHeight: 1.3 }}>
+            <h1 style={{ fontSize: '1.45rem', fontWeight: 900, color: '#FFFFFF', margin: 0, lineHeight: 1.35 }}>
               {listing.title}
             </h1>
 
@@ -244,22 +248,16 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
               </div>
             </div>
 
-            {/* WhatsApp Purchase CTA */}
-            {listing.whatsappContactUrl ? (
-              <a
-                href={listing.whatsappContactUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.whatsappBuyBtn}
-              >
-                <MessageCircle size={22} />
-                <span>أرغب في شراء هذا الحساب</span>
-              </a>
-            ) : (
-              <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: '0.85rem' }}>
-                للتواصل والاستفسار، يرجى مراجعة إدارة المنصة عبر واتساب الدعم الفني.
-              </div>
-            )}
+            {/* Official Admin WhatsApp Purchase CTA */}
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.whatsappBuyBtn}
+            >
+              <MessageCircle size={22} />
+              <span>أرغب في شراء هذا الحساب</span>
+            </a>
 
             {/* Specs Table */}
             <div className={styles.specsTable}>

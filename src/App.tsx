@@ -24,6 +24,29 @@ import { PartnerApp } from './pages/Partner/PartnerApp';
 
 const AppContent: React.FC = () => {
   const { currentView, user, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
+  const [currentPath, setCurrentPath] = React.useState<string>(
+    typeof window !== 'undefined' ? window.location.pathname : '/'
+  );
+
+  React.useEffect(() => {
+    const handleLocationChange = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
+
+  const navigateToPath = (path: string, view?: any) => {
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', path);
+      setCurrentPath(path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+    if (view) {
+      navigateTo(view);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Maintenance Mode Guard:
   // Only users with role === 'ADMIN' (valid active/previous session) can enter.
@@ -34,10 +57,7 @@ const AppContent: React.FC = () => {
     return <MaintenancePage onCheckStatus={checkMaintenanceStatus} />;
   }
 
-  const isLeaderboardPath = typeof window !== 'undefined' && (
-    window.location.pathname === '/leaderboard' || currentView === 'leaderboard'
-  );
-
+  const isLeaderboardPath = currentPath === '/leaderboard' || currentView === 'leaderboard';
   if (isLeaderboardPath) {
     return (
       <MainLayout>
@@ -46,10 +66,7 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const isVirtualNumbersPath = typeof window !== 'undefined' && (
-    window.location.pathname === '/virtual-numbers' || currentView === 'virtual-numbers'
-  );
-
+  const isVirtualNumbersPath = currentPath === '/virtual-numbers' || currentView === 'virtual-numbers';
   if (isVirtualNumbersPath) {
     return (
       <MainLayout>
@@ -58,10 +75,7 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const isWheelPath = typeof window !== 'undefined' && (
-    window.location.pathname === '/wheel' || currentView === 'wheel'
-  );
-
+  const isWheelPath = currentPath === '/wheel' || currentView === 'wheel';
   if (isWheelPath) {
     return (
       <MainLayout>
@@ -71,83 +85,104 @@ const AppContent: React.FC = () => {
   }
 
   // Account Marketplace Routes
-  const isMarketplaceCreate = typeof window !== 'undefined' && (
-    window.location.pathname === '/marketplace/create' || currentView === 'marketplace-create'
-  );
+  const isMarketplaceCreate = currentPath === '/marketplace/create' || currentView === 'marketplace-create';
   if (isMarketplaceCreate) {
     return (
       <MainLayout>
-        <CreateListingPage />
+        <CreateListingPage
+          onSuccess={(code) => navigateToPath(`/marketplace/listing/${code}`)}
+          onCancel={() => navigateToPath('/marketplace', 'marketplace')}
+        />
       </MainLayout>
     );
   }
 
-  const isMarketplaceMyAds = typeof window !== 'undefined' && (
-    window.location.pathname === '/marketplace/my-ads' ||
-    window.location.pathname === '/marketplace/my-listings' ||
+  const isMarketplaceMyAds = (
+    currentPath === '/marketplace/my-ads' ||
+    currentPath === '/marketplace/my-listings' ||
     currentView === 'marketplace-my-ads'
   );
   if (isMarketplaceMyAds) {
     return (
       <MainLayout>
-        <MyListingsPage />
+        <MyListingsPage
+          onNavigateCreate={() => navigateToPath('/marketplace/create', 'marketplace-create')}
+          onNavigateDetail={(code) => navigateToPath(`/marketplace/listing/${code}`)}
+          onBack={() => navigateToPath('/marketplace', 'marketplace')}
+        />
       </MainLayout>
     );
   }
 
-  const isMarketplacePubg = typeof window !== 'undefined' && (
-    window.location.pathname === '/marketplace/pubg' ||
-    window.location.pathname === '/market/pubg' ||
+  const isMarketplacePubg = (
+    currentPath === '/marketplace/pubg' ||
+    currentPath === '/market/pubg' ||
     currentView === 'marketplace-pubg'
   );
   if (isMarketplacePubg) {
     return (
       <MainLayout>
-        <MarketplaceHomePage initialGame="PUBG_MOBILE" />
+        <MarketplaceHomePage
+          initialGame="PUBG_MOBILE"
+          onNavigateDetail={(code) => navigateToPath(`/marketplace/listing/${code}`)}
+          onNavigateCreate={() => navigateToPath('/marketplace/create', 'marketplace-create')}
+          onNavigateMyListings={() => navigateToPath('/marketplace/my-listings', 'marketplace-my-ads')}
+        />
       </MainLayout>
     );
   }
 
-  const isMarketplaceFreeFire = typeof window !== 'undefined' && (
-    window.location.pathname === '/marketplace/freefire' ||
-    window.location.pathname === '/market/freefire' ||
+  const isMarketplaceFreeFire = (
+    currentPath === '/marketplace/freefire' ||
+    currentPath === '/market/freefire' ||
     currentView === 'marketplace-freefire'
   );
   if (isMarketplaceFreeFire) {
     return (
       <MainLayout>
-        <MarketplaceHomePage initialGame="FREE_FIRE" />
+        <MarketplaceHomePage
+          initialGame="FREE_FIRE"
+          onNavigateDetail={(code) => navigateToPath(`/marketplace/listing/${code}`)}
+          onNavigateCreate={() => navigateToPath('/marketplace/create', 'marketplace-create')}
+          onNavigateMyListings={() => navigateToPath('/marketplace/my-listings', 'marketplace-my-ads')}
+        />
       </MainLayout>
     );
   }
 
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
   const isMarketplaceDetail = (
-    pathname.startsWith('/marketplace/') &&
-    pathname !== '/marketplace/create' &&
-    pathname !== '/marketplace/my-ads' &&
-    pathname !== '/marketplace/my-listings' &&
-    pathname !== '/marketplace/pubg' &&
-    pathname !== '/marketplace/freefire'
-  ) || pathname.startsWith('/market/pubg/') || pathname.startsWith('/market/freefire/');
+    (currentPath.startsWith('/marketplace/') &&
+      currentPath !== '/marketplace/create' &&
+      currentPath !== '/marketplace/my-ads' &&
+      currentPath !== '/marketplace/my-listings' &&
+      currentPath !== '/marketplace/pubg' &&
+      currentPath !== '/marketplace/freefire') ||
+    currentPath.startsWith('/market/pubg/') ||
+    currentPath.startsWith('/market/freefire/')
+  );
 
   if (isMarketplaceDetail) {
-    const segments = pathname.split('/').filter(Boolean);
+    const segments = currentPath.split('/').filter(Boolean);
     const code = segments[segments.length - 1];
     return (
       <MainLayout>
-        <ListingDetailPage code={code} />
+        <ListingDetailPage
+          code={code}
+          onBack={() => navigateToPath('/marketplace', 'marketplace')}
+        />
       </MainLayout>
     );
   }
 
-  const isMarketplaceHome = typeof window !== 'undefined' && (
-    window.location.pathname === '/marketplace' || currentView === 'marketplace'
-  );
+  const isMarketplaceHome = currentPath === '/marketplace' || currentView === 'marketplace';
   if (isMarketplaceHome) {
     return (
       <MainLayout>
-        <MarketplaceHomePage />
+        <MarketplaceHomePage
+          onNavigateDetail={(code) => navigateToPath(`/marketplace/listing/${code}`)}
+          onNavigateCreate={() => navigateToPath('/marketplace/create', 'marketplace-create')}
+          onNavigateMyListings={() => navigateToPath('/marketplace/my-listings', 'marketplace-my-ads')}
+        />
       </MainLayout>
     );
   }
@@ -260,8 +295,6 @@ const AppContent: React.FC = () => {
         {currentView === 'forgot-password' && <ForgotPasswordPage />}
         {currentView === 'account' && <AccountPage />}
         {currentView === 'usdt' && <UsdtTransferPage />}
-        {currentView === 'virtual-numbers' && <VirtualNumbersPage />}
-        {currentView === 'wheel' && <WheelPage />}
       </MainLayout>
     </>
   );

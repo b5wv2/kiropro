@@ -430,28 +430,24 @@ router.get('/listings/:code', async (req: Request, res: Response) => {
 
     // Fetch platform admin WhatsApp to format official contact message
     const contactChannels = await getContactChannels();
-    const primaryWhatsapp = contactChannels.find(c => c.id === 'whatsapp' && c.enabled) || null;
+    const primaryWhatsapp = contactChannels.find(c => c.id === 'whatsapp' && c.enabled) || contactChannels.find(c => c.id === 'whatsapp') || null;
 
     let whatsappContactUrl = '';
-    if (primaryWhatsapp?.url) {
-      const gameTitle = GAME_LABELS[listing.game as ValidGame] || listing.game;
-      const negotiableText = listing.is_negotiable ? 'قابل للتفاوض' : 'غير قابل للتفاوض';
-      const priceText = `${Number(listing.price).toLocaleString()} SDG`;
+    const rawUrl = primaryWhatsapp?.url || 'https://wa.me/249900000000';
+    const simpleGame = listing.game === 'PUBG_MOBILE' ? 'PUBG Mobile' : 'Free Fire';
+    const negotiableText = listing.is_negotiable ? 'نعم' : 'لا';
+    const priceText = `${Number(listing.price).toLocaleString()} SDG`;
 
-      const prefilledMessage =
-        `السلام عليكم،\n` +
-        `أرغب في الاستفسار عن شراء الحساب رقم ${listing.public_code}.\n\n` +
-        `اللعبة: ${gameTitle}\n` +
-        `السعر المعروض: ${priceText}\n` +
-        `حالة السعر: ${negotiableText}\n\n` +
-        `أريد شراء/الاستفسار عن الحساب.`;
+    const prefilledMessage =
+      `السلام عليكم، أرغب في شراء الحساب رقم ${listing.public_code}.\n` +
+      `اللعبة: ${simpleGame}\n` +
+      `السعر: ${priceText}\n` +
+      `السعر قابل للتفاوض: ${negotiableText}`;
 
-      const rawUrl = primaryWhatsapp?.url || '';
-      const firstPart = rawUrl.split('?')[0] || '';
-      const cleanBaseUrl = firstPart.replace(/\/+$/, '');
-      if (cleanBaseUrl) {
-        whatsappContactUrl = `${cleanBaseUrl}?text=${encodeURIComponent(prefilledMessage)}`;
-      }
+    const firstPart = rawUrl.split('?')[0] || '';
+    const cleanBaseUrl = firstPart.replace(/\/+$/, '');
+    if (cleanBaseUrl) {
+      whatsappContactUrl = `${cleanBaseUrl}?text=${encodeURIComponent(prefilledMessage)}`;
     }
 
     res.json({
