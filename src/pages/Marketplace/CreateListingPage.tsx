@@ -7,6 +7,10 @@ import {
   GameCategoryInfo
 } from '../../services/marketplaceApi';
 import {
+  compressImage,
+  formatBytes
+} from '../../utils/imageCompressor';
+import {
   ChevronRight,
   ShieldCheck,
   CheckCircle2,
@@ -18,13 +22,24 @@ import {
   Layers,
   Lock,
   Wallet,
-  UserCheck
+  UserCheck,
+  Check
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
 interface CreateListingPageProps {
   onSuccess?: (code: string) => void;
   onCancel?: () => void;
+}
+
+interface ProcessedImageItem {
+  id: string;
+  file: File;
+  previewUrl: string;
+  originalName: string;
+  originalSize: number;
+  compressedSize: number;
+  savingsPercent: number;
 }
 
 export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess, onCancel }) => {
@@ -58,15 +73,16 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   const [sellerWhatsapp, setSellerWhatsapp] = useState<string>('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  // STEP 5: Images
-  const [localFiles, setLocalFiles] = useState<File[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  // STEP 5: Images (Client-side compressed)
+  const [imageItems, setImageItems] = useState<ProcessedImageItem[]>([]);
   const [primaryIndex, setPrimaryIndex] = useState<number>(0);
+  const [isCompressing, setIsCompressing] = useState<boolean>(false);
+  const [compressingStatusText, setCompressingStatusText] = useState<string>('');
   const [imageError, setImageError] = useState<string | null>(null);
-  const [isUploadingImages, setIsUploadingImages] = useState<boolean>(false);
 
   // STEP 6 & 7: Submission
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isUploadingImages, setIsUploadingImages] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [createdListing, setCreatedListing] = useState<any | null>(null);
 
@@ -87,6 +103,15 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   const hasEnoughBalance = currentBalanceNum >= currentFee;
   const remainingBalanceAfter = currentBalanceNum - currentFee;
 
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      imageItems.forEach(item => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+    };
+  }, []);
+
   // Handle Fee Payment (Deduction from Wallet via POST /api/marketplace/pay-fee)
   const handlePayFee = async () => {
     if (!hasEnoughBalance || isPaying) return;
@@ -106,42 +131,68 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
     }
   };
 
-  // Image Selection & Strict 10MB / 10 images limit
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image Selection & Client-Side Compression Flow
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageError(null);
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
 
-    if (localFiles.length + files.length > 10) {
-      setImageError(`الحد الأقصى هو 10 صور فقط لكل إعلان. يمكنك إضافة ${10 - localFiles.length} صور أخرى.`);
+    if (imageItems.length + selectedFiles.length > 10) {
+      setImageError(`الحد الأقصى هو 10 صور فقط لكل إعلان. يمكنك إضافة ${10 - imageItems.length} صور أخرى كحد أقصى.`);
+      e.target.value = '';
       return;
     }
 
-    const MAX_MB = 10;
-    const MAX_BYTES = MAX_MB * 1024 * 1024;
+    setIsCompressing(true);
+    const newItems: ProcessedImageItem[] = [];
+    const errors: string[] = [];
 
-    const acceptedFiles: File[] = [];
-    for (const f of files) {
-      if (f.size > MAX_BYTES) {
-        setImageError(`حجم الصورة "${f.name}" يتجاوز 10 MB (${(f.size / (1024 * 1024)).toFixed(1)} MB). تم رفضها.`);
-        return;
+    // Process files sequentially to maintain device memory stability on huge files
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      setCompressingStatusText(`جاري ضغط وتجهيز الصورة (${i + 1}/${selectedFiles.length}): "${file.name}"...`);
+
+      try {
+        const compressed = await compressImage(file, {
+          maxDimension: 1920,
+          initialQuality: 0.82,
+          targetSizeBytes: 1.8 * 1024 * 1024,
+          maxSizeBytes: 10 * 1024 * 1024
+        });
+
+        newItems.push({
+          id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          file: compressed.file,
+          previewUrl: compressed.previewUrl,
+          originalName: compressed.originalName,
+          originalSize: compressed.originalSize,
+          compressedSize: compressed.compressedSize,
+          savingsPercent: compressed.savingsPercent
+        });
+      } catch (err: any) {
+        errors.push(`${file.name}: ${err.message}`);
       }
-      acceptedFiles.push(f);
     }
 
-    const updatedFiles = [...localFiles, ...acceptedFiles];
-    setLocalFiles(updatedFiles);
+    if (newItems.length > 0) {
+      setImageItems(prev => [...prev, ...newItems]);
+    }
 
-    // Generate previews
-    const newPreviews = acceptedFiles.map(f => URL.createObjectURL(f));
-    setImagePreviews(prev => [...prev, ...newPreviews]);
+    if (errors.length > 0) {
+      setImageError(errors.join(' | '));
+    }
+
+    setIsCompressing(false);
+    setCompressingStatusText('');
+    e.target.value = '';
   };
 
   const handleRemoveImage = (indexToRemove: number) => {
-    setLocalFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
-    setImagePreviews(prev => {
-      const urlToRemove = prev[indexToRemove];
-      if (urlToRemove) URL.revokeObjectURL(urlToRemove);
+    setImageItems(prev => {
+      const item = prev[indexToRemove];
+      if (item?.previewUrl) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
       return prev.filter((_, idx) => idx !== indexToRemove);
     });
 
@@ -190,7 +241,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       return;
     }
 
-    if (localFiles.length === 0) {
+    if (imageItems.length === 0) {
       setSubmitError('يجب إرفاق صورة واحدة على الأقل للحساب.');
       setCurrentStep(5);
       return;
@@ -200,9 +251,10 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
     setSubmitError(null);
 
     try {
-      // 1. Upload Images to server
+      // 1. Upload Compressed Images to server
       setIsUploadingImages(true);
-      const uploadRes = await marketplaceApi.uploadImages(localFiles);
+      const filesToUpload = imageItems.map(item => item.file);
+      const uploadRes = await marketplaceApi.uploadImages(filesToUpload);
       setIsUploadingImages(false);
 
       const serverImages = uploadRes.images.map((img, idx) => ({
@@ -359,6 +411,12 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       </div>
     );
   }
+
+  const totalOriginalBytes = imageItems.reduce((acc, item) => acc + item.originalSize, 0);
+  const totalCompressedBytes = imageItems.reduce((acc, item) => acc + item.compressedSize, 0);
+  const totalSavingsPct = totalOriginalBytes > 0
+    ? Math.round(((totalOriginalBytes - totalCompressedBytes) / totalOriginalBytes) * 100)
+    : 0;
 
   return (
     <div className={styles.pageContainer}>
@@ -778,33 +836,49 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
           </div>
         )}
 
-        {/* STEP 5: Images Upload */}
+        {/* STEP 5: Images Upload with Client-Side Compression */}
         {currentStep === 5 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div>
               <h2 style={{ color: '#F9FAFB', fontSize: '1.3rem', margin: '0 0 6px', fontWeight: 900 }}>الخطوة 5: صور الحساب</h2>
               <p style={{ color: '#9CA3AF', fontSize: '0.9rem', margin: 0 }}>
-                ارفع من 1 إلى 10 صور للحساب. الحد الأقصى لكل صورة هو 10 MB.
+                ارفع من 1 إلى 10 صور للحساب. يتم ضغط الصور تلقائياً في المتصفح لتسريع الرفع وتوفير البيانات مع الحفاظ على دقة التفاصيل.
               </p>
             </div>
 
             {/* Dropzone */}
-            <label className={styles.uploadDropzone}>
+            <label className={`${styles.uploadDropzone} ${isCompressing ? styles.uploadDropzoneDisabled : ''}`}>
               <input
                 type="file"
                 multiple
                 accept="image/jpeg,image/png,image/webp"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
+                disabled={isCompressing}
               />
               <Upload size={36} color="#F59E0B" style={{ margin: '0 auto 10px' }} />
               <div style={{ color: '#F9FAFB', fontWeight: 800, fontSize: '1rem', marginBottom: 4 }}>
-                اضغط لاختيار صور من جهازك
+                {isCompressing ? 'جارٍ معالجة وضغط الصور...' : 'اضغط لاختيار صور من جهازك (حتى 100 MB للصورة الأصلية)'}
               </div>
               <div style={{ color: '#9CA3AF', fontSize: '0.8rem' }}>
-                صيغ مدعومة: JPG, PNG, WEBP (حجم كل صورة أقصاه 10 MB)
+                يقوم النظام تلقائياً بضغط الصور وتحويلها لصيغة WebP خفيفة وعالية الجودة قبل الرفع
               </div>
             </label>
+
+            {/* In-Progress Compression Box */}
+            {isCompressing && (
+              <div className={styles.compressionProgressBox}>
+                <div className={styles.compressionSpinner} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: '#F59E0B', fontWeight: 800, fontSize: '0.92rem' }}>
+                    جاري فك وضغط الصور محلياً في المتصفح...
+                  </div>
+                  <div style={{ color: '#D1D5DB', fontSize: '0.82rem', marginTop: 3 }}>
+                    {compressingStatusText}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {imageError && (
               <div style={{ color: '#EF4444', fontSize: '0.9rem', fontWeight: 700 }}>
@@ -812,39 +886,61 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               </div>
             )}
 
+            {/* Total Savings Summary Banner */}
+            {imageItems.length > 0 && (
+              <div className={styles.totalSavingsBanner}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Check size={16} color="#10B981" />
+                  <span>
+                    تم ضغط {imageItems.length} صور: الحجم الأصلي {formatBytes(totalOriginalBytes)} ➔ بعد الضغط {formatBytes(totalCompressedBytes)}
+                  </span>
+                </div>
+                <span className={styles.savingsTag}>
+                  وفرت {totalSavingsPct}% من البيانات!
+                </span>
+              </div>
+            )}
+
             {/* Previews Grid with Counter */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#9CA3AF', fontSize: '0.85rem', marginBottom: 8 }}>
-                <span>الصور المرفوعة (<strong style={{ color: '#F59E0B' }}>{imagePreviews.length}/10</strong>):</span>
-                <span>اضغط على أي صورة لجعلها الغلاف</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#9CA3AF', fontSize: '0.85rem', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                <span>الصور الجاهزة للرفع (<strong style={{ color: '#F59E0B' }}>{imageItems.length}/10</strong>):</span>
+                <span>اضغط على أي صورة لاختيارها كغلاف الإعلان الرئيسي</span>
               </div>
 
-              {imagePreviews.length > 0 && (
+              {imageItems.length > 0 && (
                 <div className={styles.imagesGrid}>
-                  {imagePreviews.map((url, idx) => {
+                  {imageItems.map((item, idx) => {
                     const isPrimary = idx === primaryIndex;
                     return (
-                      <div
-                        key={idx}
-                        className={`${styles.imagePreviewCard} ${isPrimary ? styles.primaryImageBorder : ''}`}
-                        onClick={() => setPrimaryIndex(idx)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <img src={url} alt={`preview ${idx}`} className={styles.previewImg} />
-                        <button
-                          type="button"
-                          className={styles.removeImgBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveImage(idx);
-                          }}
-                          aria-label="حذف الصورة"
+                      <div key={item.id} className={styles.imageCardWrapper}>
+                        <div
+                          className={`${styles.imagePreviewCard} ${isPrimary ? styles.primaryImageBorder : ''}`}
+                          onClick={() => setPrimaryIndex(idx)}
+                          style={{ cursor: 'pointer' }}
                         >
-                          ✕
-                        </button>
-                        {isPrimary && (
-                          <span className={styles.primaryBadge}>الغلاف</span>
-                        )}
+                          <img src={item.previewUrl} alt={`صورة ${idx + 1}`} className={styles.previewImg} />
+                          <button
+                            type="button"
+                            className={styles.removeImgBtn}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveImage(idx);
+                            }}
+                            aria-label="حذف الصورة"
+                          >
+                            ✕
+                          </button>
+                          {isPrimary && (
+                            <span className={styles.primaryBadge}>الغلاف</span>
+                          )}
+                        </div>
+                        <div className={styles.imageCompressionStats}>
+                          <span style={{ direction: 'ltr', fontSize: '0.7rem' }}>
+                            {formatBytes(item.originalSize)} ➔ {formatBytes(item.compressedSize)}
+                          </span>
+                          <span className={styles.savingsTag}>وفرت {item.savingsPercent}%</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -857,6 +953,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                 type="button"
                 className={styles.secondaryBtn}
                 onClick={() => setCurrentStep(4)}
+                disabled={isCompressing}
               >
                 <span>الرجوع</span>
               </button>
@@ -864,9 +961,9 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               <button
                 type="button"
                 className={styles.primaryBtn}
-                disabled={localFiles.length === 0}
+                disabled={imageItems.length === 0 || isCompressing}
                 onClick={() => setCurrentStep(6)}
-                style={{ opacity: localFiles.length === 0 ? 0.5 : 1 }}
+                style={{ opacity: imageItems.length === 0 || isCompressing ? 0.5 : 1 }}
               >
                 <span>متابعة للمراجعة النهائية</span>
               </button>
@@ -910,8 +1007,10 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                 </span>
               </div>
               <div className={styles.specsRow}>
-                <span className={styles.specsLabel}>عدد الصور:</span>
-                <span className={styles.specsVal}>{localFiles.length} صور</span>
+                <span className={styles.specsLabel}>صور الحساب:</span>
+                <span className={styles.specsVal}>
+                  {imageItems.length} صور (مضغوطة بنجاح، الحجم الإجمالي المرفوع {formatBytes(totalCompressedBytes)})
+                </span>
               </div>
               <div className={styles.specsRow}>
                 <span className={styles.specsLabel}>مدة العرض المدفوعة:</span>
@@ -955,8 +1054,8 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                 <span>
                   {isSubmitting
                     ? isUploadingImages
-                      ? 'جارٍ رفع الصور...'
-                      : 'جارٍ إرسال الإعلان...'
+                      ? 'جارٍ رفع الصور المضغوطة للسيرفر...'
+                      : 'جارٍ إرسال الإعلان للمراجعة...'
                     : 'إرسال الإعلان للمراجعة الإدارية'}
                 </span>
               </button>
