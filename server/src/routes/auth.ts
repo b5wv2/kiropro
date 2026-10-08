@@ -91,6 +91,7 @@ const generateToken = (id: string, email: string, role: string, sessionId?: stri
 const getCookieOptions = getAuthCookieOptions;
 
 const setTokenCookie = (res: Response, token: string) => {
+  res.clearCookie('token', { path: '/' });
   res.cookie('token', token, {
     ...getCookieOptions(),
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
@@ -899,11 +900,20 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     
-    const userRes = await pool.query(
-      'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code", "is_super_admin", "permissions" FROM "User" WHERE id = $1', 
-      [req.user.id]
-    );
-    let user = userRes.rows[0];
+    let user: any = null;
+    try {
+      const userRes = await pool.query(
+        'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code", "is_super_admin", "permissions" FROM "User" WHERE id = $1', 
+        [req.user.id]
+      );
+      user = userRes.rows[0];
+    } catch {
+      const userRes = await pool.query(
+        'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code" FROM "User" WHERE id = $1', 
+        [req.user.id]
+      );
+      user = userRes.rows[0];
+    }
     
     if (!user) return res.status(404).json({ error: 'User not found' });
 

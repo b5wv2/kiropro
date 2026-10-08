@@ -64,13 +64,25 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
 
     // 3. Invalidate session if password was changed after token issuance
     if (decoded.id && decoded.iat) {
-      const userRes = await pool.query('SELECT "passwordChangedAt", is_super_admin, permissions FROM "User" WHERE id = $1', [decoded.id]);
-      const userRow = userRes.rows[0];
+      let userRow: any = null;
+      try {
+        const userRes = await pool.query('SELECT "passwordChangedAt", is_super_admin, permissions FROM "User" WHERE id = $1', [decoded.id]);
+        userRow = userRes.rows[0];
+      } catch {
+        try {
+          const userRes = await pool.query('SELECT "passwordChangedAt" FROM "User" WHERE id = $1', [decoded.id]);
+          userRow = userRes.rows[0];
+        } catch {
+          // Non-blocking query failure
+        }
+      }
+
       const pwdChangedAt = userRow?.passwordChangedAt;
       if (pwdChangedAt) {
         const pwdChangedSec = Math.floor(new Date(pwdChangedAt).getTime() / 1000);
         if (decoded.iat < pwdChangedSec) {
           res.clearCookie('token', getAuthCookieOptions());
+          res.clearCookie('token', { path: '/' });
           return res.status(401).json({ error: 'تم تغيير كلمة المرور مؤخراً. يرجى تسجيل الدخول مجدداً.' });
         }
       }
@@ -84,7 +96,10 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
     }
 
     next();
-  } catch (err) {
+  } catch (err: any) {
+    // Clear corrupted/expired/mismatched cookie to prevent client deadlock
+    res.clearCookie('token', getAuthCookieOptions());
+    res.clearCookie('token', { path: '/' });
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
@@ -112,11 +127,24 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
     };
     
     // Strict DB verification for admin actions
-    const userRes = await pool.query(
-      'SELECT role, "passwordChangedAt", is_super_admin, permissions FROM "User" WHERE id = $1', 
-      [decoded.id]
-    );
-    const user = userRes.rows[0];
+    let user: any = null;
+    try {
+      const userRes = await pool.query(
+        'SELECT role, "passwordChangedAt", is_super_admin, permissions FROM "User" WHERE id = $1', 
+        [decoded.id]
+      );
+      user = userRes.rows[0];
+    } catch {
+      try {
+        const userRes = await pool.query(
+          'SELECT role, "passwordChangedAt" FROM "User" WHERE id = $1', 
+          [decoded.id]
+        );
+        user = userRes.rows[0];
+      } catch {
+        // Query failure fallback
+      }
+    }
 
     if (!user || user.role !== 'ADMIN') {
       return res.status(403).json({ error: 'Forbidden: Admin access required' });
@@ -127,6 +155,7 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
       const sessionCheck = await validateSession(decoded.sessionId);
       if (!sessionCheck.valid) {
         res.clearCookie('token', getAuthCookieOptions());
+        res.clearCookie('token', { path: '/' });
         return res.status(401).json({ error: sessionCheck.error || 'الجلسة غير صالحة أو تم إبطالها.' });
       }
 
@@ -138,6 +167,7 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
       const pwdChangedSec = Math.floor(new Date(user.passwordChangedAt).getTime() / 1000);
       if (decoded.iat < pwdChangedSec) {
         res.clearCookie('token', getAuthCookieOptions());
+        res.clearCookie('token', { path: '/' });
         return res.status(401).json({ error: 'تم تغيير كلمة المرور مؤخراً. يرجى تسجيل الدخول مجدداً.' });
       }
     }
@@ -148,7 +178,10 @@ export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFu
       permissions: Array.isArray(user.permissions) ? user.permissions : []
     };
     next();
-  } catch (err) {
+  } catch (err: any) {
+    // Clear corrupted/expired/mismatched cookie to prevent client deadlock
+    res.clearCookie('token', getAuthCookieOptions());
+    res.clearCookie('token', { path: '/' });
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
