@@ -17,6 +17,7 @@ export const STAFF_PERMISSIONS: StaffPermission[] = [
   // عمليات وطلبات
   { id: 'ORDERS_MANAGE', name: 'إدارة الطلبات والشحن', category: 'OPERATIONS', description: 'مراجعة وتحديث حالات الطلبات، وإعادة المحاولة وتنفيذ الطلبات يدوياً' },
   { id: 'CUSTOMERS_MANAGE', name: 'إدارة العملاء والمستخدمين', category: 'OPERATIONS', description: 'عرض قائمة العملاء، فحص وتعديل الأرصدة، الحظر وإلغاء الحظر' },
+  { id: 'ACCOUNT_MARKETPLACE_MANAGE', name: 'سوق الحسابات', category: 'OPERATIONS', description: 'مراجعة وتفعيل وإلغاء إعلانات حسابات الألعاب واسترداد الرسوم' },
   { id: 'REVIEWS_MANAGE', name: 'التقييمات والمراجعات', category: 'OPERATIONS', description: 'مراجعة تقييمات العملاء للخدمات والألعاب وتفعيلها أو إخفاؤها' },
 
   // المنتجات والكتالوج

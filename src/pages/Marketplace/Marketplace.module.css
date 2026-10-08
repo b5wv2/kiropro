@@ -1,0 +1,791 @@
+/* ==========================================================================
+   KIROPRO Account Marketplace (سوق الحسابات) Styling
+   ========================================================================== */
+
+.pageContainer {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
+  direction: rtl;
+  font-family: inherit;
+}
+
+/* Header & Banner */
+.marketHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.95) 0%, rgba(31, 41, 55, 0.85) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(245, 158, 11, 0.08);
+  margin-bottom: 28px;
+  backdrop-filter: blur(10px);
+}
+
+.headerTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.headerTitle {
+  font-size: 1.85rem;
+  font-weight: 900;
+  color: #FFFFFF;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerBadge {
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: #F59E0B;
+  color: #0B0F19;
+  padding: 3px 12px;
+  border-radius: 9999px;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+.headerSubtitle {
+  font-size: 0.95rem;
+  color: #9CA3AF;
+  margin: 6px 0 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  color: #0B0F19;
+  font-weight: 800;
+  font-size: 0.95rem;
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+}
+
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #E5E7EB;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.secondaryBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #FFFFFF;
+}
+
+/* Category Quick Tabs */
+.categoryTabs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.catTab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-radius: 12px;
+  background: #111827;
+  border: 1px solid #1F2937;
+  color: #9CA3AF;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.catTab:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #FFFFFF;
+}
+
+.catTabActive {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #F59E0B;
+  color: #F59E0B;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+}
+
+/* Filter Bar */
+.filterBar {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.filterRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filterLabel {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #9CA3AF;
+}
+
+.filterInput,
+.filterSelect {
+  background: #1F2937;
+  border: 1px solid #374151;
+  color: #F9FAFB;
+  font-size: 0.9rem;
+  padding: 9px 14px;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.filterInput:focus,
+.filterSelect:focus {
+  border-color: #F59E0B;
+}
+
+.filterActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #1F2937;
+}
+
+.checkboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: #D1D5DB;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Listings Grid */
+.listingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+/* Ad Card */
+.adCard {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.25s ease;
+  position: relative;
+  cursor: pointer;
+}
+
+.adCard:hover {
+  transform: translateY(-4px);
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 158, 11, 0.1);
+}
+
+.adImageContainer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #1F2937;
+  overflow: hidden;
+}
+
+.adImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.adCard:hover .adImage {
+  transform: scale(1.05);
+}
+
+.adCodeBadge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(11, 15, 25, 0.85);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #F59E0B;
+  font-family: monospace;
+  font-weight: 800;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+}
+
+.adGameBadge {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(17, 24, 39, 0.9);
+  color: #FFFFFF;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.adPhotoCount {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(11, 15, 25, 0.85);
+  color: #D1D5DB;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.adBody {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 12px;
+}
+
+.adTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #F9FAFB;
+  margin: 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.adBadgesRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.metaBadge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #1F2937;
+  color: #9CA3AF;
+  border: 1px solid #374151;
+}
+
+.levelBadge {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60A5FA;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.bindingBadge {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34D399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.adPriceRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #1F2937;
+}
+
+.adPrice {
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: #F59E0B;
+}
+
+.adCurrency {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #9CA3AF;
+  margin-right: 4px;
+}
+
+.negotiableTag {
+  font-size: 0.72rem;
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.viewAdBtn {
+  width: 100%;
+  padding: 9px;
+  background: #1F2937;
+  border: 1px solid #374151;
+  color: #E5E7EB;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.adCard:hover .viewAdBtn {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  color: #0B0F19;
+}
+
+/* Detail Page */
+.detailContainer {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 28px;
+}
+
+@media (max-width: 900px) {
+  .detailContainer {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gallerySection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mainImageWrapper {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+}
+
+.mainGalleryImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0B0F19;
+}
+
+.thumbnailsRow {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.thumbnailBtn {
+  width: 76px;
+  height: 56px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: #111827;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+
+.thumbnailActive {
+  border-color: #F59E0B;
+}
+
+.thumbnailImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detailCard {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 14px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detailPriceBox {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.whatsappBuyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #25D366;
+  color: #FFFFFF;
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 14px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+  box-shadow: 0 4px 15px rgba(37, 211, 102, 0.35);
+}
+
+.whatsappBuyBtn:hover {
+  background: #20BD5A;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45);
+}
+
+.specsTable {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #1F2937;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.specsRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+
+.specsRow:nth-child(even) {
+  background: #1F2937;
+}
+
+.specsRow:nth-child(odd) {
+  background: #111827;
+}
+
+.specsLabel {
+  color: #9CA3AF;
+  font-weight: 600;
+}
+
+.specsVal {
+  color: #F9FAFB;
+  font-weight: 700;
+}
+
+/* Disclaimer Notice */
+.disclaimerBox {
+  background: rgba(31, 41, 55, 0.5);
+  border: 1px solid #374151;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.8rem;
+  color: #9CA3AF;
+  line-height: 1.5;
+}
+
+/* Wizard / Create Listing Page */
+.wizardContainer {
+  max-width: 800px;
+  margin: 0 auto;
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 16px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.stepIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.stepDot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.stepCircle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1F2937;
+  border: 2px solid #374151;
+  color: #9CA3AF;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.stepCircleActive {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  color: #0B0F19;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+.stepCircleDone {
+  background: #10B981;
+  border-color: #10B981;
+  color: #FFFFFF;
+}
+
+.stepTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #9CA3AF;
+  white-space: nowrap;
+}
+
+/* Fee Plans Selection */
+.feeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .feeGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.feeCard {
+  border: 2px solid #1F2937;
+  background: #1F2937;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.feeCard:hover {
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.feeCardSelected {
+  border-color: #F59E0B;
+  background: rgba(245, 158, 11, 0.08);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+}
+
+.feeDuration {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #F9FAFB;
+}
+
+.feeAmount {
+  font-size: 1.7rem;
+  font-weight: 900;
+  color: #F59E0B;
+}
+
+/* Image Upload Area */
+.uploadDropzone {
+  border: 2px dashed #374151;
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(31, 41, 55, 0.3);
+}
+
+.uploadDropzone:hover {
+  border-color: #F59E0B;
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.imagesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.imagePreviewCard {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #1F2937;
+}
+
+.primaryImageBorder {
+  border-color: #F59E0B;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+
+.previewImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.removeImgBtn {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(239, 68, 68, 0.9);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.primaryBadge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: #F59E0B;
+  color: #0B0F19;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* Status Badges */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.statusPublished {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34D399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.statusPending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #FBBF24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.statusSold {
+  background: rgba(139, 92, 246, 0.15);
+  color: #A78BFA;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.statusExpired {
+  background: rgba(107, 114, 128, 0.2);
+  color: #9CA3AF;
+  border: 1px solid rgba(107, 114, 128, 0.4);
+}
+
+.statusRejected,
+.statusCancelled {
+  background: rgba(239, 68, 68, 0.15);
+  color: #F87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.statusSuspended {
+  background: rgba(234, 88, 12, 0.15);
+  color: #FB923C;
+  border: 1px solid rgba(234, 88, 12, 0.4);
+}

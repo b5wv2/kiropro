@@ -14,6 +14,10 @@ import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
 import { LeaderboardPage } from './pages/Leaderboard/LeaderboardPage';
 import { VirtualNumbersPage } from './pages/VirtualNumbers/VirtualNumbersPage';
 import { WheelPage } from './pages/Wheel/WheelPage';
+import { MarketplaceHomePage } from './pages/Marketplace/MarketplaceHomePage';
+import { ListingDetailPage } from './pages/Marketplace/ListingDetailPage';
+import { CreateListingPage } from './pages/Marketplace/CreateListingPage';
+import { MyListingsPage } from './pages/Marketplace/MyListingsPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 import { PartnerApp } from './pages/Partner/PartnerApp';
@@ -62,6 +66,88 @@ const AppContent: React.FC = () => {
     return (
       <MainLayout>
         <WheelPage />
+      </MainLayout>
+    );
+  }
+
+  // Account Marketplace Routes
+  const isMarketplaceCreate = typeof window !== 'undefined' && (
+    window.location.pathname === '/marketplace/create' || currentView === 'marketplace-create'
+  );
+  if (isMarketplaceCreate) {
+    return (
+      <MainLayout>
+        <CreateListingPage />
+      </MainLayout>
+    );
+  }
+
+  const isMarketplaceMyAds = typeof window !== 'undefined' && (
+    window.location.pathname === '/marketplace/my-ads' ||
+    window.location.pathname === '/marketplace/my-listings' ||
+    currentView === 'marketplace-my-ads'
+  );
+  if (isMarketplaceMyAds) {
+    return (
+      <MainLayout>
+        <MyListingsPage />
+      </MainLayout>
+    );
+  }
+
+  const isMarketplacePubg = typeof window !== 'undefined' && (
+    window.location.pathname === '/marketplace/pubg' ||
+    window.location.pathname === '/market/pubg' ||
+    currentView === 'marketplace-pubg'
+  );
+  if (isMarketplacePubg) {
+    return (
+      <MainLayout>
+        <MarketplaceHomePage initialGame="PUBG_MOBILE" />
+      </MainLayout>
+    );
+  }
+
+  const isMarketplaceFreeFire = typeof window !== 'undefined' && (
+    window.location.pathname === '/marketplace/freefire' ||
+    window.location.pathname === '/market/freefire' ||
+    currentView === 'marketplace-freefire'
+  );
+  if (isMarketplaceFreeFire) {
+    return (
+      <MainLayout>
+        <MarketplaceHomePage initialGame="FREE_FIRE" />
+      </MainLayout>
+    );
+  }
+
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const isMarketplaceDetail = (
+    pathname.startsWith('/marketplace/') &&
+    pathname !== '/marketplace/create' &&
+    pathname !== '/marketplace/my-ads' &&
+    pathname !== '/marketplace/my-listings' &&
+    pathname !== '/marketplace/pubg' &&
+    pathname !== '/marketplace/freefire'
+  ) || pathname.startsWith('/market/pubg/') || pathname.startsWith('/market/freefire/');
+
+  if (isMarketplaceDetail) {
+    const segments = pathname.split('/').filter(Boolean);
+    const code = segments[segments.length - 1];
+    return (
+      <MainLayout>
+        <ListingDetailPage code={code} />
+      </MainLayout>
+    );
+  }
+
+  const isMarketplaceHome = typeof window !== 'undefined' && (
+    window.location.pathname === '/marketplace' || currentView === 'marketplace'
+  );
+  if (isMarketplaceHome) {
+    return (
+      <MainLayout>
+        <MarketplaceHomePage />
       </MainLayout>
     );
   }

@@ -98,6 +98,18 @@ export const MobileMenu: React.FC = () => {
           <button
             type="button"
             className={styles.navLink}
+            onClick={() => {
+              closeOverlay();
+              navigateTo('marketplace');
+            }}
+            style={{ color: '#F59E0B', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <span>سوق الحسابات 🛒</span>
+            <span style={{ fontSize: '0.7rem', background: '#F59E0B', color: '#0B0F19', padding: '1px 6px', borderRadius: 4, fontWeight: 900 }}>سوق</span>
+          </button>
+          <button
+            type="button"
+            className={styles.navLink}
             onClick={() => handleNavClick('#games')}
           >
             الألعاب الأكثر طلباً

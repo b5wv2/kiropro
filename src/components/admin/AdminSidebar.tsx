@@ -45,6 +45,7 @@ export type AdminTab =
   | 'audit' 
   | 'security'
   | 'wheel'
+  | 'marketplace'
   | 'staff'
   | 'settings';
 
@@ -78,6 +79,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'cashback', label: 'مكافآت الكاش باك', icon: Coins },
     { id: 'codes', label: 'أكواد الخصم', icon: Tag },
     { id: 'wheel', label: 'عجلة الحظ 🎡', icon: Sparkles },
+    { id: 'marketplace', label: 'سوق الحسابات 🛒', icon: Store },
     { id: 'products', label: 'المنتجات والألعاب', icon: Package },
     { id: 'reviews', label: 'التقييمات والمراجعات', icon: Star },
     { id: 'providers', label: 'مزودو الخدمة (APIs)', icon: Server },

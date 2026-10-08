@@ -35,6 +35,8 @@ import adminWheelRoutes from './routes/adminWheel';
 import kiroproCardsRoutes from './routes/kiroproCards';
 import adminKiroproCardsRoutes from './routes/adminKiroproCards';
 import adminStaffRoutes from './routes/adminStaff';
+import marketplaceRoutes from './routes/marketplace';
+import adminMarketplaceRoutes from './routes/adminMarketplace';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
@@ -110,6 +112,11 @@ app.use(cookieParser());
 const UPLOADS_PRODUCTS_DIR = path.resolve(__dirname, '../uploads/products');
 if (!fs.existsSync(UPLOADS_PRODUCTS_DIR)) {
   fs.mkdirSync(UPLOADS_PRODUCTS_DIR, { recursive: true });
+}
+
+const UPLOADS_MARKETPLACE_DIR = path.resolve(__dirname, '../uploads/marketplace');
+if (!fs.existsSync(UPLOADS_MARKETPLACE_DIR)) {
+  fs.mkdirSync(UPLOADS_MARKETPLACE_DIR, { recursive: true });
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -203,6 +210,53 @@ app.get('/uploads/products/:filename', async (req: Request, res: Response) => {
   return res.sendFile(safeFilePath);
 });
 
+// Dedicated secure serving for marketplace account listing images
+app.get('/uploads/marketplace/:filename', async (req: Request, res: Response) => {
+  const filename = Array.isArray(req.params.filename) ? req.params.filename[0] : String(req.params.filename || '');
+
+  if (!filename || !/^[a-zA-Z0-9_-]+\.(webp|png|jpg|jpeg)$/i.test(filename)) {
+    return res.status(400).json({ error: 'اسم الملف غير صالح.' });
+  }
+
+  const safeFilePath = path.join(UPLOADS_MARKETPLACE_DIR, filename);
+
+  if (!safeFilePath.startsWith(UPLOADS_MARKETPLACE_DIR)) {
+    return res.status(403).json({ error: 'غير مصرح بالوصول إلى هذا المسار.' });
+  }
+
+  const ext = path.extname(filename).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'image/jpeg';
+
+  if (!fs.existsSync(safeFilePath)) {
+    try {
+      const assetRes = await pool.query(
+        'SELECT "mimeType", "dataBase64" FROM "UploadedAsset" WHERE "filename" = $1 LIMIT 1',
+        [filename]
+      );
+      if (assetRes.rows.length > 0) {
+        const row = assetRes.rows[0];
+        const buffer = Buffer.from(row.dataBase64, 'base64');
+        try { fs.writeFileSync(safeFilePath, buffer); } catch {}
+        res.setHeader('Content-Type', row.mimeType || contentType);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        return res.send(buffer);
+      }
+    } catch (dbErr: any) {
+      console.warn('[AssetServer] Marketplace DB asset lookup warning:', dbErr.message);
+    }
+    return res.status(404).json({ error: 'الصورة غير موجودة.' });
+  }
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+  return res.sendFile(safeFilePath);
+});
+
 // 2. Private Financial Documents: Bank Transfer Receipts (Authenticated & Authorized Only)
 app.use('/uploads/receipts', receiptsRoutes);
 
@@ -253,6 +307,8 @@ app.use('/api/admin/wheel', adminWheelRoutes);
 app.use('/api/kiropro-cards', banCheckMiddleware, kiroproCardsRoutes);
 app.use('/api/admin/kiropro-cards', adminKiroproCardsRoutes);
 app.use('/api/admin/staff', adminStaffRoutes);
+app.use('/api/marketplace', marketplaceRoutes);
+app.use('/api/admin/marketplace', adminMarketplaceRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

@@ -28,8 +28,8 @@ interface AuthContextType {
   quickLogin: () => Promise<AuthResult>;
   checkAdminSession: () => Promise<{ hasValidAdminSession: boolean; email?: string }>;
   logout: () => Promise<void>;
-  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel';
-  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel') => void;
+  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads';
+  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads') => void;
   isAccountMenuOpen: boolean;
   setIsAccountMenuOpen: (open: boolean) => void;
 }
@@ -63,7 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(getInitialMaintenanceMode);
   const [contactChannels, setContactChannels] = useState<ContactChannel[]>([]);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState<ContactChannel | null>(null);
-  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads'>('home');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
   const refreshContactChannels = async () => {
@@ -179,9 +179,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel') => {
+  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads') => {
     // Protected route check
-    if (view === 'account' && !user) {
+    if ((view === 'account' || view === 'marketplace-create' || view === 'marketplace-my-ads') && !user) {
       setCurrentView('login');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -208,6 +208,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         window.history.pushState(null, '', '/virtual-numbers');
       } else if (view === 'wheel') {
         window.history.pushState(null, '', '/wheel');
+      } else if (view === 'marketplace') {
+        window.history.pushState(null, '', '/marketplace');
+      } else if (view === 'marketplace-pubg') {
+        window.history.pushState(null, '', '/marketplace/pubg');
+      } else if (view === 'marketplace-freefire') {
+        window.history.pushState(null, '', '/marketplace/freefire');
+      } else if (view === 'marketplace-create') {
+        window.history.pushState(null, '', '/marketplace/create');
+      } else if (view === 'marketplace-my-ads') {
+        window.history.pushState(null, '', '/marketplace/my-ads');
       } else if (view === 'home') {
         window.history.pushState(null, '', '/');
       }
