@@ -125,6 +125,19 @@ export const resolveImageUrl = (productImg?: string | null, categoryImg?: string
  * Resolves images according to strict hierarchy: Product Image -> Category Image -> Default Placeholder.
  * Completely sanitizes any upstream provider details.
  */
+async function getProviderOrdersEnabledMap(): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
+  try {
+    const res = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
+    for (const r of res.rows) {
+      map.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
+    }
+  } catch {
+    // If provider_settings table is not yet migrated, all providers default to enabled
+  }
+  return map;
+}
+
 router.get('/', async (req: Request, res: Response) => {
   // Public cache header: browser and proxies can cache for 15s, avoiding redundant requests
   res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
@@ -134,48 +147,84 @@ router.get('/', async (req: Request, res: Response) => {
     const rateConfig = rateSettingRes.rows[0]?.value || { rate: 7600 };
     const exchangeRate = Number(rateConfig.rate) || 7600;
 
-    const result = await pool.query(`
-      SELECT 
-        p.id, p."providerOfferId", p."productName", p."offerName", p.category,
-        p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
-        p."platformCode", p."platformName", p."regionCode", p."regionName",
-        p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
-        p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
-        p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
-        p."gameCategoryId",
-        c."imageUrl" as "categoryImageUrl",
-        c."name" as "categoryName",
-        c."arabicName" as "categoryArabicName",
-        c.platform as "categoryPlatform",
-        c.badge as "categoryBadge",
-        c."deliveryTime" as "categoryDeliveryTime",
-        c."idFieldLabel" as "categoryIdFieldLabel",
-        c."idPlaceholder" as "categoryIdPlaceholder",
-        COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
-      FROM "Product" p
-      LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
-      LEFT JOIN (
-        SELECT product_id, COUNT(*)::int as available_count
-        FROM digital_product_accounts
-        WHERE status = 'AVAILABLE'
-        GROUP BY product_id
-      ) dpa ON p.id = dpa.product_id
-      LEFT JOIN (
-        SELECT product_id, COUNT(*)::int as available_count
-        FROM kiropro_cards_inventory
-        WHERE status = 'AVAILABLE'
-        GROUP BY product_id
-      ) kci ON p.id = kci.product_id
-      WHERE p."isActive" = true
-      ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
-    `);
-
-    // Fetch provider settings to calculate accurate real-time inStock
-    const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
-    const provOrdersEnabledMap = new Map<string, boolean>();
-    for (const r of provSettingsRes.rows) {
-      provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
+    let result;
+    try {
+      result = await pool.query(`
+        SELECT 
+          p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+          p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
+          p."platformCode", p."platformName", p."regionCode", p."regionName",
+          p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
+          p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
+          p."gameCategoryId",
+          c."imageUrl" as "categoryImageUrl",
+          c."name" as "categoryName",
+          c."arabicName" as "categoryArabicName",
+          c.platform as "categoryPlatform",
+          c.badge as "categoryBadge",
+          c."deliveryTime" as "categoryDeliveryTime",
+          c."idFieldLabel" as "categoryIdFieldLabel",
+          c."idPlaceholder" as "categoryIdPlaceholder",
+          COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
+        FROM "Product" p
+        LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int as available_count
+          FROM digital_product_accounts
+          WHERE status = 'AVAILABLE'
+          GROUP BY product_id
+        ) dpa ON p.id = dpa.product_id
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int as available_count
+          FROM kiropro_cards_inventory
+          WHERE status = 'AVAILABLE'
+          GROUP BY product_id
+        ) kci ON p.id = kci.product_id
+        WHERE p."isActive" = true
+        ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
+      `);
+    } catch {
+      // Fallback query if migration 036 provider columns are not yet present in production DB
+      result = await pool.query(`
+        SELECT 
+          p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+          p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
+          p."platformCode", p."platformName", p."regionCode", p."regionName",
+          p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
+          p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
+          p."gameCategoryId",
+          c."imageUrl" as "categoryImageUrl",
+          c."name" as "categoryName",
+          c."arabicName" as "categoryArabicName",
+          c.platform as "categoryPlatform",
+          c.badge as "categoryBadge",
+          c."deliveryTime" as "categoryDeliveryTime",
+          c."idFieldLabel" as "categoryIdFieldLabel",
+          c."idPlaceholder" as "categoryIdPlaceholder",
+          COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
+        FROM "Product" p
+        LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int as available_count
+          FROM digital_product_accounts
+          WHERE status = 'AVAILABLE'
+          GROUP BY product_id
+        ) dpa ON p.id = dpa.product_id
+        LEFT JOIN (
+          SELECT product_id, COUNT(*)::int as available_count
+          FROM kiropro_cards_inventory
+          WHERE status = 'AVAILABLE'
+          GROUP BY product_id
+        ) kci ON p.id = kci.product_id
+        WHERE p."isActive" = true
+        ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
+      `);
     }
+
+    // Fetch provider settings safely to calculate accurate real-time inStock
+    const provOrdersEnabledMap = await getProviderOrdersEnabledMap();
 
     // Group items by curated game / category
     const groupedMap = new Map<string, any>();
@@ -398,43 +447,70 @@ router.get('/:id', async (req: Request, res: Response) => {
       const category = catCheck.rows[0];
       const targetCatId = category.id;
 
-      const result = await pool.query(`
-        SELECT 
-          p.id, p."providerOfferId", p."productName", p."offerName", p.category,
-          p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
-          p."platformCode", p."platformName", p."regionCode", p."regionName",
-          p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
-          p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
-          p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
-          c."imageUrl" as "categoryImageUrl",
-          COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
-        FROM "Product" p
-        LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
-        LEFT JOIN (
-          SELECT product_id, COUNT(*)::int as available_count
-          FROM digital_product_accounts
-          WHERE status = 'AVAILABLE'
-          GROUP BY product_id
-        ) dpa ON p.id = dpa.product_id
-        LEFT JOIN (
-          SELECT product_id, COUNT(*)::int as available_count
-          FROM kiropro_cards_inventory
-          WHERE status = 'AVAILABLE'
-          GROUP BY product_id
-        ) kci ON p.id = kci.product_id
-        WHERE p."isActive" = true AND p."gameCategoryId" = $1
-        ORDER BY p."displayOrder" ASC, p."productName" ASC
-      `, [targetCatId]);
+      let result;
+      try {
+        result = await pool.query(`
+          SELECT 
+            p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+            p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
+            p."platformCode", p."platformName", p."regionCode", p."regionName",
+            p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+            p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
+            p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
+            c."imageUrl" as "categoryImageUrl",
+            COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
+          FROM "Product" p
+          LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+          LEFT JOIN (
+            SELECT product_id, COUNT(*)::int as available_count
+            FROM digital_product_accounts
+            WHERE status = 'AVAILABLE'
+            GROUP BY product_id
+          ) dpa ON p.id = dpa.product_id
+          LEFT JOIN (
+            SELECT product_id, COUNT(*)::int as available_count
+            FROM kiropro_cards_inventory
+            WHERE status = 'AVAILABLE'
+            GROUP BY product_id
+          ) kci ON p.id = kci.product_id
+          WHERE p."isActive" = true AND p."gameCategoryId" = $1
+          ORDER BY p."displayOrder" ASC, p."productName" ASC
+        `, [targetCatId]);
+      } catch {
+        result = await pool.query(`
+          SELECT 
+            p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+            p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
+            p."platformCode", p."platformName", p."regionCode", p."regionName",
+            p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+            'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
+            p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
+            c."imageUrl" as "categoryImageUrl",
+            COALESCE(dpa.available_count, kci.available_count, 0)::int as "availableStock"
+          FROM "Product" p
+          LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+          LEFT JOIN (
+            SELECT product_id, COUNT(*)::int as available_count
+            FROM digital_product_accounts
+            WHERE status = 'AVAILABLE'
+            GROUP BY product_id
+          ) dpa ON p.id = dpa.product_id
+          LEFT JOIN (
+            SELECT product_id, COUNT(*)::int as available_count
+            FROM kiropro_cards_inventory
+            WHERE status = 'AVAILABLE'
+            GROUP BY product_id
+          ) kci ON p.id = kci.product_id
+          WHERE p."isActive" = true AND p."gameCategoryId" = $1
+          ORDER BY p."displayOrder" ASC, p."productName" ASC
+        `, [targetCatId]);
+      }
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'اللعبة غير متاحة حالياً أو لا توجد باقات مفعلة.' });
       }
 
-      const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
-      const provOrdersEnabledMap = new Map<string, boolean>();
-      for (const r of provSettingsRes.rows) {
-        provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
-      }
+      const provOrdersEnabledMap = await getProviderOrdersEnabledMap();
 
       const categoryImageUrl = resolveImageUrl(category.imageUrl, DEFAULT_PLACEHOLDER);
 
@@ -500,20 +576,38 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     // Otherwise query individual package by UUID or providerOfferId
-    const singleRes = await pool.query(`
-      SELECT 
-        p.id, p."providerOfferId", p."productName", p."offerName", p.category,
-        p."arabicName", p.description, p."subCategory", p."productType",
-        p."platformCode", p."platformName", p."regionCode", p."regionName",
-        p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
-        p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
-        p."requiresGameUserId", p."requiresGameServerId",
-        c."imageUrl" as "categoryImageUrl"
-      FROM "Product" p
-      LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
-      WHERE (p."id"::text = $1 OR p."providerOfferId"::text = $1) AND p."isActive" = true
-      LIMIT 1
-    `, [id]);
+    let singleRes;
+    try {
+      singleRes = await pool.query(`
+        SELECT 
+          p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+          p."arabicName", p.description, p."subCategory", p."productType",
+          p."platformCode", p."platformName", p."regionCode", p."regionName",
+          p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
+          p."requiresGameUserId", p."requiresGameServerId",
+          c."imageUrl" as "categoryImageUrl"
+        FROM "Product" p
+        LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+        WHERE (p."id"::text = $1 OR p."providerOfferId"::text = $1) AND p."isActive" = true
+        LIMIT 1
+      `, [id]);
+    } catch {
+      singleRes = await pool.query(`
+        SELECT 
+          p.id, p."providerOfferId", p."productName", p."offerName", p.category,
+          p."arabicName", p.description, p."subCategory", p."productType",
+          p."platformCode", p."platformName", p."regionCode", p."regionName",
+          p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
+          p."requiresGameUserId", p."requiresGameServerId",
+          c."imageUrl" as "categoryImageUrl"
+        FROM "Product" p
+        LEFT JOIN "GameCategory" c ON p."gameCategoryId" = c.id
+        WHERE (p."id"::text = $1 OR p."providerOfferId"::text = $1) AND p."isActive" = true
+        LIMIT 1
+      `, [id]);
+    }
 
     if (singleRes.rows.length === 0) {
       return res.status(404).json({ error: 'المنتج غير موجود أو غير متاح حالياً.' });
@@ -521,11 +615,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const row = singleRes.rows[0];
 
-    const provSettingsRes = await pool.query('SELECT provider, orders_enabled FROM provider_settings');
-    const provOrdersEnabledMap = new Map<string, boolean>();
-    for (const r of provSettingsRes.rows) {
-      provOrdersEnabledMap.set(r.provider.toUpperCase(), Boolean(r.orders_enabled));
-    }
+    const provOrdersEnabledMap = await getProviderOrdersEnabledMap();
 
     const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
     const primEnabled = provOrdersEnabledMap.get(primName) !== false;

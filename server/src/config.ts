@@ -22,10 +22,29 @@ export const JWT_SECRET: string = process.env.JWT_SECRET.trim();
  */
 export const getAuthCookieOptions = () => {
   const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Allow explicit override via COOKIE_DOMAIN (e.g. '.kiropro.store')
+  let cookieDomain = process.env.COOKIE_DOMAIN?.trim();
+  if (!cookieDomain && isProduction) {
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    const apiUrl = process.env.API_URL || process.env.BACKEND_URL || '';
+    // If running under kiropro.store domain, share cookies across subdomains (kiropro.store & api.kiropro.store)
+    if (frontendUrl.includes('kiropro.store') || apiUrl.includes('kiropro.store') || !process.env.FRONTEND_URL) {
+      cookieDomain = '.kiropro.store';
+    }
+  }
+
+  // When domain is .kiropro.store, frontend and api are same-site (eTLD+1).
+  // SameSite='lax' ensures the cookie is sent on all same-site requests (subdomain to subdomain)
+  // and is NEVER blocked by third-party cookie deprecation in Chrome, Safari (ITP), or Brave.
+  // If no common domain is available (e.g. separate railway.app subdomains), sameSite='none' is used.
+  const sameSiteMode = cookieDomain ? 'lax' : (isProduction ? 'none' : 'lax');
+
   return {
     httpOnly: true,
     secure: isProduction,
-    sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax',
-    path: '/'
+    sameSite: sameSiteMode as 'none' | 'lax',
+    path: '/',
+    ...(cookieDomain ? { domain: cookieDomain } : {})
   };
 };

@@ -16,7 +16,6 @@ export const LoginPage: React.FC = () => {
 
   // Secure Quick Login state (only shown if a valid existing admin session exists on this browser)
   const [hasAdminSession, setHasAdminSession] = useState<boolean>(false);
-  const [adminEmail, setAdminEmail] = useState<string>('');
   const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
   const [isQuickLoggingIn, setIsQuickLoggingIn] = useState<boolean>(false);
 
@@ -27,9 +26,6 @@ export const LoginPage: React.FC = () => {
         const session = await checkAdminSession();
         if (isMounted) {
           setHasAdminSession(session.hasValidAdminSession);
-          if (session.email) {
-            setAdminEmail(session.email);
-          }
         }
       } catch {
         if (isMounted) setHasAdminSession(false);
@@ -153,7 +149,7 @@ export const LoginPage: React.FC = () => {
             <span>
               {isQuickLoggingIn
                 ? 'جاري استعادة جلسة المسؤول...'
-                : `⚡ دخول سريع كمسؤول${adminEmail ? ` (${adminEmail})` : ''}`}
+                : '⚡ متابعة الجلسة كمسؤول'}
             </span>
           </div>
         )}
@@ -166,7 +162,7 @@ export const LoginPage: React.FC = () => {
               type="email"
               required
               className={styles.input}
-              placeholder="name@example.com"
+              placeholder="أدخل بريدك الإلكتروني"
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
@@ -192,7 +188,7 @@ export const LoginPage: React.FC = () => {
               type="password"
               required
               className={styles.input}
-              placeholder="••••••••"
+              placeholder="أدخل كلمة المرور"
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);

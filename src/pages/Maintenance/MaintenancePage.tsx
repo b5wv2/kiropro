@@ -269,13 +269,13 @@ export const MaintenancePage: React.FC<MaintenancePageProps> = ({ onCheckStatus 
 
             <form onSubmit={handleAdminSubmit}>
               <div>
-                <label style={{ fontSize: '0.8rem', color: '#CBD5E1' }}>البريد الإلكتروني للأدمن:</label>
+                <label style={{ fontSize: '0.8rem', color: '#CBD5E1' }}>البريد الإلكتروني:</label>
                 <input
                   type="email"
                   className={styles.loginInput}
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
-                  placeholder="admin@kiropro.com"
+                  placeholder="أدخل بريدك الإلكتروني"
                   required
                 />
               </div>
@@ -287,7 +287,7 @@ export const MaintenancePage: React.FC<MaintenancePageProps> = ({ onCheckStatus 
                   className={styles.loginInput}
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="أدخل كلمة المرور"
                   required
                 />
               </div>

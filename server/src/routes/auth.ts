@@ -756,8 +756,7 @@ router.get('/session-status', async (req: Request, res: Response) => {
     }
 
     return res.json({
-      hasValidAdminSession: true,
-      email: user.email
+      hasValidAdminSession: true
     });
   } catch {
     return res.json({ hasValidAdminSession: false });
