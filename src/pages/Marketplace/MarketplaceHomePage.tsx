@@ -23,6 +23,7 @@ import {
   X
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
+import { getMarketplaceImageUrl } from '../../utils/imageUrl';
 
 interface MarketplaceHomePageProps {
   initialGame?: 'PUBG_MOBILE' | 'FREE_FIRE';
@@ -513,10 +514,10 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
           {listings.map(item => {
             const isPubg = item.game === 'PUBG_MOBILE';
             const gameName = isPubg ? 'ببجي موبايل' : 'فري فاير';
-            const primaryImg = item.primary_image || (isPubg
+            const defaultFallback = isPubg
               ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80'
-              : 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=800&q=80'
-            );
+              : 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=800&q=80';
+            const primaryImg = item.primary_image ? getMarketplaceImageUrl(item.primary_image) : defaultFallback;
 
             return (
               <div
@@ -533,6 +534,7 @@ export const MarketplaceHomePage: React.FC<MarketplaceHomePageProps> = ({
                     alt={item.title}
                     className={styles.adImage}
                     loading="lazy"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = defaultFallback; }}
                   />
                   <span className={styles.adCodeBadge}>{item.public_code}</span>
                   <span className={styles.adGameBadge}>

@@ -474,7 +474,7 @@ router.get('/listings/:code', async (req: Request, res: Response) => {
  */
 router.post('/pay-fee', requireAuth, banCheckMiddleware, async (req: AuthRequest, res: Response) => {
   const userId = req.user?.id;
-  const { durationDays } = req.body;
+  const { durationDays, idempotencyKey, initialGame } = req.body;
 
   if (!userId) {
     return res.status(401).json({ error: 'يجب تسجيل الدخول أولاً.' });
@@ -483,6 +483,35 @@ router.post('/pay-fee', requireAuth, banCheckMiddleware, async (req: AuthRequest
   const duration = parseInt(String(durationDays), 10);
   if (duration !== 15 && duration !== 30) {
     return res.status(400).json({ error: 'مدة الإعلان يجب أن تكون 15 أو 30 يوماً فقط.' });
+  }
+
+  // 1. Idempotency Check: if this exact key was already processed for this user, return existing payment
+  if (idempotencyKey && typeof idempotencyKey === 'string' && idempotencyKey.trim()) {
+    try {
+      const existingPay = await pool.query(
+        `SELECT id, duration_days, amount, currency, status, is_consumed, paid_at, draft_data
+         FROM account_listing_payments
+         WHERE user_id = $1 AND idempotency_key = $2 AND status = 'PAID'
+         LIMIT 1`,
+        [userId, idempotencyKey.trim()]
+      );
+
+      if (existingPay.rows.length > 0) {
+        const row = existingPay.rows[0];
+        return res.json({
+          success: true,
+          message: 'تم استرجاع الدفعة السابقة بنجاح دون خصم مكرر.',
+          paymentId: row.id,
+          durationDays: row.duration_days,
+          amount: row.amount,
+          currency: row.currency,
+          paidAt: row.paid_at,
+          draftData: row.draft_data || {}
+        });
+      }
+    } catch (checkErr: any) {
+      console.warn('[Marketplace] Idempotency pre-check notice:', checkErr.message);
+    }
   }
 
   const settings = await getMarketplaceSettings();
@@ -498,7 +527,7 @@ router.post('/pay-fee', requireAuth, banCheckMiddleware, async (req: AuthRequest
   try {
     await client.query('BEGIN');
 
-    // 1. Lock user's wallet FOR UPDATE
+    // 2. Lock user's wallet FOR UPDATE
     const walletRes = await client.query(
       'SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE',
       [userId]
@@ -523,24 +552,37 @@ router.post('/pay-fee', requireAuth, banCheckMiddleware, async (req: AuthRequest
 
     const newBalance = currentBalance - requiredFee;
 
-    // 2. Update wallet balance
+    // 3. Update wallet balance
     await client.query(
       'UPDATE "Wallet" SET balance = $1, "updatedAt" = NOW() WHERE id = $2',
       [newBalance, wallet.id]
     );
 
-    // 3. Create unconsumed payment record
+    // Initial draft payload
+    const initialDraftData = {
+      game: initialGame === 'FREE_FIRE' ? 'FREE_FIRE' : 'PUBG_MOBILE',
+      durationDays: duration,
+      currentStep: 4,
+      updatedAt: new Date().toISOString()
+    };
+
+    const cleanKey = idempotencyKey && typeof idempotencyKey === 'string' && idempotencyKey.trim()
+      ? idempotencyKey.trim()
+      : null;
+
+    // 4. Create unconsumed payment record with draft_data & idempotency_key
     const paymentRes = await client.query(
       `INSERT INTO account_listing_payments (
         user_id, wallet_id, duration_days, amount, currency,
-        payment_method, status, payment_type, is_consumed
-      ) VALUES ($1, $2, $3, $4, $5, 'WALLET', 'PAID', 'NEW_LISTING', false)
+        payment_method, status, payment_type, is_consumed,
+        idempotency_key, draft_data
+      ) VALUES ($1, $2, $3, $4, $5, 'WALLET', 'PAID', 'NEW_LISTING', false, $6, $7)
       RETURNING id, duration_days, amount, currency, paid_at`,
-      [userId, wallet.id, duration, requiredFee, currency]
+      [userId, wallet.id, duration, requiredFee, currency, cleanKey, JSON.stringify(initialDraftData)]
     );
     const payment = paymentRes.rows[0];
 
-    // 4. Record WalletTransaction
+    // 5. Record WalletTransaction
     const txDescription = `رسوم نشر إعلان حساب في سوق الحسابات (${duration} يوم)`;
     await client.query(
       `INSERT INTO "WalletTransaction" (
@@ -570,6 +612,7 @@ router.post('/pay-fee', requireAuth, banCheckMiddleware, async (req: AuthRequest
       amount: payment.amount,
       currency: payment.currency,
       paidAt: payment.paid_at,
+      draftData: initialDraftData,
       newBalance
     });
   } catch (err: any) {
@@ -578,6 +621,89 @@ router.post('/pay-fee', requireAuth, banCheckMiddleware, async (req: AuthRequest
     res.status(500).json({ error: 'فشل إتمام عملية الدفع. يرجى المحاولة لاحقاً.' });
   } finally {
     client.release();
+  }
+});
+
+/**
+ * GET /api/marketplace/draft
+ * Retrieves user's active unconsumed payment / draft, if any.
+ * Guarantees that refreshing or disconnecting restores progress without re-paying.
+ */
+router.get('/draft', requireAuth, banCheckMiddleware, async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({ error: 'يجب تسجيل الدخول أولاً.' });
+  }
+
+  try {
+    const draftRes = await pool.query(
+      `SELECT id, duration_days, amount, currency, status, is_consumed, paid_at, draft_data
+       FROM account_listing_payments
+       WHERE user_id = $1 AND status = 'PAID' AND is_consumed = false
+       ORDER BY paid_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (draftRes.rows.length === 0) {
+      return res.json({ hasDraft: false });
+    }
+
+    const payment = draftRes.rows[0];
+    res.json({
+      hasDraft: true,
+      payment: {
+        id: payment.id,
+        durationDays: payment.duration_days,
+        amount: payment.amount,
+        currency: payment.currency,
+        paidAt: payment.paid_at
+      },
+      draftData: payment.draft_data || {}
+    });
+  } catch (err: any) {
+    console.error('[Marketplace] Fetch draft error:', err.message);
+    res.status(500).json({ error: 'فشل استرجاع مسودة الإعلان.' });
+  }
+});
+
+/**
+ * PUT /api/marketplace/draft
+ * Auto-saves user's wizard draft progress (step, inputs, uploaded images).
+ */
+router.put('/draft', requireAuth, banCheckMiddleware, async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.id;
+  const { paymentId, draftData } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'يجب تسجيل الدخول أولاً.' });
+  }
+
+  if (!paymentId || typeof paymentId !== 'string') {
+    return res.status(400).json({ error: 'معرّف الدفع مطلوب لحفظ المسودة.' });
+  }
+
+  if (!draftData || typeof draftData !== 'object') {
+    return res.status(400).json({ error: 'بيانات المسودة غير صالحة.' });
+  }
+
+  try {
+    const updateRes = await pool.query(
+      `UPDATE account_listing_payments
+       SET draft_data = $1, updated_at = NOW()
+       WHERE id = $2 AND user_id = $3 AND status = 'PAID' AND is_consumed = false
+       RETURNING id`,
+      [JSON.stringify(draftData), paymentId, userId]
+    );
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({ error: 'عملية الدفع غير موجودة أو تم استهلاكها بالفعل.' });
+    }
+
+    res.json({ success: true, message: 'تم حفظ المسودة بنجاح.' });
+  } catch (err: any) {
+    console.error('[Marketplace] Save draft error:', err.message);
+    res.status(500).json({ error: 'فشل حفظ مسودة الإعلان.' });
   }
 });
 

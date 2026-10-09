@@ -1494,3 +1494,87 @@
     font-size: 0.62rem;
   }
 }
+
+/* ==========================================================================
+   ACTIVE DRAFT BANNER & WIZARD POLISH
+   ========================================================================== */
+.activeDraftBanner {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  animation: fadeIn 0.3s ease;
+}
+
+.stepConnectingLine {
+  flex: 1;
+  height: 2px;
+  background: #374151;
+  margin: 0 4px;
+  margin-bottom: 22px;
+  transition: all 0.3s ease;
+}
+
+.stepConnectingLineDone {
+  background: #10B981;
+}
+
+/* ==========================================================================
+   FULL LIGHTBOX / IMAGE MODAL
+   ========================================================================== */
+.lightboxModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.lightboxContent {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightboxImage {
+  max-width: 100%;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.lightboxCloseBtn {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #FFFFFF;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.2s;
+}
+
+.lightboxCloseBtn:hover {
+  background: rgba(239, 68, 68, 0.8);
+}

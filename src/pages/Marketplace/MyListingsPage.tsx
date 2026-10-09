@@ -17,6 +17,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
+import { getMarketplaceImageUrl } from '../../utils/imageUrl';
 
 interface MyListingsPageProps {
   onNavigateCreate?: () => void;
@@ -238,13 +239,19 @@ export const MyListingsPage: React.FC<MyListingsPageProps> = ({
             const defaultImg = isPubg
               ? 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=400&q=80'
               : 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=400&q=80';
-            const imgUrl = item.primary_image || defaultImg;
+            const imgUrl = item.primary_image ? getMarketplaceImageUrl(item.primary_image) : defaultImg;
 
             return (
               <div key={item.id} className={styles.myListingCard}>
                 {/* Thumbnail */}
                 <div className={styles.myListingThumb}>
-                  <img src={imgUrl} alt={item.title} className={styles.previewImg} loading="lazy" />
+                  <img
+                    src={imgUrl}
+                    alt={item.title}
+                    className={styles.previewImg}
+                    loading="lazy"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = defaultImg; }}
+                  />
                   <span className={styles.adCodeBadge}>{item.public_code}</span>
                 </div>
 

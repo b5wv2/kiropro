@@ -123,8 +123,8 @@ export const marketplaceApi = {
       listing: AccountListingDetail;
     }>(`/api/marketplace/listings/${encodeURIComponent(code)}`),
 
-  // Seller Actions
-  payFee: (durationDays: 15 | 30) =>
+  // Seller Actions & Draft
+  payFee: (durationDays: 15 | 30, idempotencyKey?: string, initialGame?: string) =>
     api.post<{
       success: boolean;
       message: string;
@@ -133,8 +133,28 @@ export const marketplaceApi = {
       amount: number;
       currency: string;
       paidAt: string;
-      newBalance: number;
-    }>('/api/marketplace/pay-fee', { durationDays }),
+      draftData?: any;
+      newBalance?: number;
+    }>('/api/marketplace/pay-fee', { durationDays, idempotencyKey, initialGame }),
+
+  getActiveDraft: () =>
+    api.get<{
+      hasDraft: boolean;
+      payment?: {
+        id: string;
+        durationDays: number;
+        amount: number;
+        currency: string;
+        paidAt: string;
+      };
+      draftData?: any;
+    }>('/api/marketplace/draft'),
+
+  saveDraft: (paymentId: string, draftData: any) =>
+    api.put<{
+      success: boolean;
+      message: string;
+    }>('/api/marketplace/draft', { paymentId, draftData }),
 
   uploadImages: async (files: File[]) => {
     const formData = new FormData();

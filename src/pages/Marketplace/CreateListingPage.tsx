@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
 import {
@@ -10,6 +10,7 @@ import {
   compressImage,
   formatBytes
 } from '../../utils/imageCompressor';
+import { getMarketplaceImageUrl } from '../../utils/imageUrl';
 import {
   ChevronRight,
   ShieldCheck,
@@ -23,7 +24,9 @@ import {
   Lock,
   Wallet,
   UserCheck,
-  Check
+  Check,
+  Maximize2,
+  X
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
@@ -34,12 +37,14 @@ interface CreateListingPageProps {
 
 interface ProcessedImageItem {
   id: string;
-  file: File;
+  file?: File | null;
   previewUrl: string;
   originalName: string;
   originalSize: number;
   compressedSize: number;
   savingsPercent: number;
+  storageKey?: string;
+  imageUrl?: string;
 }
 
 export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess, onCancel }) => {
@@ -49,6 +54,11 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [games, setGames] = useState<GameCategoryInfo[]>([]);
   const [currentStep, setCurrentStep] = useState<number>(1);
+
+  // Draft Recovery State
+  const [activeDraftFound, setActiveDraftFound] = useState<boolean>(false);
+  const [_loadingDraft, setLoadingDraft] = useState<boolean>(true);
+  const [previewLightboxUrl, setPreviewLightboxUrl] = useState<string | null>(null);
 
   // STEP 1: Game
   const [game, setGame] = useState<'PUBG_MOBILE' | 'FREE_FIRE'>('PUBG_MOBILE');
@@ -96,6 +106,69 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       .catch(e => console.warn('Failed to load settings:', e));
   }, []);
 
+  // Check and restore active unconsumed draft from server
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLoadingDraft(false);
+      return;
+    }
+
+    marketplaceApi.getActiveDraft()
+      .then(res => {
+        if (res.hasDraft && res.payment) {
+          setPaymentId(res.payment.id);
+          if (res.payment.durationDays === 15 || res.payment.durationDays === 30) {
+            setDurationDays(res.payment.durationDays as 15 | 30);
+          }
+          setActiveDraftFound(true);
+
+          if (res.draftData) {
+            const d = res.draftData;
+            if (d.game === 'FREE_FIRE' || d.game === 'PUBG_MOBILE') setGame(d.game);
+            if (d.title) setTitle(d.title);
+            if (d.price) setPrice(String(d.price));
+            if (d.isNegotiable !== undefined) setIsNegotiable(Boolean(d.isNegotiable));
+            if (d.accountLevel) setAccountLevel(d.accountLevel);
+            if (d.bindingType) setBindingType(d.bindingType);
+            if (d.customBinding) setCustomBinding(d.customBinding);
+            if (d.description) setDescription(d.description);
+            if (d.notes) setNotes(d.notes);
+            if (d.sellerWhatsapp) setSellerWhatsapp(d.sellerWhatsapp);
+
+            // Restore images if previously uploaded in draft
+            if (Array.isArray(d.images) && d.images.length > 0) {
+              const restoredItems: ProcessedImageItem[] = d.images.map((img: any, idx: number) => ({
+                id: img.id || `restored_${idx}_${Date.now()}`,
+                file: null, // Already on server
+                previewUrl: img.previewUrl || getMarketplaceImageUrl(img.imageUrl),
+                originalName: img.originalName || `صورة_${idx + 1}.webp`,
+                originalSize: img.originalSize || img.fileSize || 0,
+                compressedSize: img.compressedSize || img.fileSize || 0,
+                savingsPercent: img.savingsPercent || 0,
+                storageKey: img.storageKey,
+                imageUrl: img.imageUrl
+              }));
+              setImageItems(restoredItems);
+            }
+
+            if (d.currentStep && d.currentStep >= 4 && d.currentStep <= 6) {
+              setCurrentStep(d.currentStep);
+            } else {
+              setCurrentStep(4);
+            }
+          } else {
+            setCurrentStep(4);
+          }
+        }
+      })
+      .catch(err => {
+        console.warn('Check active draft notice:', err);
+      })
+      .finally(() => {
+        setLoadingDraft(false);
+      });
+  }, [isAuthenticated]);
+
   const fee15 = settings?.fee_15_days || 1500;
   const fee30 = settings?.fee_30_days || 2500;
   const currentFee = durationDays === 15 ? fee15 : fee30;
@@ -107,21 +180,61 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   useEffect(() => {
     return () => {
       imageItems.forEach(item => {
-        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        if (item.previewUrl && item.file) URL.revokeObjectURL(item.previewUrl);
       });
     };
   }, []);
 
-  // Handle Fee Payment (Deduction from Wallet via POST /api/marketplace/pay-fee)
+  // Auto-Save Draft Progress to Server
+  const saveDraftProgress = useCallback(async (stepOverride?: number) => {
+    if (!paymentId) return;
+    try {
+      await marketplaceApi.saveDraft(paymentId, {
+        game,
+        durationDays,
+        title,
+        price,
+        isNegotiable,
+        accountLevel,
+        bindingType,
+        customBinding,
+        description,
+        notes,
+        sellerWhatsapp,
+        currentStep: stepOverride !== undefined ? stepOverride : currentStep,
+        images: imageItems.map((item, idx) => ({
+          id: item.id,
+          storageKey: item.storageKey || '',
+          imageUrl: item.imageUrl || '',
+          isPrimary: idx === primaryIndex,
+          sortOrder: idx,
+          fileSize: item.compressedSize,
+          originalName: item.originalName,
+          originalSize: item.originalSize,
+          compressedSize: item.compressedSize,
+          savingsPercent: item.savingsPercent,
+          previewUrl: item.previewUrl
+        }))
+      });
+    } catch (err) {
+      console.warn('Save draft error:', err);
+    }
+  }, [paymentId, game, durationDays, title, price, isNegotiable, accountLevel, bindingType, customBinding, description, notes, sellerWhatsapp, currentStep, imageItems, primaryIndex]);
+
+  // Handle Fee Payment with Idempotency Key (Prevents double deduction)
   const handlePayFee = async () => {
     if (!hasEnoughBalance || isPaying) return;
 
     setIsPaying(true);
     setPaymentError(null);
 
+    // Unique idempotency key per payment session
+    const idempotencyKey = `mkt_pay_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     try {
-      const res = await marketplaceApi.payFee(durationDays);
+      const res = await marketplaceApi.payFee(durationDays, idempotencyKey, game);
       setPaymentId(res.paymentId);
+      setActiveDraftFound(false);
       await refreshBalance();
       setCurrentStep(4); // Advance to Account Details Step
     } catch (err: any) {
@@ -251,20 +364,46 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
     setSubmitError(null);
 
     try {
-      // 1. Upload Compressed Images to server
-      setIsUploadingImages(true);
-      const filesToUpload = imageItems.map(item => item.file);
-      const uploadRes = await marketplaceApi.uploadImages(filesToUpload);
-      setIsUploadingImages(false);
+      // 1. Upload new Compressed Images to server (skip pre-uploaded ones from draft)
+      const newFilesToUpload: File[] = [];
+      imageItems.forEach(item => {
+        if (item.file instanceof File) {
+          newFilesToUpload.push(item.file);
+        }
+      });
 
-      const serverImages = uploadRes.images.map((img, idx) => ({
-        storageKey: img.storageKey,
-        imageUrl: img.imageUrl,
-        isPrimary: idx === primaryIndex,
-        sortOrder: idx,
-        fileSize: img.fileSize,
-        mimeType: img.mimeType
-      }));
+      let newlyUploadedResults: Array<{ storageKey: string; imageUrl: string; fileSize: number; mimeType: string }> = [];
+      if (newFilesToUpload.length > 0) {
+        setIsUploadingImages(true);
+        const uploadRes = await marketplaceApi.uploadImages(newFilesToUpload);
+        newlyUploadedResults = uploadRes.images;
+        setIsUploadingImages(false);
+      }
+
+      let newUploadCursor = 0;
+      const serverImages = imageItems.map((item, idx) => {
+        if (item.file instanceof File) {
+          const uploaded = newlyUploadedResults[newUploadCursor++];
+          return {
+            storageKey: uploaded.storageKey,
+            imageUrl: uploaded.imageUrl,
+            isPrimary: idx === primaryIndex,
+            sortOrder: idx,
+            fileSize: uploaded.fileSize,
+            mimeType: uploaded.mimeType
+          };
+        } else {
+          // Pre-uploaded image from restored draft
+          return {
+            storageKey: item.storageKey || '',
+            imageUrl: item.imageUrl || '',
+            isPrimary: idx === primaryIndex,
+            sortOrder: idx,
+            fileSize: item.compressedSize || 0,
+            mimeType: 'image/webp'
+          };
+        }
+      });
 
       // Effective binding
       const effectiveBinding = bindingType === 'أخرى' && customBinding.trim()
@@ -446,7 +585,37 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       </div>
 
       <div className={styles.wizardContainer}>
-        {/* Step Indicator */}
+        {/* Active Draft Restored Banner */}
+        {activeDraftFound && paymentId && (
+          <div className={styles.activeDraftBanner}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <CheckCircle2 size={26} color="#10B981" style={{ flexShrink: 0 }} />
+              <div>
+                <div style={{ fontWeight: 800, color: '#10B981', fontSize: '0.98rem' }}>
+                  لديك إعلان مدفوع مسبقاً ({durationDays} يوماً) — تم استرجاع بياناتك تلقائياً
+                </div>
+                <div style={{ color: '#D1D5DB', fontSize: '0.84rem', marginTop: 3 }}>
+                  تم تأكيد دفع الرسوم بنجاح وحفظ تقدمك. يمكنك استكمال إدخال البيانات دون دفع أي رسوم إضافية.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => {
+                setPaymentId(null);
+                setActiveDraftFound(false);
+                setCurrentStep(1);
+              }}
+              style={{ fontSize: '0.75rem', padding: '5px 10px', color: '#9CA3AF' }}
+              title="بدء إعلان جديد"
+            >
+              بدء إعلان جديد
+            </button>
+          </div>
+        )}
+
+        {/* Step Indicator with Progress Lines */}
         <div className={styles.stepIndicator}>
           {[
             { step: 1, title: 'اللعبة' },
@@ -455,16 +624,21 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
             { step: 4, title: 'البيانات' },
             { step: 5, title: 'الصور' },
             { step: 6, title: 'المراجعة' }
-          ].map(s => {
+          ].map((s, idx) => {
             const isDone = currentStep > s.step;
             const isActive = currentStep === s.step;
             return (
-              <div key={s.step} className={styles.stepDot}>
-                <div className={`${styles.stepCircle} ${isDone ? styles.stepCircleDone : isActive ? styles.stepCircleActive : ''}`}>
-                  {isDone ? '✓' : s.step}
+              <React.Fragment key={s.step}>
+                {idx > 0 && (
+                  <div className={`${styles.stepConnectingLine} ${currentStep >= s.step ? styles.stepConnectingLineDone : ''}`} />
+                )}
+                <div className={styles.stepDot}>
+                  <div className={`${styles.stepCircle} ${isDone ? styles.stepCircleDone : isActive ? styles.stepCircleActive : ''}`}>
+                    {isDone ? '✓' : s.step}
+                  </div>
+                  <span className={styles.stepTitle}>{s.title}</span>
                 </div>
-                <span className={styles.stepTitle}>{s.title}</span>
-              </div>
+              </React.Fragment>
             );
           })}
         </div>
@@ -827,6 +1001,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               onClick={() => {
                 if (validateStep4()) {
                   setCurrentStep(5);
+                  saveDraftProgress(5);
                 }
               }}
               style={{ alignSelf: 'flex-start', marginTop: 10 }}
@@ -931,6 +1106,31 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                           >
                             ✕
                           </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewLightboxUrl(item.previewUrl);
+                            }}
+                            title="تكبير الصورة"
+                            style={{
+                              position: 'absolute',
+                              top: 4,
+                              right: 4,
+                              background: 'rgba(17, 24, 39, 0.8)',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: '50%',
+                              width: 22,
+                              height: 22,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Maximize2 size={12} />
+                          </button>
                           {isPrimary && (
                             <span className={styles.primaryBadge}>الغلاف</span>
                           )}
@@ -952,7 +1152,10 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
               <button
                 type="button"
                 className={styles.secondaryBtn}
-                onClick={() => setCurrentStep(4)}
+                onClick={() => {
+                  setCurrentStep(4);
+                  saveDraftProgress(4);
+                }}
                 disabled={isCompressing}
               >
                 <span>الرجوع</span>
@@ -962,7 +1165,10 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                 type="button"
                 className={styles.primaryBtn}
                 disabled={imageItems.length === 0 || isCompressing}
-                onClick={() => setCurrentStep(6)}
+                onClick={() => {
+                  setCurrentStep(6);
+                  saveDraftProgress(6);
+                }}
                 style={{ opacity: imageItems.length === 0 || isCompressing ? 0.5 : 1 }}
               >
                 <span>متابعة للمراجعة النهائية</span>
@@ -1063,6 +1269,23 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
           </div>
         )}
       </div>
+
+      {/* Fullscreen Lightbox Modal */}
+      {previewLightboxUrl && (
+        <div className={styles.lightboxModal} onClick={() => setPreviewLightboxUrl(null)}>
+          <div className={styles.lightboxContent} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className={styles.lightboxCloseBtn}
+              onClick={() => setPreviewLightboxUrl(null)}
+              aria-label="إغلاق المعاينة"
+            >
+              <X size={20} />
+            </button>
+            <img src={previewLightboxUrl} alt="معاينة الصورة" className={styles.lightboxImage} />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

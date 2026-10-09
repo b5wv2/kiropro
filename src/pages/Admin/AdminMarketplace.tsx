@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { marketplaceApi } from '../../services/marketplaceApi';
+import { getMarketplaceImageUrl, DEFAULT_MARKETPLACE_PLACEHOLDER } from '../../utils/imageUrl';
 import {
   Store,
   XCircle,
@@ -7,7 +8,14 @@ import {
   Eye,
   Settings,
   ShieldAlert,
-  Check
+  Check,
+  Maximize2,
+  X,
+  ExternalLink,
+  User,
+  Wallet,
+  Gamepad2,
+  Flame
 } from 'lucide-react';
 
 export const AdminMarketplace: React.FC = () => {
@@ -21,6 +29,8 @@ export const AdminMarketplace: React.FC = () => {
 
   // Detail Modal
   const [selectedListing, setSelectedListing] = useState<any | null>(null);
+  const [activeModalImageIndex, setActiveModalImageIndex] = useState<number>(0);
+  const [adminLightboxUrl, setAdminLightboxUrl] = useState<string | null>(null);
 
   // Reject Modal
   const [rejectingListing, setRejectingListing] = useState<any | null>(null);
@@ -155,6 +165,7 @@ export const AdminMarketplace: React.FC = () => {
     try {
       const res = await marketplaceApi.adminGetListing(id);
       setSelectedListing(res.listing);
+      setActiveModalImageIndex(0);
     } catch (err: any) {
       alert('فشل جلب تفاصيل الإعلان.');
     }
@@ -442,8 +453,9 @@ export const AdminMarketplace: React.FC = () => {
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ width: 48, height: 36, borderRadius: 6, overflow: 'hidden', background: '#1F2937' }}>
                           <img
-                            src={item.primary_image || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=100&q=80'}
+                            src={getMarketplaceImageUrl(item.primary_image)}
                             alt=""
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                           />
                         </div>
@@ -575,157 +587,624 @@ export const AdminMarketplace: React.FC = () => {
         </div>
       )}
 
-      {/* FULL DETAIL MODAL */}
-      {selectedListing && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0, 0, 0, 0.85)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: 20
-        }}>
-          <div style={{
-            background: '#111827',
-            border: '1px solid #374151',
-            borderRadius: 16,
-            maxWidth: 720,
-            width: '100%',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 18,
-            direction: 'rtl'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ color: '#F9FAFB', margin: 0, fontSize: '1.25rem' }}>
-                مراجعة تفاصيل الإعلان ({selectedListing.public_code})
-              </h2>
-              <button
-                type="button"
-                onClick={() => setSelectedListing(null)}
-                style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: '1.2rem' }}
-              >
-                ✕
-              </button>
-            </div>
+      {/* FULL DETAIL REVIEW MODAL */}
+      {selectedListing && (() => {
+        const modalImages: Array<{ url: string; isPrimary: boolean; key: any }> = (
+          selectedListing.images && selectedListing.images.length > 0
+            ? selectedListing.images.map((img: any, idx: number) => ({
+                url: getMarketplaceImageUrl(img.image_url),
+                isPrimary: Boolean(img.is_primary),
+                key: img.id || idx
+              }))
+            : selectedListing.primary_image
+              ? [{ url: getMarketplaceImageUrl(selectedListing.primary_image), isPrimary: true, key: 'primary' }]
+              : [{ url: DEFAULT_MARKETPLACE_PLACEHOLDER, isPrimary: true, key: 'fallback' }]
+        );
+        const activeImg = modalImages[activeModalImageIndex] || modalImages[0];
+        const isPubg = selectedListing.game === 'PUBG_MOBILE';
+        const cleanWhatsapp = (selectedListing.seller_whatsapp || '').replace(/[^0-9]/g, '');
 
-            {/* Images Gallery */}
-            {selectedListing.images && selectedListing.images.length > 0 && (
-              <div>
-                <span style={{ color: '#9CA3AF', fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: 8 }}>
-                  صور الحساب ({selectedListing.images.length}):
-                </span>
-                <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
-                  {selectedListing.images.map((img: any, idx: number) => (
+        return (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.88)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16
+          }}>
+            <div style={{
+              background: '#0F172A',
+              border: '1px solid #1E293B',
+              borderRadius: 18,
+              maxWidth: 880,
+              width: '100%',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+              direction: 'rtl',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
+            }}>
+              {/* Modal Header */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingBottom: 16,
+                borderBottom: '1px solid #1E293B',
+                flexWrap: 'wrap',
+                gap: 12
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{
+                    background: '#1E293B',
+                    color: '#F59E0B',
+                    fontFamily: 'monospace',
+                    fontWeight: 900,
+                    padding: '4px 12px',
+                    borderRadius: 8,
+                    fontSize: '1rem',
+                    border: '1px solid #334155'
+                  }}>
+                    {selectedListing.public_code}
+                  </span>
+
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    borderRadius: 8,
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    background: isPubg ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: isPubg ? '#FBBF24' : '#F87171'
+                  }}>
+                    {isPubg ? <Gamepad2 size={15} /> : <Flame size={15} />}
+                    {isPubg ? 'ببجي موبايل' : 'فري فاير'}
+                  </span>
+
+                  <span style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    padding: '4px 10px',
+                    borderRadius: 8,
+                    background: selectedListing.status === 'PUBLISHED' ? 'rgba(16, 185, 129, 0.15)' : selectedListing.status === 'PENDING_REVIEW' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(107, 114, 128, 0.2)',
+                    color: selectedListing.status === 'PUBLISHED' ? '#34D399' : selectedListing.status === 'PENDING_REVIEW' ? '#FBBF24' : '#9CA3AF'
+                  }}>
+                    {selectedListing.status}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedListing(null)}
+                  style={{
+                    background: '#1E293B',
+                    border: '1px solid #334155',
+                    color: '#9CA3AF',
+                    cursor: 'pointer',
+                    borderRadius: 8,
+                    padding: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  aria-label="إغلاق"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* HERO IMAGE & THUMBNAILS GALLERY */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Hero Box */}
+                <div style={{
+                  position: 'relative',
+                  width: '100%',
+                  height: 360,
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                  background: 'radial-gradient(circle at center, #1E293B, #0B0F19)',
+                  border: '1px solid #334155',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <img
+                    src={activeImg.url}
+                    alt={selectedListing.title}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+                    onClick={() => setAdminLightboxUrl(activeImg.url)}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain',
+                      cursor: 'zoom-in',
+                      transition: 'transform 0.2s ease'
+                    }}
+                  />
+
+                  {/* Badges on Hero */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    display: 'flex',
+                    gap: 8,
+                    zIndex: 2
+                  }}>
+                    <span style={{
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      backdropFilter: 'blur(6px)',
+                      color: '#F9FAFB',
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      border: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}>
+                      صورة {activeModalImageIndex + 1} من {modalImages.length}
+                    </span>
+                    {activeImg.isPrimary && (
+                      <span style={{
+                        background: 'rgba(245, 158, 11, 0.9)',
+                        color: '#0B0F19',
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        fontSize: '0.8rem',
+                        fontWeight: 900
+                      }}>
+                        الرئيسية
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Zoom button on Hero */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 12,
+                    left: 12,
+                    display: 'flex',
+                    gap: 8,
+                    zIndex: 2
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setAdminLightboxUrl(activeImg.url)}
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(6px)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        color: '#F9FAFB',
+                        borderRadius: 8,
+                        padding: '6px 12px',
+                        fontSize: '0.8rem',
+                        fontWeight: 800,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Maximize2 size={14} />
+                      <span>تكبير</span>
+                    </button>
+
                     <a
-                      key={idx}
-                      href={img.image_url}
+                      href={activeImg.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        width: 120,
-                        height: 90,
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(6px)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        color: '#9CA3AF',
                         borderRadius: 8,
-                        overflow: 'hidden',
-                        flexShrink: 0,
-                        border: img.is_primary ? '2px solid #F59E0B' : '1px solid #374151',
-                        display: 'block'
+                        padding: '6px 10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        textDecoration: 'none'
+                      }}
+                      title="فتح في تبويب جديد"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Thumbnails Row */}
+                {modalImages.length > 1 && (
+                  <div style={{
+                    display: 'flex',
+                    gap: 10,
+                    overflowX: 'auto',
+                    padding: '4px 2px 8px',
+                    scrollbarWidth: 'thin'
+                  }}>
+                    {modalImages.map((img, idx) => (
+                      <button
+                        key={img.key}
+                        type="button"
+                        onClick={() => setActiveModalImageIndex(idx)}
+                        style={{
+                          width: 88,
+                          height: 64,
+                          borderRadius: 8,
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                          border: activeModalImageIndex === idx ? '2px solid #F59E0B' : '1px solid #334155',
+                          opacity: activeModalImageIndex === idx ? 1 : 0.65,
+                          transform: activeModalImageIndex === idx ? 'scale(1.03)' : 'scale(1)',
+                          transition: 'all 0.15s ease',
+                          cursor: 'pointer',
+                          padding: 0,
+                          background: '#1E293B'
+                        }}
+                      >
+                        <img
+                          src={img.url}
+                          alt=""
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* LISTING TITLE & DESCRIPTION */}
+              <div style={{
+                background: '#1E293B',
+                border: '1px solid #334155',
+                borderRadius: 12,
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10
+              }}>
+                <h3 style={{ color: '#F9FAFB', fontWeight: 900, fontSize: '1.2rem', margin: 0 }}>
+                  {selectedListing.title}
+                </h3>
+                <div style={{ color: '#D1D5DB', fontSize: '0.92rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                  {selectedListing.description}
+                </div>
+                {selectedListing.notes && (
+                  <div style={{
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    color: '#FBBF24',
+                    fontSize: '0.85rem'
+                  }}>
+                    <strong>ملاحظات البائع الإضافية:</strong> {selectedListing.notes}
+                  </div>
+                )}
+              </div>
+
+              {/* TWO INFORMATION CARDS: SELLER + SPECS */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+                {/* CARD 1: AUTHENTIC SELLER INFORMATION */}
+                <div style={{
+                  background: '#1E293B',
+                  border: '1px solid #334155',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#38BDF8', fontWeight: 800, fontSize: '0.95rem' }}>
+                    <User size={18} />
+                    <span>بيانات البائع الحقيقية والمالية</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.88rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>اسم المستخدم:</span>
+                      <strong style={{ color: '#F9FAFB' }}>{selectedListing.seller_name || 'غير معروف'}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>البريد الإلكتروني:</span>
+                      <span style={{ color: '#9CA3AF', fontFamily: 'monospace', fontSize: '0.82rem' }}>{selectedListing.seller_email || 'غير متوفر'}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>واتساب البائع:</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: '#10B981', fontFamily: 'monospace', fontWeight: 900 }} dir="ltr">
+                          {selectedListing.seller_whatsapp}
+                        </span>
+                        {cleanWhatsapp && (
+                          <a
+                            href={`https://wa.me/${cleanWhatsapp}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.2)',
+                              color: '#34D399',
+                              border: '1px solid #10B981',
+                              borderRadius: 6,
+                              padding: '2px 8px',
+                              fontSize: '0.75rem',
+                              fontWeight: 800,
+                              textDecoration: 'none'
+                            }}
+                          >
+                            مراسلة
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>رصيد المحفظة الحالي:</span>
+                      <strong style={{ color: '#34D399', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Wallet size={14} />
+                        <span>
+                          {selectedListing.seller_wallet_balance != null
+                            ? `${Number(selectedListing.seller_wallet_balance).toLocaleString()} SDG`
+                            : 'غير متوفر'}
+                        </span>
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#9CA3AF' }}>رسوم النشر المدفوعة:</span>
+                      <strong style={{ color: '#F59E0B' }}>
+                        {Number(selectedListing.fee_amount || selectedListing.listing_fee || 0).toLocaleString()} SDG
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CARD 2: ACCOUNT SPECS */}
+                <div style={{
+                  background: '#1E293B',
+                  border: '1px solid #334155',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#F59E0B', fontWeight: 800, fontSize: '0.95rem' }}>
+                    <ShieldAlert size={18} />
+                    <span>مواصفات وتفاصيل الحساب</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.88rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>السعر المطلوب:</span>
+                      <strong style={{ color: '#F59E0B', fontSize: '1.05rem', fontWeight: 900 }}>
+                        {Number(selectedListing.price).toLocaleString()} SDG
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>مستوى الحساب:</span>
+                      <strong style={{ color: '#F9FAFB' }}>{selectedListing.account_level}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>الرانك / التصنيف:</span>
+                      <strong style={{ color: '#F9FAFB' }}>{selectedListing.rank || '—'}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>طريقة الربط:</span>
+                      <strong style={{ color: '#F9FAFB' }}>{selectedListing.binding_type}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #293548', paddingBottom: 6 }}>
+                      <span style={{ color: '#9CA3AF' }}>التفاوض على السعر:</span>
+                      <strong style={{ color: selectedListing.is_negotiable ? '#34D399' : '#9CA3AF' }}>
+                        {selectedListing.is_negotiable ? 'نعم (قابل للتفاوض)' : 'لا (نهائي)'}
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#9CA3AF' }}>مدة العرض في السوق:</span>
+                      <strong style={{ color: '#F9FAFB' }}>
+                        {selectedListing.listing_duration_days || selectedListing.duration_days} يوم
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* AUDIT TIMELINE (IF EXISTS) */}
+              {selectedListing.events && selectedListing.events.length > 0 && (
+                <div style={{
+                  background: '#1E293B',
+                  border: '1px solid #334155',
+                  borderRadius: 12,
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}>
+                  <div style={{ color: '#9CA3AF', fontWeight: 800, fontSize: '0.85rem' }}>
+                    سجل التغييرات والمراجعة ({selectedListing.events.length}):
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {selectedListing.events.map((evt: any, i: number) => (
+                      <div key={i} style={{
+                        fontSize: '0.8rem',
+                        color: '#9CA3AF',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        padding: '6px 10px',
+                        background: '#0F172A',
+                        borderRadius: 6
+                      }}>
+                        <span><strong>{evt.event_type}</strong> {evt.reason ? `— ${evt.reason}` : ''}</span>
+                        <span style={{ fontFamily: 'monospace' }}>{new Date(evt.created_at).toLocaleDateString('ar-EG')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL ACTIONS BAR */}
+              <div style={{
+                display: 'flex',
+                gap: 12,
+                justifyContent: 'flex-end',
+                paddingTop: 16,
+                borderTop: '1px solid #1E293B',
+                flexWrap: 'wrap'
+              }}>
+                {selectedListing.status === 'PENDING_REVIEW' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(selectedListing.id)}
+                      style={{
+                        background: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '10px 22px',
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
                       }}
                     >
-                      <img src={img.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
+                      <Check size={18} />
+                      <span>قبول ونشر الإعلان</span>
+                    </button>
 
-            <div style={{ background: '#1F2937', borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ color: '#F9FAFB', fontWeight: 800 }}>{selectedListing.title}</div>
-              <div style={{ color: '#D1D5DB', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{selectedListing.description}</div>
-              {selectedListing.notes && (
-                <div style={{ color: '#9CA3AF', fontSize: '0.85rem' }}>ملاحظات: {selectedListing.notes}</div>
-              )}
-            </div>
+                    <button
+                      type="button"
+                      onClick={() => setRejectingListing(selectedListing)}
+                      style={{
+                        background: 'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '10px 22px',
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                      }}
+                    >
+                      <XCircle size={18} />
+                      <span>رفض الإعلان</span>
+                    </button>
+                  </>
+                )}
 
-            {/* Seller Contact & Payment Audit */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: '0.88rem' }}>
-              <div style={{ background: '#1F2937', padding: 12, borderRadius: 8 }}>
-                <span style={{ color: '#9CA3AF', display: 'block', marginBottom: 4 }}>بيانات البائع:</span>
-                <div style={{ color: '#F9FAFB', fontWeight: 700 }}>{selectedListing.seller_name} ({selectedListing.seller_email})</div>
-                <div style={{ color: '#10B981', fontFamily: 'monospace', fontWeight: 800, marginTop: 4 }}>
-                  واتساب: {selectedListing.seller_whatsapp}
-                </div>
-              </div>
-
-              <div style={{ background: '#1F2937', padding: 12, borderRadius: 8 }}>
-                <span style={{ color: '#9CA3AF', display: 'block', marginBottom: 4 }}>المواصفات:</span>
-                <div>المستوى: <strong>{selectedListing.account_level}</strong></div>
-                <div>الربط: <strong>{selectedListing.binding_type}</strong></div>
-                <div>السعر: <strong style={{ color: '#F59E0B' }}>{Number(selectedListing.price).toLocaleString()} SDG</strong></div>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
-              {selectedListing.status === 'PENDING_REVIEW' && (
-                <>
+                {selectedListing.status !== 'CANCELLED' && selectedListing.payment_status === 'PAID' && (
                   <button
                     type="button"
-                    onClick={() => handleApprove(selectedListing.id)}
+                    onClick={() => setRefundingListing(selectedListing)}
                     style={{
-                      background: '#10B981',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: 8,
-                      padding: '8px 16px',
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      border: '1px solid #F59E0B',
+                      color: '#F59E0B',
+                      borderRadius: 10,
+                      padding: '10px 18px',
                       fontWeight: 800,
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8
                     }}
                   >
-                    قبول ونشر
+                    <ShieldAlert size={16} />
+                    <span>إلغاء واسترداد الرسوم</span>
                   </button>
+                )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRejectingListing(selectedListing);
-                    }}
-                    style={{
-                      background: '#EF4444',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: 8,
-                      padding: '8px 16px',
-                      fontWeight: 800,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    رفض الإعلان
-                  </button>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setSelectedListing(null)}
-                style={{
-                  background: '#374151',
-                  color: '#E5E7EB',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '8px 16px',
-                  cursor: 'pointer'
-                }}
-              >
-                إغلاق
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedListing(null)}
+                  style={{
+                    background: '#1E293B',
+                    color: '#E5E7EB',
+                    border: '1px solid #334155',
+                    borderRadius: 10,
+                    padding: '10px 20px',
+                    cursor: 'pointer',
+                    fontWeight: 700
+                  }}
+                >
+                  إغلاق
+                </button>
+              </div>
             </div>
           </div>
+        );
+      })()}
+
+      {/* ADMIN LIGHTBOX MODAL */}
+      {adminLightboxUrl && (
+        <div
+          onClick={() => setAdminLightboxUrl(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.94)',
+            zIndex: 100000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            cursor: 'zoom-out'
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setAdminLightboxUrl(null);
+            }}
+            style={{
+              position: 'absolute',
+              top: 24,
+              right: 24,
+              background: 'rgba(15, 23, 42, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              color: '#FFFFFF',
+              borderRadius: 10,
+              padding: 10,
+              cursor: 'pointer',
+              zIndex: 100001
+            }}
+          >
+            <X size={24} />
+          </button>
+
+          <img
+            src={adminLightboxUrl}
+            alt="تكبير صورة الحساب"
+            onClick={(e) => e.stopPropagation()}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+            style={{
+              maxWidth: '92vw',
+              maxHeight: '92vh',
+              objectFit: 'contain',
+              borderRadius: 8,
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9)',
+              cursor: 'default'
+            }}
+          />
         </div>
       )}
 

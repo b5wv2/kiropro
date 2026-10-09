@@ -56,3 +56,38 @@ export function getProductImageUrl(url?: string | null): string {
   const cleanPath = cleanUrl.startsWith('/') ? cleanUrl : `/${cleanUrl}`;
   return `${backendBase}${cleanPath}`;
 }
+
+export const DEFAULT_MARKETPLACE_PLACEHOLDER = 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80';
+
+/**
+ * Resolves an account marketplace listing image URL for frontend rendering.
+ * Guarantees that in production on kiropro.store, assets are requested from
+ * https://api.kiropro.store and NEVER from the frontend host.
+ */
+export function getMarketplaceImageUrl(url?: string | null): string {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return DEFAULT_MARKETPLACE_PLACEHOLDER;
+  }
+
+  let cleanUrl = url.trim();
+  const backendBase = getBackendAssetBaseUrl();
+
+  // If URL mistakenly references kiropro.store/uploads/, fix host to backend
+  if (cleanUrl.includes('kiropro.store/uploads/')) {
+    return cleanUrl.replace(/https?:\/\/(www\.)?kiropro\.store/i, backendBase || 'https://api.kiropro.store');
+  }
+
+  // If already absolute (Backend URL, Unsplash, or data URI / local blob preview)
+  if (
+    cleanUrl.startsWith('http://') ||
+    cleanUrl.startsWith('https://') ||
+    cleanUrl.startsWith('data:') ||
+    cleanUrl.startsWith('blob:')
+  ) {
+    return cleanUrl;
+  }
+
+  // Relative path starting with /uploads/marketplace/ or /uploads/
+  const cleanPath = cleanUrl.startsWith('/') ? cleanUrl : `/${cleanUrl}`;
+  return `${backendBase}${cleanPath}`;
+}

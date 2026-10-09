@@ -133,7 +133,8 @@ async function restoreAssetsFromDatabase() {
     const assets = await pool.query('SELECT "filename", "dataBase64" FROM "UploadedAsset"');
     let restoredCount = 0;
     for (const asset of assets.rows) {
-      const filePath = path.join(UPLOADS_PRODUCTS_DIR, asset.filename);
+      const targetDir = asset.filename.startsWith('mkt_') ? UPLOADS_MARKETPLACE_DIR : UPLOADS_PRODUCTS_DIR;
+      const filePath = path.join(targetDir, asset.filename);
       if (!fs.existsSync(filePath)) {
         fs.writeFileSync(filePath, Buffer.from(asset.dataBase64, 'base64'));
         restoredCount++;

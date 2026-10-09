@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { marketplaceApi, AccountListingDetail } from '../../services/marketplaceApi';
+import { getMarketplaceImageUrl, DEFAULT_MARKETPLACE_PLACEHOLDER } from '../../utils/imageUrl';
 import {
   ChevronRight,
   Share2,
@@ -9,7 +10,9 @@ import {
   Gamepad2,
   Flame,
   MessageCircle,
-  AlertCircle
+  AlertCircle,
+  Maximize2,
+  X
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
@@ -25,6 +28,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
   const [selectedImageIndex, setSelectedImageIndex] = useState<number>(0);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -157,17 +161,46 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Gallery Section */}
           <div className={styles.gallerySection}>
-            <div className={styles.mainImageWrapper}>
+            <div className={styles.mainImageWrapper} style={{ position: 'relative' }}>
               <img
-                src={currentImage}
+                src={getMarketplaceImageUrl(currentImage)}
                 alt={listing.title}
                 className={styles.mainGalleryImage}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+                onClick={() => setLightboxUrl(getMarketplaceImageUrl(currentImage))}
+                style={{ cursor: 'zoom-in' }}
               />
               <span className={styles.adCodeBadge}>{listing.public_code}</span>
               <span className={styles.adGameBadge}>
                 {isPubg ? <Gamepad2 size={13} style={{ display: 'inline', marginLeft: 4 }} /> : <Flame size={13} style={{ display: 'inline', marginLeft: 4 }} />}
                 {gameTitle}
               </span>
+
+              <button
+                type="button"
+                onClick={() => setLightboxUrl(getMarketplaceImageUrl(currentImage))}
+                style={{
+                  position: 'absolute',
+                  bottom: 12,
+                  left: 12,
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  backdropFilter: 'blur(6px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#FFFFFF',
+                  borderRadius: 8,
+                  padding: '6px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  cursor: 'pointer',
+                  zIndex: 2
+                }}
+              >
+                <Maximize2 size={13} />
+                <span>تكبير</span>
+              </button>
             </div>
 
             {/* Thumbnails Row */}
@@ -181,7 +214,12 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
                     onClick={() => setSelectedImageIndex(idx)}
                     aria-label={`عرض الصورة ${idx + 1}`}
                   >
-                    <img src={img.image_url} alt={`صورة ${idx + 1}`} className={styles.thumbnailImg} />
+                    <img
+                      src={getMarketplaceImageUrl(img.image_url)}
+                      alt={`صورة ${idx + 1}`}
+                      className={styles.thumbnailImg}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+                    />
                   </button>
                 ))}
               </div>
@@ -316,6 +354,30 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
           </div>
         </div>
       </div>
+
+      {/* Lightbox Modal */}
+      {lightboxUrl && (
+        <div className={styles.lightboxModal} onClick={() => setLightboxUrl(null)}>
+          <button
+            type="button"
+            className={styles.lightboxCloseBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightboxUrl(null);
+            }}
+          >
+            <X size={24} />
+          </button>
+          <div className={styles.lightboxContent} onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxUrl}
+              alt="صورة الحساب مكبرة"
+              className={styles.lightboxImage}
+              onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
