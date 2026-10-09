@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
 import {
@@ -48,7 +48,7 @@ interface ProcessedImageItem {
 }
 
 export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess, onCancel }) => {
-  const { isAuthenticated, navigateTo } = useAuth();
+  const { user, isAuthenticated, navigateTo } = useAuth();
   const { balance, formattedBalance, refreshBalance, openDepositModal } = useWallet();
 
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
@@ -70,6 +70,8 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [isPaying, setIsPaying] = useState<boolean>(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const isSubmittingPayRef = useRef<boolean>(false);
+  const paymentIdempotencyKeyRef = useRef<string>('');
 
   // STEP 4: Account Info
   const [title, setTitle] = useState<string>('');
@@ -223,17 +225,38 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
 
   // Handle Fee Payment with Idempotency Key (Prevents double deduction)
   const handlePayFee = async () => {
-    if (!hasEnoughBalance || isPaying) return;
+    if (!hasEnoughBalance || isPaying || isSubmittingPayRef.current) return;
 
+    // Immediate synchronous lock to prevent rapid double-clicks
+    isSubmittingPayRef.current = true;
     setIsPaying(true);
     setPaymentError(null);
 
-    // Unique idempotency key per payment session
-    const idempotencyKey = `mkt_pay_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    // Keep stable idempotency key for this payment session/attempt
+    if (!paymentIdempotencyKeyRef.current) {
+      paymentIdempotencyKeyRef.current = `mkt_pay_${user?.id || 'usr'}_${durationDays}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    }
+    const idempotencyKey = paymentIdempotencyKeyRef.current;
 
     try {
+      // First: check if user already has an active unconsumed draft on server before initiating new payment
+      try {
+        const activeCheck = await marketplaceApi.getActiveDraft();
+        if (activeCheck.hasDraft && activeCheck.payment) {
+          setPaymentId(activeCheck.payment.id);
+          setActiveDraftFound(true);
+          setCurrentStep(4);
+          isSubmittingPayRef.current = false;
+          setIsPaying(false);
+          return;
+        }
+      } catch (checkErr) {
+        // Continue to payFee if draft check has warning
+      }
+
       const res = await marketplaceApi.payFee(durationDays, idempotencyKey, game);
       setPaymentId(res.paymentId);
+      paymentIdempotencyKeyRef.current = ''; // Reset on success
       setActiveDraftFound(false);
       await refreshBalance();
       setCurrentStep(4); // Advance to Account Details Step
@@ -241,6 +264,7 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
       setPaymentError(err.message || 'تعذر إتمام عملية الدفع. يرجى التحقق من رصيد محفظتك والمحاولة مجدداً.');
     } finally {
       setIsPaying(false);
+      isSubmittingPayRef.current = false;
     }
   };
 
@@ -830,7 +854,11 @@ export const CreateListingPage: React.FC<CreateListingPageProps> = ({ onSuccess,
                 className={styles.primaryBtn}
                 disabled={!hasEnoughBalance || isPaying}
                 onClick={handlePayFee}
-                style={{ opacity: !hasEnoughBalance || isPaying ? 0.6 : 1 }}
+                style={{
+                  opacity: !hasEnoughBalance || isPaying ? 0.6 : 1,
+                  pointerEvents: isPaying ? 'none' : 'auto',
+                  cursor: isPaying ? 'not-allowed' : 'pointer'
+                }}
               >
                 <Lock size={16} />
                 <span>

@@ -287,7 +287,7 @@ export async function getWheelStatus(userId: string | null) {
   // 4. Fetch recent user spin history (last 15 records) with source_type
   const historyRes = await pool.query(
     `SELECT s.id, s.spin_date, s.reward_type, s.reward_value, s.reward_details, s.created_at,
-            s.source_type, p.name AS prize_name, p.color AS prize_color, p.icon AS prize_icon
+            COALESCE(s.source_type, 'DAILY') AS source_type, p.name AS prize_name, p.color AS prize_color, p.icon AS prize_icon
      FROM wheel_spins s
      LEFT JOIN wheel_prizes p ON s.prize_id = p.id
      WHERE s.user_id = $1
