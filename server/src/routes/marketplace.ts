@@ -3,7 +3,9 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import pool from '../db';
+import { JWT_SECRET } from '../config';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { banCheckMiddleware } from '../middlewares/banCheckMiddleware';
 import { getContactChannels } from './admin';
@@ -414,9 +416,30 @@ router.get('/listings/:code', async (req: Request, res: Response) => {
 
     const listing = listingRes.rows[0];
 
-    // Only allow public viewing if published and not expired
+    // Only allow public viewing if published and not expired, OR if viewed by seller / admin
     if (listing.status !== 'PUBLISHED' || (listing.expires_at && new Date(listing.expires_at) <= new Date())) {
-      return res.status(404).json({ error: 'هذا الإعلان غير متاح حالياً أو انتهت فترة عرضه.' });
+      let isOwnerOrAdmin = false;
+      let token: string | undefined;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7).trim();
+      } else if ((req as any).cookies?.token) {
+        token = (req as any).cookies.token;
+      }
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, JWT_SECRET) as any;
+          if (decoded && (decoded.role === 'ADMIN' || decoded.id === listing.seller_user_id)) {
+            isOwnerOrAdmin = true;
+          }
+        } catch {
+          // invalid or expired token
+        }
+      }
+
+      if (!isOwnerOrAdmin) {
+        return res.status(404).json({ error: 'هذا الإعلان غير متاح حالياً أو انتهت فترة عرضه.' });
+      }
     }
 
     // Fetch images ordered by sort_order

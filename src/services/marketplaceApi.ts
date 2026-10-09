@@ -27,6 +27,7 @@ export interface AccountListing {
   price_currency: string;
   is_negotiable: boolean;
   account_level: string;
+  rank?: string;
   binding_type: string;
   starts_at?: string;
   expires_at?: string;

@@ -704,72 +704,274 @@
 }
 
 /* ==========================================================================
-   8. DETAIL PAGE
+   8. DETAIL PAGE (سوق الحسابات - تفاصيل الإعلان)
    ========================================================================== */
-.detailContainer {
-  display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 28px;
+
+/* Top Navigation Bar */
+.detailTopBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.gallerySection {
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #111827;
+  border: 1px solid #374151;
+  color: #F9FAFB;
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 8px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
+.backBtn:hover {
+  background: #1F2937;
+  border-color: #F59E0B;
+  color: #F59E0B;
+}
+
+.topBarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #111827;
+  border: 1px solid #374151;
+  color: #E5E7EB;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.actionBtn:hover {
+  background: #1F2937;
+  border-color: #4B5563;
+  color: #FFFFFF;
+}
+
+.codeBadgeBtn {
+  font-family: monospace;
+  color: #F59E0B;
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.codeBadgeBtn:hover {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: #F59E0B;
+}
+
+/* Main Grid & Responsive Ordering */
+.detailGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (min-width: 901px) {
+  .detailGrid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .galleryBlock {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .descBlock {
+    grid-column: 1;
+    grid-row: 2 / span 3;
+  }
+
+  .titleBlock {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .ctaBlock {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .specsBlock {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .guaranteeBlock {
+    grid-column: 2;
+    grid-row: 4;
+  }
+}
+
+/* Gallery Section */
+.gallerySection,
+.galleryBlock {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .mainImageWrapper {
   width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #111827;
+  height: 380px;
+  background: radial-gradient(circle at center, #1E293B 0%, #0B0F19 100%);
   border: 1px solid #1F2937;
   border-radius: 14px;
   overflow: hidden;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 6px;
 }
 
 .mainGalleryImage {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
-  background: #0B0F19;
+  display: block;
+  margin: auto;
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+  border-radius: 8px;
+}
+
+.mainGalleryImage:hover {
+  transform: scale(1.01);
+}
+
+.imageCounterBadge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(11, 15, 25, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #F9FAFB;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 2;
+}
+
+.zoomBtn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(11, 15, 25, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #FFFFFF;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  z-index: 2;
+  transition: all 0.2s ease;
+}
+
+.zoomBtn:hover {
+  background: rgba(31, 41, 55, 0.95);
+  border-color: #F59E0B;
+  color: #F59E0B;
 }
 
 .thumbnailsRow {
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  padding-bottom: 6px;
-  scrollbar-width: none;
+  overflow-y: hidden;
+  padding: 4px 2px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #374151 transparent;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .thumbnailsRow::-webkit-scrollbar {
-  display: none;
+  height: 4px;
+}
+
+.thumbnailsRow::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 4px;
 }
 
 .thumbnailBtn {
   width: 76px;
   height: 56px;
+  min-width: 76px;
   border-radius: 8px;
-  border: 2px solid transparent;
-  background: #111827;
+  border: 1.5px solid #1F2937;
+  background: #0B0F19;
   overflow: hidden;
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: border-color 0.2s;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+  box-sizing: border-box;
+}
+
+.thumbnailBtn:hover {
+  opacity: 1;
+  border-color: #4B5563;
 }
 
 .thumbnailActive {
+  opacity: 1;
   border-color: #F59E0B;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+  transform: scale(1.02);
 }
 
 .thumbnailImg {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
+/* Detail Cards */
 .detailCard {
   background: #111827;
   border: 1px solid #1F2937;
@@ -777,85 +979,315 @@
   padding: 22px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
-.detailPriceBox {
+.cardHeading {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #F9FAFB;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Title & Badges */
+.titleBadgesRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.gameBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #F59E0B;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.metaPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #1F2937;
+  border: 1px solid #374151;
+  color: #9CA3AF;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.metaPill strong {
+  color: #F9FAFB;
+}
+
+.codePill {
+  font-family: monospace;
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #9CA3AF;
+  background: #1F2937;
+  border: 1px solid #374151;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.listingHeading {
+  font-size: clamp(1.2rem, 3.5vw, 1.55rem);
+  font-weight: 900;
+  color: #FFFFFF;
+  line-height: 1.4;
+  margin: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Description */
+.descriptionBox {
+  color: #D1D5DB;
+  line-height: 1.85;
+  font-size: clamp(0.9rem, 2.5vw, 0.98rem);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.notesCard {
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 6px;
+  box-sizing: border-box;
 }
 
+.notesLabel {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #F59E0B;
+  margin-bottom: 4px;
+}
+
+.notesText {
+  color: #D1D5DB;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Price Box */
+.detailPriceBox {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.03) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.priceHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.priceLabel {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #9CA3AF;
+}
+
+.negotiableBadge {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #34D399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.fixedPriceBadge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #9CA3AF;
+  background: #1F2937;
+  border: 1px solid #374151;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.priceValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  direction: ltr;
+  justify-content: flex-end;
+}
+
+.priceNumber {
+  font-size: clamp(1.75rem, 6vw, 2.4rem);
+  font-weight: 900;
+  color: #F59E0B;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+  font-family: inherit;
+}
+
+.priceCurrency {
+  font-size: clamp(0.95rem, 3vw, 1.15rem);
+  font-weight: 800;
+  color: #FBBF24;
+}
+
+/* WhatsApp Buy Button */
 .whatsappBuyBtn {
+  width: 100%;
+  min-height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   background: #25D366;
   color: #FFFFFF;
-  font-weight: 800;
-  font-size: 1.05rem;
-  padding: 14px;
+  font-weight: 900;
+  font-size: clamp(0.92rem, 3.2vw, 1.05rem);
+  padding: 12px 18px;
   border-radius: 12px;
   border: none;
   cursor: pointer;
   text-decoration: none;
-  transition: all 0.2s;
-  box-shadow: 0 4px 15px rgba(37, 211, 102, 0.35);
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 16px rgba(37, 211, 102, 0.35);
   box-sizing: border-box;
+  text-align: center;
+  line-height: 1.35;
 }
 
 .whatsappBuyBtn:hover {
   background: #20BD5A;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45);
+  color: #FFFFFF;
 }
 
-.specsTable {
+.whatsappBuyBtn:active {
+  transform: translateY(0);
+}
+
+.whatsappIcon {
+  flex-shrink: 0;
+}
+
+.whatsappText {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Specifications Table/Grid */
+.specsGrid {
   display: flex;
   flex-direction: column;
   border: 1px solid #1F2937;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.specsRow {
+.specItem {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 12px 16px;
+  gap: 12px;
+  border-bottom: 1px solid #1F2937;
+  box-sizing: border-box;
+}
+
+.specItem:last-child {
+  border-bottom: none;
+}
+
+.specItem:nth-child(even) {
+  background: rgba(31, 41, 55, 0.4);
+}
+
+.specItem:nth-child(odd) {
+  background: rgba(17, 24, 39, 0.6);
+}
+
+.specLabel {
+  color: #9CA3AF;
+  font-size: 0.88rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.specValue {
+  color: #F9FAFB;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-align: left;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.specCode {
+  font-family: monospace;
+  color: #F59E0B;
+  font-size: 0.95rem;
+}
+
+/* Platform Brokerage Guarantee */
+.disclaimerBox {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.disclaimerTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #34D399;
+  font-weight: 800;
   font-size: 0.9rem;
 }
 
-.specsRow:nth-child(even) {
-  background: #1F2937;
-}
-
-.specsRow:nth-child(odd) {
-  background: #111827;
-}
-
-.specsLabel {
+.disclaimerText {
+  margin: 0;
+  font-size: 0.82rem;
   color: #9CA3AF;
-  font-weight: 600;
-}
-
-.specsVal {
-  color: #F9FAFB;
-  font-weight: 700;
-}
-
-.disclaimerBox {
-  background: rgba(31, 41, 55, 0.5);
-  border: 1px solid #374151;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 0.8rem;
-  color: #9CA3AF;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 /* ==========================================================================
@@ -1309,15 +1741,55 @@
 
 /* Tablet & Smaller Desktops */
 @media (max-width: 900px) {
-  .detailContainer {
-    grid-template-columns: 1fr;
+  .detailGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
+
+  .galleryBlock { order: 1; }
+  .titleBlock { order: 2; }
+  .descBlock { order: 3; }
+  .ctaBlock { order: 4; }
+  .specsBlock { order: 5; }
+  .guaranteeBlock { order: 6; }
 }
 
 /* Mobile Screens (<= 768px) */
 @media (max-width: 768px) {
   .pageContainer {
     padding: 16px 12px 70px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .mainImageWrapper {
+    height: 300px;
+  }
+
+  .thumbnailBtn {
+    width: 68px;
+    height: 50px;
+    min-width: 68px;
+  }
+
+  .detailCard {
+    padding: 18px 16px;
+    gap: 14px;
+  }
+
+  .whatsappBuyBtn {
+    min-height: 50px;
+    padding: 12px 16px;
+    font-size: 0.98rem;
+  }
+
+  .specsGrid {
+    font-size: 0.88rem;
+  }
+
+  .specItem {
+    padding: 10px 14px;
   }
 
   .marketHeader {
@@ -1438,12 +1910,66 @@
   .feeAmount {
     font-size: 1.4rem;
   }
+
+  /* Detail Page 480px / 390px / 375px */
+  .mainImageWrapper {
+    height: 250px;
+    min-height: 210px;
+    padding: 4px;
+  }
+
+  .thumbnailBtn {
+    width: 62px;
+    height: 44px;
+    min-width: 62px;
+  }
+
+  .detailCard {
+    padding: 16px 14px;
+    gap: 12px;
+  }
+
+  .listingHeading {
+    font-size: 1.25rem;
+  }
+
+  .priceNumber {
+    font-size: 1.85rem;
+  }
+
+  .priceCurrency {
+    font-size: 1rem;
+  }
+
+  .whatsappBuyBtn {
+    min-height: 48px;
+    padding: 11px 14px;
+    font-size: 0.94rem;
+  }
+
+  .detailTopBar {
+    gap: 8px;
+  }
+
+  .backBtn {
+    padding: 6px 12px;
+    font-size: 0.82rem;
+  }
+
+  .actionBtn {
+    padding: 6px 10px;
+    font-size: 0.78rem;
+  }
+
+  .specItem {
+    padding: 10px 12px;
+  }
 }
 
 /* Extra Small Mobile (<= 360px) */
 @media (max-width: 360px) {
   .pageContainer {
-    padding: 12px 8px 60px;
+    padding: 10px 8px 50px;
   }
 
   .marketHeader {
@@ -1492,6 +2018,61 @@
 
   .stepTitle {
     font-size: 0.62rem;
+  }
+
+  /* Detail Page 360px */
+  .mainImageWrapper {
+    height: 210px;
+    min-height: 180px;
+    padding: 2px;
+  }
+
+  .thumbnailBtn {
+    width: 54px;
+    height: 38px;
+    min-width: 54px;
+  }
+
+  .detailCard {
+    padding: 14px 10px;
+    gap: 10px;
+  }
+
+  .listingHeading {
+    font-size: 1.15rem;
+  }
+
+  .priceNumber {
+    font-size: 1.6rem;
+  }
+
+  .priceCurrency {
+    font-size: 0.9rem;
+  }
+
+  .whatsappBuyBtn {
+    min-height: 46px;
+    padding: 10px 8px;
+    font-size: 0.86rem;
+    gap: 6px;
+  }
+
+  .specLabel {
+    font-size: 0.8rem;
+  }
+
+  .specValue {
+    font-size: 0.82rem;
+  }
+
+  .backBtn {
+    padding: 5px 8px;
+    font-size: 0.75rem;
+  }
+
+  .actionBtn {
+    padding: 5px 8px;
+    font-size: 0.72rem;
   }
 }
 

@@ -12,7 +12,8 @@ import {
   MessageCircle,
   AlertCircle,
   Maximize2,
-  X
+  X,
+  Camera
 } from 'lucide-react';
 import styles from './Marketplace.module.css';
 
@@ -68,6 +69,15 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
     });
   };
 
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else {
+      window.history.pushState({}, '', '/marketplace');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  };
+
   if (loading) {
     return (
       <div className={styles.pageContainer} style={{ textAlign: 'center', padding: '100px 20px' }}>
@@ -87,17 +97,12 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
         </p>
         <button
           type="button"
-          className={styles.primaryBtn}
-          onClick={() => {
-            if (onBack) onBack();
-            else {
-              window.history.pushState({}, '', '/marketplace');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }
-          }}
+          className={styles.backBtn}
+          onClick={handleBack}
           style={{ margin: '0 auto' }}
         >
-          العودة إلى سوق الحسابات
+          <ChevronRight size={18} />
+          <span>العودة إلى سوق الحسابات</span>
         </button>
       </div>
     );
@@ -105,39 +110,33 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
 
   const isPubg = listing.game === 'PUBG_MOBILE';
   const gameTitle = isPubg ? 'ببجي موبايل (PUBG Mobile)' : 'فري فاير (Free Fire)';
-  const currentImage = listing.images[selectedImageIndex]?.image_url || listing.primary_image || '';
+  const currentImage = listing.images?.[selectedImageIndex]?.image_url || listing.primary_image || '';
 
-  // Admin WhatsApp Contact URL with fallback
+  // Admin WhatsApp Contact URL with fallback (Brokered & Private)
   const simpleGame = isPubg ? 'PUBG Mobile' : 'Free Fire';
   const prefilledText = `السلام عليكم، أرغب في شراء الحساب رقم ${listing.public_code}.\nاللعبة: ${simpleGame}\nالسعر: ${Number(listing.price).toLocaleString()} SDG\nالسعر قابل للتفاوض: ${listing.is_negotiable ? 'نعم' : 'لا'}`;
   const whatsappUrl = listing.whatsappContactUrl || `https://wa.me/249900000000?text=${encodeURIComponent(prefilledText)}`;
 
   return (
     <div className={styles.pageContainer}>
-      {/* Top Navigation & Breadcrumbs */}
-      <div className={styles.wizardTopBar}>
+      {/* 1. TOP NAVIGATION & BREADCRUMBS (الرجوع وكود الإعلان والمشاركة) */}
+      <div className={styles.detailTopBar}>
         <button
           type="button"
-          className={styles.secondaryBtn}
-          onClick={() => {
-            if (onBack) onBack();
-            else {
-              window.history.pushState({}, '', '/marketplace');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }
-          }}
-          style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+          className={styles.backBtn}
+          onClick={handleBack}
+          aria-label="الرجوع إلى سوق الحسابات"
         >
-          <ChevronRight size={16} />
+          <ChevronRight size={18} />
           <span>الرجوع إلى السوق</span>
         </button>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className={styles.topBarActions}>
           <button
             type="button"
-            className={styles.secondaryBtn}
+            className={`${styles.actionBtn} ${styles.codeBadgeBtn}`}
             onClick={handleCopyCode}
-            style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+            title="انقر لنسخ كود الإعلان"
           >
             {copiedCode ? <Check size={14} color="#10B981" /> : <Copy size={14} />}
             <span>كود: {listing.public_code}</span>
@@ -145,9 +144,9 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
 
           <button
             type="button"
-            className={styles.secondaryBtn}
+            className={styles.actionBtn}
             onClick={handleCopyLink}
-            style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+            title="نسخ رابط الإعلان للمشاركة"
           >
             {copiedLink ? <Check size={14} color="#10B981" /> : <Share2 size={14} />}
             <span>{copiedLink ? 'تم النسخ!' : 'مشاركة'}</span>
@@ -155,207 +154,209 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
         </div>
       </div>
 
-      {/* Main Detail Grid */}
-      <div className={styles.detailContainer}>
-        {/* Left Column: Media Gallery & Full Description */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Gallery Section */}
-          <div className={styles.gallerySection}>
-            <div className={styles.mainImageWrapper} style={{ position: 'relative' }}>
-              <img
-                src={getMarketplaceImageUrl(currentImage)}
-                alt={listing.title}
-                className={styles.mainGalleryImage}
-                onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
-                onClick={() => setLightboxUrl(getMarketplaceImageUrl(currentImage))}
-                style={{ cursor: 'zoom-in' }}
-              />
-              <span className={styles.adCodeBadge}>{listing.public_code}</span>
-              <span className={styles.adGameBadge}>
-                {isPubg ? <Gamepad2 size={13} style={{ display: 'inline', marginLeft: 4 }} /> : <Flame size={13} style={{ display: 'inline', marginLeft: 4 }} />}
-                {gameTitle}
-              </span>
+      {/* 2. MAIN DETAIL GRID */}
+      <div className={styles.detailGrid}>
+        {/* BLOCK 1: MAIN IMAGE & THUMBNAILS GALLERY */}
+        <div className={styles.galleryBlock}>
+          <div className={styles.mainImageWrapper}>
+            <img
+              src={getMarketplaceImageUrl(currentImage)}
+              alt={listing.title}
+              className={styles.mainGalleryImage}
+              onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+              onClick={() => setLightboxUrl(getMarketplaceImageUrl(currentImage))}
+              title="انقر لتكبير صورة الحساب"
+            />
 
-              <button
-                type="button"
-                onClick={() => setLightboxUrl(getMarketplaceImageUrl(currentImage))}
-                style={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 12,
-                  background: 'rgba(15, 23, 42, 0.8)',
-                  backdropFilter: 'blur(6px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  color: '#FFFFFF',
-                  borderRadius: 8,
-                  padding: '6px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  cursor: 'pointer',
-                  zIndex: 2
-                }}
-              >
-                <Maximize2 size={13} />
-                <span>تكبير</span>
-              </button>
-            </div>
-
-            {/* Thumbnails Row */}
-            {listing.images.length > 1 && (
-              <div className={styles.thumbnailsRow}>
-                {listing.images.map((img, idx) => (
-                  <button
-                    key={img.id || idx}
-                    type="button"
-                    className={`${styles.thumbnailBtn} ${selectedImageIndex === idx ? styles.thumbnailActive : ''}`}
-                    onClick={() => setSelectedImageIndex(idx)}
-                    aria-label={`عرض الصورة ${idx + 1}`}
-                  >
-                    <img
-                      src={getMarketplaceImageUrl(img.image_url)}
-                      alt={`صورة ${idx + 1}`}
-                      className={styles.thumbnailImg}
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
-                    />
-                  </button>
-                ))}
+            {/* Top-Right Image Counter */}
+            {listing.images && listing.images.length > 0 && (
+              <div className={styles.imageCounterBadge}>
+                <Camera size={13} />
+                <span>{selectedImageIndex + 1} / {listing.images.length}</span>
               </div>
             )}
+
+            {/* Top-Left Zoom CTA */}
+            <button
+              type="button"
+              className={styles.zoomBtn}
+              onClick={() => setLightboxUrl(getMarketplaceImageUrl(currentImage))}
+              aria-label="تكبير صورة الحساب"
+            >
+              <Maximize2 size={13} />
+              <span>تكبير</span>
+            </button>
           </div>
 
-          {/* Description Box */}
-          <div className={styles.detailCard}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#F9FAFB', margin: 0 }}>
-              وصف الحساب والمميزات
-            </h2>
-            <div style={{
-              color: '#D1D5DB',
-              lineHeight: 1.8,
-              fontSize: '0.95rem',
-              whiteSpace: 'pre-wrap'
-            }}>
-              {listing.description}
+          {/* Thumbnails Strip */}
+          {listing.images && listing.images.length > 1 && (
+            <div className={styles.thumbnailsRow}>
+              {listing.images.map((img, idx) => (
+                <button
+                  key={img.id || idx}
+                  type="button"
+                  className={`${styles.thumbnailBtn} ${selectedImageIndex === idx ? styles.thumbnailActive : ''}`}
+                  onClick={() => setSelectedImageIndex(idx)}
+                  aria-label={`عرض الصورة ${idx + 1}`}
+                >
+                  <img
+                    src={getMarketplaceImageUrl(img.image_url)}
+                    alt={`صورة ${idx + 1}`}
+                    className={styles.thumbnailImg}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_MARKETPLACE_PLACEHOLDER; }}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* BLOCK 2: TITLE & GAME BADGES */}
+        <div className={`${styles.detailCard} ${styles.titleBlock}`}>
+          <div className={styles.titleBadgesRow}>
+            <span className={styles.gameBadge}>
+              {isPubg ? <Gamepad2 size={14} /> : <Flame size={14} />}
+              <span>{gameTitle}</span>
+            </span>
+
+            <span className={styles.metaPill}>
+              المستوى: <strong>{listing.account_level}</strong>
+            </span>
+
+            {listing.rank && (
+              <span className={styles.metaPill}>
+                الرانك: <strong>{listing.rank}</strong>
+              </span>
+            )}
+
+            <span className={styles.codePill} dir="ltr">
+              {listing.public_code}
+            </span>
+          </div>
+
+          <h1 className={styles.listingHeading}>
+            {listing.title}
+          </h1>
+        </div>
+
+        {/* BLOCK 3: DESCRIPTION CARD */}
+        <div className={`${styles.detailCard} ${styles.descBlock}`}>
+          <h2 className={styles.cardHeading}>وصف الحساب والمميزات</h2>
+          <div className={styles.descriptionBox} dir="auto">
+            {listing.description}
+          </div>
+
+          {listing.notes && (
+            <div className={styles.notesCard} dir="auto">
+              <span className={styles.notesLabel}>ملاحظات إضافية من البائع:</span>
+              <p className={styles.notesText}>{listing.notes}</p>
+            </div>
+          )}
+        </div>
+
+        {/* BLOCK 4: PRICING & WHATSAPP PURCHASE CTA */}
+        <div className={`${styles.detailCard} ${styles.ctaBlock}`}>
+          <div className={styles.detailPriceBox}>
+            <div className={styles.priceHeaderRow}>
+              <span className={styles.priceLabel}>السعر المطلوب:</span>
+              <span className={listing.is_negotiable ? styles.negotiableBadge : styles.fixedPriceBadge}>
+                {listing.is_negotiable ? 'قابل للتفاوض' : 'سعر نهائي'}
+              </span>
             </div>
 
-            {listing.notes && (
-              <div style={{
-                background: '#1F2937',
-                border: '1px solid #374151',
-                borderRadius: 10,
-                padding: 14,
-                marginTop: 8
-              }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#F59E0B', display: 'block', marginBottom: 4 }}>
-                  ملاحظات إضافية من البائع:
+            <div className={styles.priceValueRow}>
+              <span className={styles.priceNumber}>
+                {Number(listing.price).toLocaleString()}
+              </span>
+              <span className={styles.priceCurrency}>SDG</span>
+            </div>
+          </div>
+
+          <a
+            href={whatsappUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.whatsappBuyBtn}
+          >
+            <MessageCircle size={22} className={styles.whatsappIcon} />
+            <span className={styles.whatsappText}>أرغب في شراء هذا الحساب</span>
+          </a>
+        </div>
+
+        {/* BLOCK 5: ACCOUNT SPECIFICATIONS */}
+        <div className={`${styles.detailCard} ${styles.specsBlock}`}>
+          <h2 className={styles.cardHeading}>مواصفات وتفاصيل الحساب</h2>
+          <div className={styles.specsGrid}>
+            <div className={styles.specItem}>
+              <span className={styles.specLabel}>كود الإعلان</span>
+              <span className={`${styles.specValue} ${styles.specCode}`} dir="ltr">
+                {listing.public_code}
+              </span>
+            </div>
+
+            <div className={styles.specItem}>
+              <span className={styles.specLabel}>اللعبة</span>
+              <span className={styles.specValue}>
+                {gameTitle}
+              </span>
+            </div>
+
+            <div className={styles.specItem}>
+              <span className={styles.specLabel}>مستوى الحساب</span>
+              <span className={styles.specValue}>
+                {listing.account_level}
+              </span>
+            </div>
+
+            {listing.rank && (
+              <div className={styles.specItem}>
+                <span className={styles.specLabel}>الرانك / التصنيف</span>
+                <span className={styles.specValue}>
+                  {listing.rank}
                 </span>
-                <p style={{ margin: 0, color: '#9CA3AF', fontSize: '0.9rem' }}>
-                  {listing.notes}
-                </p>
               </div>
             )}
+
+            <div className={styles.specItem}>
+              <span className={styles.specLabel}>نوع الربط</span>
+              <span className={styles.specValue}>
+                {listing.binding_type}
+              </span>
+            </div>
+
+            <div className={styles.specItem}>
+              <span className={styles.specLabel}>تاريخ النشر</span>
+              <span className={styles.specValue} dir="ltr">
+                {listing.published_at
+                  ? new Date(listing.published_at).toLocaleDateString('ar-SD')
+                  : (listing.created_at ? new Date(listing.created_at).toLocaleDateString('ar-SD') : '—')}
+              </span>
+            </div>
+
+            <div className={styles.specItem}>
+              <span className={styles.specLabel}>ينتهي العرض في</span>
+              <span className={styles.specValue} dir="ltr">
+                {listing.expires_at
+                  ? new Date(listing.expires_at).toLocaleDateString('ar-SD')
+                  : '—'}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Right Column: Pricing, Specs & Purchase CTA */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Main Summary Box */}
-          <div className={styles.detailCard}>
-            <h1 style={{ fontSize: '1.45rem', fontWeight: 900, color: '#FFFFFF', margin: 0, lineHeight: 1.35 }}>
-              {listing.title}
-            </h1>
-
-            {/* Price Box */}
-            <div className={styles.detailPriceBox}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#9CA3AF' }}>السعر المطلوب:</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <div>
-                  <span style={{ fontSize: '2rem', fontWeight: 900, color: '#F59E0B' }}>
-                    {Number(listing.price).toLocaleString()}
-                  </span>
-                  <span style={{ fontSize: '1rem', fontWeight: 700, color: '#9CA3AF', marginRight: 6 }}>
-                    SDG
-                  </span>
-                </div>
-
-                <span className={listing.is_negotiable ? styles.negotiableTag : styles.metaBadge}>
-                  {listing.is_negotiable ? 'قابل للتفاوض' : 'غير قابل للتفاوض'}
-                </span>
-              </div>
-            </div>
-
-            {/* Official Admin WhatsApp Purchase CTA */}
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.whatsappBuyBtn}
-            >
-              <MessageCircle size={22} />
-              <span>أرغب في شراء هذا الحساب</span>
-            </a>
-
-            {/* Specs Table */}
-            <div className={styles.specsTable}>
-              <div className={styles.specsRow}>
-                <span className={styles.specsLabel}>كود الإعلان:</span>
-                <span className={styles.specsVal} style={{ fontFamily: 'monospace', color: '#F59E0B' }}>
-                  {listing.public_code}
-                </span>
-              </div>
-
-              <div className={styles.specsRow}>
-                <span className={styles.specsLabel}>اللعبة:</span>
-                <span className={styles.specsVal}>{gameTitle}</span>
-              </div>
-
-              <div className={styles.specsRow}>
-                <span className={styles.specsLabel}>مستوى الحساب:</span>
-                <span className={styles.specsVal}>{listing.account_level}</span>
-              </div>
-
-              <div className={styles.specsRow}>
-                <span className={styles.specsLabel}>نوع الربط:</span>
-                <span className={styles.specsVal}>{listing.binding_type}</span>
-              </div>
-
-              {listing.published_at && (
-                <div className={styles.specsRow}>
-                  <span className={styles.specsLabel}>تاريخ النشر:</span>
-                  <span className={styles.specsVal}>
-                    {new Date(listing.published_at).toLocaleDateString('ar-SD')}
-                  </span>
-                </div>
-              )}
-
-              {listing.expires_at && (
-                <div className={styles.specsRow}>
-                  <span className={styles.specsLabel}>ينتهي العرض في:</span>
-                  <span className={styles.specsVal}>
-                    {new Date(listing.expires_at).toLocaleDateString('ar-SD')}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Privacy & Brokerage Guarantee Notice */}
-            <div className={styles.disclaimerBox}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#10B981', fontWeight: 800, marginBottom: 4 }}>
-                <ShieldCheck size={16} />
-                <span>وساطة وضمان المنصة</span>
-              </div>
-              <p style={{ margin: 0 }}>
-                يتم التواصل حصرياً مع إدارة المنصة، ويتم التحقق من بيانات الحساب قبل إتمام أي معاملة حرصاً على سلامتك.
-                بيانات البائعين محمية بالكامل داخل أنظمة KIROPRO.
-              </p>
-            </div>
+        {/* BLOCK 6: BROKERAGE GUARANTEE DISCLAIMER */}
+        <div className={`${styles.disclaimerBox} ${styles.guaranteeBlock}`}>
+          <div className={styles.disclaimerTitle}>
+            <ShieldCheck size={18} />
+            <span>وساطة وضمان منصة KIROPRO</span>
           </div>
+          <p className={styles.disclaimerText}>
+            يتم التواصل حصرياً مع إدارة المنصة للوساطة والتسليم الآمن. يتم التحقق من بيانات الحساب قبل إتمام أي معاملة حرصاً على سلامتك، وبيانات البائعين محمية بالكامل داخل أنظمة المنصة.
+          </p>
         </div>
       </div>
 
-      {/* Lightbox Modal */}
+      {/* FULLSCREEN LIGHTBOX MODAL */}
       {lightboxUrl && (
         <div className={styles.lightboxModal} onClick={() => setLightboxUrl(null)}>
           <button
@@ -365,6 +366,7 @@ export const ListingDetailPage: React.FC<ListingDetailPageProps> = ({ code, onBa
               e.stopPropagation();
               setLightboxUrl(null);
             }}
+            aria-label="إغلاق المعاينة"
           >
             <X size={24} />
           </button>
