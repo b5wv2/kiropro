@@ -20,7 +20,8 @@ import {
   Sparkles,
   Key,
   CreditCard,
-  Zap
+  Zap,
+  Gift
 } from 'lucide-react';
 import { 
   fetchAdminCatalog, 
@@ -39,6 +40,7 @@ import {
 import { getProductImageUrl } from '../../utils/imageUrl';
 import { AdminProduct, AdminCatalogResponse, GameCategory } from '../../types';
 import { AdminDigitalAccountsTab } from '../../components/admin/AdminDigitalAccountsTab';
+import { AdminVouchersTab } from '../../components/admin/AdminVouchersTab';
 import { AdminKiroProCards } from './AdminKiroProCards';
 
 export const AdminProducts: React.FC = () => {
@@ -121,8 +123,8 @@ export const AdminProducts: React.FC = () => {
   const [providerOrdersEnabled, setProviderOrdersEnabled] = useState<Record<string, boolean>>({ GAMESDROP: true, G2BULK: false });
   const [alertInfo, setAlertInfo] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog) vs 'digital-accounts' (Digital Accounts Inventory) vs 'kiropro-cards' (Mastercard Cards Vault)
-  const [activeAdminTab, setActiveAdminTab] = useState<'categories' | 'products' | 'digital-accounts' | 'kiropro-cards'>('categories');
+  // Sub-tabs: 'categories' (Category / Game Images) vs 'products' (Pricing & Catalog) vs 'vouchers' (Digital Gift Vouchers) vs 'digital-accounts' (Digital Accounts Inventory) vs 'kiropro-cards' (Mastercard Cards Vault)
+  const [activeAdminTab, setActiveAdminTab] = useState<'categories' | 'products' | 'vouchers' | 'digital-accounts' | 'kiropro-cards'>('categories');
   const [categories, setCategories] = useState<GameCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [uploadingCatId, setUploadingCatId] = useState<string | null>(null);
@@ -671,6 +673,39 @@ export const AdminProducts: React.FC = () => {
             borderRadius: '12px'
           }}>
             Mastercard 💳
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveAdminTab('vouchers')}
+          style={{
+            padding: '10px 18px',
+            borderRadius: '8px',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            border: 'none',
+            background: activeAdminTab === 'vouchers' ? '#0f172a' : '#f8fafc',
+            color: activeAdminTab === 'vouchers' ? '#ffffff' : '#64748b',
+            boxShadow: activeAdminTab === 'vouchers' ? '0 4px 12px rgba(15,23,42,0.15)' : 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Gift size={18} color={activeAdminTab === 'vouchers' ? '#f59e0b' : '#64748b'} />
+          <span>بطاقات وقسائم الهدايا (Vouchers)</span>
+          <span style={{ 
+            background: activeAdminTab === 'vouchers' ? '#f59e0b' : '#e2e8f0', 
+            color: activeAdminTab === 'vouchers' ? '#0f172a' : '#475569',
+            fontSize: '0.72rem',
+            fontWeight: 800,
+            padding: '2px 8px',
+            borderRadius: '12px'
+          }}>
+            Free Fire & PUBG 🎁
           </span>
         </button>
       </div>
@@ -1404,6 +1439,13 @@ export const AdminProducts: React.FC = () => {
       {/* ========================================================================= */}
       {activeAdminTab === 'kiropro-cards' && (
         <AdminKiroProCards />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5. DIGITAL VOUCHERS CATALOG & PRICING VIEW                               */}
+      {/* ========================================================================= */}
+      {activeAdminTab === 'vouchers' && (
+        <AdminVouchersTab />
       )}
 
       {/* Edit Product Modal */}

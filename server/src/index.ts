@@ -37,6 +37,8 @@ import adminKiroproCardsRoutes from './routes/adminKiroproCards';
 import adminStaffRoutes from './routes/adminStaff';
 import marketplaceRoutes from './routes/marketplace';
 import adminMarketplaceRoutes from './routes/adminMarketplace';
+import vouchersRoutes from './routes/vouchers';
+import adminVouchersRoutes from './routes/adminVouchers';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
@@ -310,6 +312,8 @@ app.use('/api/admin/kiropro-cards', adminKiroproCardsRoutes);
 app.use('/api/admin/staff', adminStaffRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/admin/marketplace', adminMarketplaceRoutes);
+app.use('/api/vouchers', vouchersRoutes);
+app.use('/api/admin/vouchers', adminVouchersRoutes);
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

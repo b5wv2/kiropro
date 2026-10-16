@@ -91,10 +91,10 @@ export const CardDetailsViewModal: React.FC<CardDetailsViewModalProps> = ({
                   </div>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-white">
-                      بطاقة كيرو برو الافتراضية
+                      بطاقة {card ? (card.cardNetwork || (card.cardNumber?.startsWith('4') ? 'Visa' : 'Mastercard')) : 'كيرو برو'} الافتراضية
                     </h3>
                     <p className="text-[11px] text-[#FBBF24] font-medium">
-                      رصيد $1.00 • تسليم فوري وتخصيص آمن
+                      {card ? `رصيد ${card.currency === 'CAD' ? 'C$' : '$'}${Number(card.balance || 1.00).toFixed(2)} ${card.currency || 'USD'} • تسليم فوري وتخصيص آمن` : 'تسليم فوري وتخصيص آمن'}
                     </p>
                   </div>
                 </div>
@@ -136,7 +136,7 @@ export const CardDetailsViewModal: React.FC<CardDetailsViewModalProps> = ({
                 <div className="flex flex-col items-center">
                   {/* Short Description */}
                   <p className="text-xs text-slate-400 mb-4 text-center max-w-sm">
-                    Mastercard افتراضية مسبقة الدفع للاستخدام في المدفوعات والخدمات المدعومة.
+                    بطاقة {card.cardNetwork || 'Mastercard'} افتراضية مسبقة الدفع للاستخدام في المدفوعات والخدمات والمنصات المدعومة.
                   </p>
 
                   {/* 3D Interactive Card Component */}

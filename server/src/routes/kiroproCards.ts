@@ -19,14 +19,23 @@ const cardVoucherLimiter = rateLimit({
 // ==============================================================
 // 1. PUBLIC PRODUCT INFO & STOCK STATUS (No exact counts exposed)
 // ==============================================================
-router.get('/product-info', async (_req, res: Response) => {
+router.get('/product-info', async (req, res: Response) => {
   try {
-    const prodRes = await pool.query(
-      `SELECT id, "productName", "arabicName", "customerPriceUsd", "inStock", "isActive", description 
+    const reqProductId = (req.query.productId as string || '').trim();
+    let prodQuery = `SELECT id, "productName", "arabicName", "customerPriceUsd", "inStock", "isActive", description, card_network as "cardNetwork", card_currency as "cardCurrency", face_value as "faceValue" 
        FROM "Product" 
        WHERE "productType" = 'VIRTUAL_CARD' OR id = 'b0000000-0000-0000-0000-000000000001'
-       LIMIT 1`
-    );
+       ORDER BY "displayOrder" ASC LIMIT 1`;
+    let prodParams: any[] = [];
+
+    if (reqProductId) {
+      prodQuery = `SELECT id, "productName", "arabicName", "customerPriceUsd", "inStock", "isActive", description, card_network as "cardNetwork", card_currency as "cardCurrency", face_value as "faceValue" 
+       FROM "Product" 
+       WHERE id = $1`;
+      prodParams = [reqProductId];
+    }
+
+    const prodRes = await pool.query(prodQuery, prodParams);
 
     const product = prodRes.rows[0];
     if (!product) {
@@ -55,11 +64,14 @@ router.get('/product-info', async (_req, res: Response) => {
       productId: product.id,
       productName: product.arabicName || product.productName,
       priceUsd: Number(product.customerPriceUsd),
+      cardNetwork: product.cardNetwork || 'MASTERCARD',
+      currency: product.cardCurrency || 'USD',
+      faceValue: Number(product.faceValue || 1.00),
       isAvailable,
       inStockText: isAvailable ? 'متوفر حالياً للتسليم الفوري' : 'غير متوفر حالياً',
       description: product.description,
       complianceNotice: settings.complianceNotice || 'بطاقة افتراضية للاستخدام في الخدمات والمواقع المدعومة حسب شروط KIROPRO.',
-      defaultBalance: Number(settings.defaultBalance || 1.00)
+      defaultBalance: Number(product.faceValue || settings.defaultBalance || 1.00)
     });
   } catch (err: any) {
     console.error('[KiroProCards] Failed to fetch product info:', err.message);
@@ -100,7 +112,7 @@ router.get('/order/:orderId', requireAuth, async (req: AuthRequest, res: Respons
 
     // 2. Fetch assigned card
     const cardRes = await pool.query(
-      `SELECT id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, status, assigned_at
+      `SELECT id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, status, card_network, currency, assigned_at
        FROM kiropro_cards_inventory 
        WHERE order_id = $1
        LIMIT 1`,
@@ -126,6 +138,8 @@ router.get('/order/:orderId', requireAuth, async (req: AuthRequest, res: Respons
         expDate: card.exp_date,
         cvv: cvv,
         balance: Number(card.balance),
+        cardNetwork: card.card_network || 'MASTERCARD',
+        currency: card.currency || 'USD',
         status: card.status,
         assignedAt: card.assigned_at
       }

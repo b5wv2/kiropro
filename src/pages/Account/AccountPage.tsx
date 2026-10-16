@@ -20,14 +20,15 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
-  ShieldCheck
+  ShieldCheck,
+  Gift
 } from 'lucide-react';
 import { PromoRedemptionCard } from '../../components/Promo/PromoRedemptionCard';
 import { ReferralCard } from '../../components/Referral/ReferralCard';
 import { ReviewModal } from '../../components/Modal/ReviewModal';
 import { CardDetailsViewModal } from '../../components/KiroProCard/CardDetailsViewModal';
 import { CardRedemptionModal } from '../../components/KiroProCard/CardRedemptionModal';
-import { fetchMyOrders, fetchOrderById, fetchOrderCredentials } from '../../services/api';
+import { fetchMyOrders, fetchOrderById, fetchOrderCredentials, fetchOrderVoucherCodes } from '../../services/api';
 import { fetchMyVirtualNumberOrders, cancelVirtualNumberOrder, VirtualNumberOrder } from '../../services/virtualNumberApi';
 import { Order, WalletTransaction } from '../../types';
 
@@ -69,6 +70,21 @@ export const AccountPage: React.FC = () => {
       isOpen?: boolean;
       accounts?: Array<{ id?: string; accountNumber?: number; email: string; password?: string }>;
       showPasswords?: { [accIdx: number]: boolean };
+      error?: string;
+    };
+  }>({});
+  const [orderVouchers, setOrderVouchers] = useState<{
+    [orderId: string]: {
+      loading: boolean;
+      isOpen?: boolean;
+      codes?: Array<{
+        id: string;
+        code: string;
+        maskedCode: string;
+        faceValue?: number | null;
+        currency?: string;
+        gameType?: string;
+      }>;
       error?: string;
     };
   }>({});
@@ -324,6 +340,57 @@ export const AccountPage: React.FC = () => {
           loading: false,
           isOpen: true,
           error: err?.message || 'فشل جلب بيانات الحساب'
+        }
+      }));
+    }
+  };
+
+  const handleToggleOrderVouchers = async (orderId: string) => {
+    const current = orderVouchers[orderId];
+    if (current && (current.codes || current.error)) {
+      setOrderVouchers(prev => ({
+        ...prev,
+        [orderId]: {
+          ...prev[orderId],
+          isOpen: !prev[orderId]?.isOpen
+        }
+      }));
+      return;
+    }
+
+    setOrderVouchers(prev => ({
+      ...prev,
+      [orderId]: { loading: true, isOpen: true }
+    }));
+
+    try {
+      const res = await fetchOrderVoucherCodes(orderId);
+      if (res.success && Array.isArray(res.codes) && res.codes.length > 0) {
+        setOrderVouchers(prev => ({
+          ...prev,
+          [orderId]: {
+            loading: false,
+            isOpen: true,
+            codes: res.codes
+          }
+        }));
+      } else {
+        setOrderVouchers(prev => ({
+          ...prev,
+          [orderId]: {
+            loading: false,
+            isOpen: true,
+            error: 'لا توجد أكواد مسجلة لهذا الطلب'
+          }
+        }));
+      }
+    } catch (err: any) {
+      setOrderVouchers(prev => ({
+        ...prev,
+        [orderId]: {
+          loading: false,
+          isOpen: true,
+          error: err?.response?.data?.error || err.message || 'فشل جلب الأكواد الرقمية'
         }
       }));
     }
@@ -939,6 +1006,13 @@ export const AccountPage: React.FC = () => {
                                 </span>
                               )}
 
+                              {(ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
+                                <span style={{ fontSize: '0.75rem', color: '#854d0e', background: '#fef9c3', border: '1px solid #fde047', padding: '2px 10px', borderRadius: 12, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <Gift size={12} />
+                                  بطاقة رقمية معتمدة 🎁
+                                </span>
+                              )}
+
                               {ord.cashbackAmount && Number(ord.cashbackAmount) > 0 && (
                                 <span style={{ fontSize: '0.75rem', color: '#15803d', background: '#f0fdf4', border: '1px solid #86efac', padding: '2px 10px', borderRadius: 12, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   <Coins size={12} />
@@ -954,6 +1028,15 @@ export const AccountPage: React.FC = () => {
                               {(ord.orderType === 'DIGITAL_ACCOUNT' || ord.gameId === 'google-play-points') && (
                                 <div style={{ fontSize: '0.82rem', color: '#0369a1', fontWeight: 800, marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                                   <span>الكمية: <strong>{ord.quantity || 1}</strong> {((ord.quantity || 1) > 1) ? 'حسابات' : 'حساب'}</span>
+                                  {ord.unitPrice && (
+                                    <span>• السعر للوحدة: <strong>{formatCurrency(Number(ord.unitPrice), ord.currency || user.currency)}</strong></span>
+                                  )}
+                                </div>
+                              )}
+
+                              {(ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
+                                <div style={{ fontSize: '0.82rem', color: '#0369a1', fontWeight: 800, marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                                  <span>الكمية: <strong>{ord.quantity || 1}</strong> {((ord.quantity || 1) > 1) ? 'بطاقات' : 'بطاقة'}</span>
                                   {ord.unitPrice && (
                                     <span>• السعر للوحدة: <strong>{formatCurrency(Number(ord.unitPrice), ord.currency || user.currency)}</strong></span>
                                   )}
@@ -1353,6 +1436,191 @@ export const AccountPage: React.FC = () => {
                               <span>عرض بيانات واستلام البطاقة (3D)</span>
                               <span>💳</span>
                             </button>
+                          </div>
+                        )}
+
+                        {/* DIGITAL VOUCHER CODES DELIVERY CARD */}
+                        {isCompleted && (ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
+                          <div style={{ 
+                            background: '#0B0F19', 
+                            borderRadius: '10px', 
+                            padding: '14px 16px', 
+                            border: '1.5px solid #facc15',
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            gap: 12 
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ 
+                                  width: 32, 
+                                  height: 32, 
+                                  borderRadius: 6, 
+                                  background: 'rgba(250, 204, 21, 0.15)', 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  justifyContent: 'center', 
+                                  color: '#facc15' 
+                                }}>
+                                  <Gift size={18} />
+                                </div>
+                                <div>
+                                  <span style={{ fontSize: '0.85rem', color: '#facc15', fontWeight: 800 }}>
+                                    بطاقات وقسائم الهدايا الرقمية (Digital Vouchers)
+                                  </span>
+                                  <span style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block' }}>
+                                    {ord.quantity && ord.quantity > 1 
+                                      ? `تم إصدار ${ord.quantity} أكواد رقمية لهذا الطلب` 
+                                      : 'اضغط لعرض ونسخ كود القسيمة المشفر مع طريقة التفعيل'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleOrderVouchers(ord.id)}
+                                disabled={orderVouchers[ord.id]?.loading}
+                                style={{
+                                  background: (orderVouchers[ord.id]?.codes && orderVouchers[ord.id]?.isOpen) ? '#1e293b' : '#facc15',
+                                  color: (orderVouchers[ord.id]?.codes && orderVouchers[ord.id]?.isOpen) ? '#facc15' : '#0B0F19',
+                                  border: '1px solid #facc15',
+                                  borderRadius: '6px',
+                                  padding: '7px 14px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 900,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                {orderVouchers[ord.id]?.loading ? (
+                                  <>
+                                    <RefreshCw size={13} className="animate-spin" />
+                                    <span>جاري فك التشفير...</span>
+                                  </>
+                                ) : (orderVouchers[ord.id]?.codes && orderVouchers[ord.id]?.isOpen) ? (
+                                  <>
+                                    <EyeOff size={14} />
+                                    <span>إخفاء الأكواد</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Gift size={14} />
+                                    <span>عرض الأكواد الرقمية 🎁</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            {/* Render Voucher Codes if loaded and open */}
+                            {orderVouchers[ord.id]?.isOpen && orderVouchers[ord.id]?.codes && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {orderVouchers[ord.id]?.codes?.map((item, idx) => (
+                                  <div key={item.id || idx} style={{
+                                    background: '#111827',
+                                    borderRadius: '8px',
+                                    border: '1px solid #374151',
+                                    padding: '10px 14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10
+                                  }}>
+                                    <div style={{ textAlign: 'right' }}>
+                                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: 2 }}>
+                                        كود رقم #{idx + 1} {item.faceValue ? `($${item.faceValue})` : ''}:
+                                      </span>
+                                      <code style={{
+                                        color: '#facc15',
+                                        fontSize: '0.98rem',
+                                        fontWeight: 900,
+                                        fontFamily: 'monospace',
+                                        direction: 'ltr',
+                                        letterSpacing: '1.5px'
+                                      }}>
+                                        {item.code}
+                                      </code>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyKey(`voucher_${ord.id}_${idx}`, item.code)}
+                                      style={{
+                                        background: copiedKeyId === `voucher_${ord.id}_${idx}` ? '#10b981' : 'rgba(250, 204, 21, 0.15)',
+                                        color: copiedKeyId === `voucher_${ord.id}_${idx}` ? '#fff' : '#facc15',
+                                        border: 'none',
+                                        borderRadius: 4,
+                                        padding: '4px 10px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4
+                                      }}
+                                    >
+                                      {copiedKeyId === `voucher_${ord.id}_${idx}` ? <Check size={12} /> : <Copy size={12} />}
+                                      <span>{copiedKeyId === `voucher_${ord.id}_${idx}` ? 'تم النسخ' : 'نسخ الكود'}</span>
+                                    </button>
+                                  </div>
+                                ))}
+
+                                {/* Master Copy All Button if multiple */}
+                                {(orderVouchers[ord.id]?.codes?.length || 0) > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const allText = (orderVouchers[ord.id]?.codes || []).map(c => c.code).join('\n');
+                                      handleCopyKey(`all_vouchers_${ord.id}`, allText);
+                                    }}
+                                    style={{
+                                      background: copiedKeyId === `all_vouchers_${ord.id}` ? '#10b981' : '#1e293b',
+                                      color: copiedKeyId === `all_vouchers_${ord.id}` ? '#fff' : '#facc15',
+                                      border: '1px solid #facc15',
+                                      borderRadius: 6,
+                                      padding: '8px 12px',
+                                      fontSize: '0.78rem',
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: 6
+                                    }}
+                                  >
+                                    {copiedKeyId === `all_vouchers_${ord.id}` ? <Check size={13} /> : <Copy size={13} />}
+                                    <span>{copiedKeyId === `all_vouchers_${ord.id}` ? 'تم نسخ جميع الأكواد بنجاح ✓' : 'نسخ جميع الأكواد دفعة واحدة'}</span>
+                                  </button>
+                                )}
+
+                                {/* Official Redemption Guide */}
+                                <div style={{
+                                  background: '#030712',
+                                  borderRadius: 6,
+                                  padding: '10px 12px',
+                                  fontSize: '0.74rem',
+                                  color: '#94a3b8',
+                                  lineHeight: 1.6,
+                                  border: '1px solid #1f2937'
+                                }}>
+                                  <strong style={{ color: '#facc15', display: 'block', marginBottom: 2 }}>
+                                    طريقة الشحن والتفعيل الرسمية:
+                                  </strong>
+                                  {ord.gameId === 'freefire-vouchers' || (ord.packageName || '').toLowerCase().includes('free fire') ? (
+                                    <span>ادخل إلى موقع جارينا الرسمي <strong>shop2game.com</strong>، سجل الدخول بمعرّف اللاعب، اختر شحن كود القسيمة وضع الكود المستلم أعلاه.</span>
+                                  ) : (
+                                    <span>ادخل إلى موقع ميداس باي الرسمي <strong>midasbuy.com</strong>، حدد دولتك وأدخل PUBG ID، ثم اختر استرداد الرموز (Redeem Code) وضع الكود لتصلك الشدات فوراً.</span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {orderVouchers[ord.id]?.error && (
+                              <div style={{ color: '#f87171', fontSize: '0.78rem', fontWeight: 700 }}>
+                                ✕ {orderVouchers[ord.id]?.error}
+                              </div>
+                            )}
                           </div>
                         )}
 

@@ -19,7 +19,7 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { AdminKiroProCard, KiroProCardStats, KiroProCardVoucher } from '../../types';
+import { AdminKiroProCard, KiroProCardStats, KiroProCardVoucher, CardProductSummary } from '../../types';
 
 export const AdminKiroProCards: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<'inventory' | 'add' | 'bulk' | 'vouchers' | 'settings'>('inventory');
@@ -27,6 +27,9 @@ export const AdminKiroProCards: React.FC = () => {
   const [loadingStats, setLoadingStats] = useState(false);
   const [cards, setCards] = useState<AdminKiroProCard[]>([]);
   const [loadingCards, setLoadingCards] = useState(false);
+  const [cardProducts, setCardProducts] = useState<CardProductSummary[]>([]);
+  const [selectedProductFilter, setSelectedProductFilter] = useState<string>('ALL');
+  const [selectedTargetProduct, setSelectedTargetProduct] = useState<string>('b0000000-0000-0000-0000-000000000001');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -78,11 +81,25 @@ export const AdminKiroProCards: React.FC = () => {
   const [voucherSuccess, setVoucherSuccess] = useState<string | null>(null);
 
   // Settings State
+  const [settingsProductId, setSettingsProductId] = useState<string>('b0000000-0000-0000-0000-000000000001');
   const [lowStockThreshold, setLowStockThreshold] = useState(5);
   const [complianceNotice, setComplianceNotice] = useState('');
   const [cardProductPrice, setCardProductPrice] = useState<number>(2.00);
+  const [settingsPartnerPrice, setSettingsPartnerPrice] = useState<number | string>('1.13');
+  const [settingsIsActive, setSettingsIsActive] = useState<boolean>(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
+  const loadCardProducts = useCallback(async () => {
+    try {
+      const res: any = await api.get('/api/admin/kiropro-cards/products');
+      if (res && res.products) {
+        setCardProducts(res.products);
+      }
+    } catch (err) {
+      console.error('Failed to load card products', err);
+    }
+  }, []);
 
   const loadStats = useCallback(async () => {
     setLoadingStats(true);
@@ -103,6 +120,7 @@ export const AdminKiroProCards: React.FC = () => {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'ALL') params.append('status', statusFilter);
+      if (selectedProductFilter !== 'ALL') params.append('productId', selectedProductFilter);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       params.append('limit', '50');
 
@@ -115,7 +133,7 @@ export const AdminKiroProCards: React.FC = () => {
     } finally {
       setLoadingCards(false);
     }
-  }, [statusFilter, searchQuery]);
+  }, [statusFilter, selectedProductFilter, searchQuery]);
 
   const loadVouchers = useCallback(async () => {
     setLoadingVouchers(true);
@@ -131,33 +149,43 @@ export const AdminKiroProCards: React.FC = () => {
     }
   }, []);
 
-  const loadSettings = useCallback(async () => {
+  const loadSettings = useCallback(async (prodId?: string) => {
+    const pid = prodId || settingsProductId;
     try {
-      const res: any = await api.get('/api/admin/kiropro-cards/settings');
+      const res: any = await api.get(`/api/admin/kiropro-cards/settings?productId=${pid}`);
       if (res && res.settings) {
         setLowStockThreshold(res.settings.lowStockThreshold || 5);
         setComplianceNotice(res.settings.complianceNotice || '');
         if (res.settings.productPriceUsd !== undefined) {
           setCardProductPrice(Number(res.settings.productPriceUsd));
         }
+        if (res.settings.partnerPriceUsd !== undefined && res.settings.partnerPriceUsd !== null) {
+          setSettingsPartnerPrice(Number(res.settings.partnerPriceUsd));
+        } else {
+          setSettingsPartnerPrice('');
+        }
+        if (res.settings.isProductActive !== undefined) {
+          setSettingsIsActive(Boolean(res.settings.isProductActive));
+        }
       }
     } catch (err) {
       console.error('Failed to load settings', err);
     }
-  }, []);
+  }, [settingsProductId]);
 
   useEffect(() => {
     loadStats();
     loadCards();
-  }, [loadStats, loadCards]);
+    loadCardProducts();
+  }, [loadStats, loadCards, loadCardProducts]);
 
   useEffect(() => {
     if (activeSubTab === 'vouchers') {
       loadVouchers();
     } else if (activeSubTab === 'settings') {
-      loadSettings();
+      loadSettings(settingsProductId);
     }
-  }, [activeSubTab, loadVouchers, loadSettings]);
+  }, [activeSubTab, settingsProductId, loadVouchers, loadSettings]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -222,6 +250,7 @@ export const AdminKiroProCards: React.FC = () => {
         expDate: singleExpDate.trim(),
         cvv: singleCvv.trim(),
         balance: parseFloat(singleBalance) || 1.00,
+        productId: selectedTargetProduct,
         notes: singleNotes.trim() || undefined
       });
 
@@ -233,6 +262,7 @@ export const AdminKiroProCards: React.FC = () => {
         setSingleNotes('');
         loadStats();
         loadCards();
+        loadCardProducts();
       } else {
         setSingleError(res.error || 'تعذر إضافة البطاقة.');
       }
@@ -292,6 +322,7 @@ export const AdminKiroProCards: React.FC = () => {
     setBulkResult(null);
 
     const formData = new FormData();
+    formData.append('productId', selectedTargetProduct);
 
     if (bulkMode === 'file') {
       if (!selectedFile) {
@@ -327,6 +358,7 @@ export const AdminKiroProCards: React.FC = () => {
         }
         loadStats();
         loadCards();
+        loadCardProducts();
       } else {
         setBulkError(res?.message || res?.error || 'فشل الاستيراد الجماعي.');
         if (res && res.errors && res.errors.length > 0) {
@@ -398,10 +430,15 @@ export const AdminKiroProCards: React.FC = () => {
       await api.patch('/api/admin/kiropro-cards/settings', {
         lowStockThreshold,
         complianceNotice,
-        productPriceUsd: cardProductPrice
+        productId: settingsProductId,
+        productPriceUsd: cardProductPrice,
+        defaultPartnerPriceUsd: settingsPartnerPrice !== '' ? Number(settingsPartnerPrice) : null,
+        isProductActive: settingsIsActive
       });
-      setSettingsSuccess('تم حفظ إعدادات نظام بطاقات كيرو برو بنجاح.');
+      setSettingsSuccess('تم حفظ إعدادات وتسعير الفئة بنجاح.');
       loadStats();
+      loadCardProducts();
+      setTimeout(() => setSettingsSuccess(null), 3000);
     } catch (err: any) {
       alert(err?.response?.data?.error || 'تعذر حفظ الإعدادات');
     } finally {
@@ -520,6 +557,105 @@ export const AdminKiroProCards: React.FC = () => {
         </div>
       </div>
 
+      {/* Virtual Card Tiers Overview */}
+      <div style={{
+        marginBottom: 24,
+        background: '#ffffff',
+        borderRadius: 14,
+        border: '1px solid var(--border-subtle)',
+        padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>
+              💳 فئات البطاقات الافتراضية المتوفرة بالمنصة (Visa Canada & Mastercard USD)
+            </span>
+            <span style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10, fontWeight: 800, color: '#475569' }}>
+              {cardProducts.length} فئات مستقلة
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('settings')}
+            style={{ fontSize: '0.8rem', color: '#2563eb', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 800 }}
+          >
+            إدارة الأسعار والحالات ←
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+          {cardProducts.map((p) => {
+            const isVisa = p.cardNetwork === 'VISA';
+            const flag = isVisa ? '🇨🇦' : '🇺🇸';
+            const sym = p.cardCurrency === 'CAD' ? 'C$' : '$';
+            const isSelected = selectedProductFilter === (p.productId || (p as any).id);
+            return (
+              <div
+                key={p.productId || (p as any).id}
+                onClick={() => {
+                  setSelectedProductFilter(isSelected ? 'ALL' : (p.productId || (p as any).id));
+                  setActiveSubTab('inventory');
+                }}
+                style={{
+                  background: isVisa ? '#f8fafc' : '#fffbeb',
+                  border: isSelected ? '2px solid #2563eb' : (isVisa ? '1px solid #bfdbfe' : '1px solid #fde68a'),
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: isSelected ? '0 4px 12px rgba(37, 99, 235, 0.15)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 900,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: isVisa ? '#dbeafe' : '#fef3c7',
+                    color: isVisa ? '#1e40af' : '#92400e'
+                  }}>
+                    {flag} {p.cardNetwork} ({p.cardCurrency})
+                  </span>
+                  <span style={{
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    color: p.isActive ? '#059669' : '#dc2626'
+                  }}>
+                    {p.isActive ? '● نشط' : '○ متوقف'}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>
+                  {p.arabicName || p.productName}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#64748b', borderTop: '1px dashed #cbd5e1', paddingTop: 6 }}>
+                  <span>الرصيد: <strong>{sym}{Number(p.faceValue || 1).toFixed(2)}</strong></span>
+                  <span>البيع: <strong style={{ color: '#059669' }}>${Number(p.customerPriceUsd || 0).toFixed(2)}</strong></span>
+                  {p.defaultPartnerPriceUsd !== null && p.defaultPartnerPriceUsd !== undefined && (
+                    <span>شريك: <strong style={{ color: '#2563eb' }}>${Number(p.defaultPartnerPriceUsd).toFixed(2)}</strong></span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', marginTop: 2 }}>
+                  <span style={{ color: p.available > 0 ? '#059669' : '#dc2626', fontWeight: 800 }}>
+                    المتاح: {p.available} بطاقة
+                  </span>
+                  <span style={{ color: '#64748b' }}>
+                    المباع: {p.claimed}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Subtabs Navigation */}
       <div style={{ display: 'flex', gap: 8, borderBottom: '1.5px solid var(--border-subtle)', marginBottom: 20, overflowX: 'auto', paddingBottom: 6 }}>
         <button
@@ -633,7 +769,30 @@ export const AdminKiroProCards: React.FC = () => {
         <div className="admin-card" style={{ background: '#ffffff', borderRadius: 14, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
           {/* Filters Bar */}
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={selectedProductFilter}
+                onChange={(e) => setSelectedProductFilter(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: '1.5px solid #cbd5e1',
+                  background: '#ffffff',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  outline: 'none',
+                  color: '#0f172a',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="ALL">جميع فئات البطاقات</option>
+                {cardProducts.map((p) => (
+                  <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
+                    {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                  </option>
+                ))}
+              </select>
+
               {(['ALL', 'AVAILABLE', 'CLAIMED', 'DISABLED'] as const).map(st => (
                 <button
                   key={st}
@@ -651,7 +810,7 @@ export const AdminKiroProCards: React.FC = () => {
                     cursor: 'pointer'
                   }}
                 >
-                  {st === 'ALL' ? 'جميع البطاقات' : st === 'AVAILABLE' ? 'متاح للبيع' : st === 'CLAIMED' ? 'مباع ومستلم' : 'معطل مؤقتاً'}
+                  {st === 'ALL' ? 'الكل' : st === 'AVAILABLE' ? 'متاح للبيع' : st === 'CLAIMED' ? 'مباع ومستلم' : 'معطل مؤقتاً'}
                 </button>
               ))}
             </div>
@@ -725,7 +884,16 @@ export const AdminKiroProCards: React.FC = () => {
                             }}>
                               •••• •••• •••• {card.last4}
                             </span>
-                            <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Mastercard</span>
+                            <span style={{
+                              fontSize: '0.68rem',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              fontWeight: 800,
+                              background: card.cardNetwork === 'VISA' ? '#dbeafe' : '#fef3c7',
+                              color: card.cardNetwork === 'VISA' ? '#1e40af' : '#92400e'
+                            }}>
+                              {card.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'}
+                            </span>
                           </div>
                         </td>
 
@@ -736,7 +904,7 @@ export const AdminKiroProCards: React.FC = () => {
 
                         {/* Balance */}
                         <td style={{ padding: '12px 16px', fontWeight: 800, color: '#059669', direction: 'ltr' }}>
-                          ${Number(card.balance).toFixed(2)} USD
+                          {card.currency === 'CAD' ? 'C$' : '$'}{Number(card.balance).toFixed(2)} {card.currency || 'USD'}
                         </td>
 
                         {/* Status */}
@@ -884,6 +1052,29 @@ export const AdminKiroProCards: React.FC = () => {
           )}
 
           <form onSubmit={handleAddSingleCard} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
+                فئة البطاقة والمنتج المراد الإضافة إليه:
+              </label>
+              <select
+                value={selectedTargetProduct}
+                onChange={(e) => {
+                  const pid = e.target.value;
+                  setSelectedTargetProduct(pid);
+                  const prod = cardProducts.find(p => (p.productId || (p as any).id) === pid);
+                  if (prod && prod.faceValue) {
+                    setSingleBalance(Number(prod.faceValue).toFixed(2));
+                  }
+                }}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border-subtle)', fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}
+              >
+                {cardProducts.map((p) => (
+                  <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
+                    {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - رصيد {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
                 رقم البطاقة (16 رقم - يتم التحقق بخوارزمية Luhn):
@@ -1035,6 +1226,24 @@ export const AdminKiroProCards: React.FC = () => {
               <FileText size={14} />
               <span>لصق بيانات نصية</span>
             </button>
+          </div>
+
+          {/* Target Product Tier Selector */}
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
+              فئة البطاقة المستهدفة للاستيراد الجماعي:
+            </label>
+            <select
+              value={selectedTargetProduct}
+              onChange={(e) => setSelectedTargetProduct(e.target.value)}
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border-subtle)', fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}
+            >
+              {cardProducts.map((p) => (
+                <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
+                  {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - رصيد {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                </option>
+              ))}
+            </select>
           </div>
 
           {bulkError && (
@@ -1425,7 +1634,28 @@ export const AdminKiroProCards: React.FC = () => {
           <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
-                سعر بيع بطاقة كيرو برو للعميل ($ USD):
+                اختر فئة البطاقة لتعديل إعداداتها وأسعارها:
+              </label>
+              <select
+                value={settingsProductId}
+                onChange={(e) => {
+                  const pid = e.target.value;
+                  setSettingsProductId(pid);
+                  loadSettings(pid);
+                }}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}
+              >
+                {cardProducts.map((p) => (
+                  <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
+                    {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
+                سعر بيع البطاقة للعميل ($ USD):
               </label>
               <input
                 type="number"
@@ -1437,8 +1667,36 @@ export const AdminKiroProCards: React.FC = () => {
                 style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}
               />
               <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginTop: 4 }}>
-                سعر شراء بطاقة KiroPro Virtual Mastercard المعروض في المتجر ونافذة الشحن السريع للزبائن.
+                سعر الشراء المعروض في المتجر ونافذة الشحن للزبائن للفئة المحددة أعلاه.
               </span>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: 6 }}>
+                سعر الشريك ($ USD - اختياري):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={settingsPartnerPrice}
+                onChange={(e) => setSettingsPartnerPrice(e.target.value)}
+                placeholder="اتركه فارغاً إذا لم ينطبق"
+                style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="checkbox"
+                id="productActiveCheck"
+                checked={settingsIsActive}
+                onChange={(e) => setSettingsIsActive(e.target.checked)}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+              <label htmlFor="productActiveCheck" style={{ fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer' }}>
+                تفعيل هذا المنتج في المتجر (Active in Store)
+              </label>
             </div>
 
             <div>

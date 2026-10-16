@@ -85,13 +85,18 @@ export const KiroProCard3D: React.FC<KiroProCard3DProps> = ({
   const rawCvv = card.cvv || '961';
   const displayCvv = isCvvRevealed ? rawCvv : '•••';
 
+  const network = (card.cardNetwork || (cleanNum.startsWith('4') ? 'VISA' : 'MASTERCARD')).toUpperCase();
+  const currencySymbol = card.currency === 'CAD' ? 'C$' : '$';
+  const currencyCode = card.currency || 'USD';
+
   const handleCopyAll = () => {
     const text = `بطاقة كيرو برو الافتراضية | KIROPRO CARD
+الشبكة: ${network}
+الرصيد: ${currencySymbol}${Number(card.balance || 1.00).toFixed(2)} ${currencyCode}
 رقم البطاقة: ${cleanNum}
 تاريخ الانتهاء: ${card.expDate}
 رمز الأمان (CVV): ${rawCvv}
-الرصيد: $${Number(card.balance || 1.00).toFixed(2)}
-النوع: Mastercard Virtual`;
+النوع: ${network} Virtual Prepaid`;
 
     handleCopy(text, 'جميع بيانات البطاقة');
   };
@@ -150,10 +155,10 @@ export const KiroProCard3D: React.FC<KiroProCard3DProps> = ({
                 </div>
               </div>
 
-              {/* Status Badge & Balance: نشطة • $1.00 */}
+              {/* Status Badge & Balance: نشطة • $1.00 USD */}
               <div className={styles.statusBadge}>
                 <span className={styles.statusDot}></span>
-                <span>نشطة • ${Number(card.balance || 1.00).toFixed(2)}</span>
+                <span>نشطة • {currencySymbol}{Number(card.balance || 1.00).toFixed(2)} {currencyCode}</span>
               </div>
             </div>
 
@@ -214,7 +219,7 @@ export const KiroProCard3D: React.FC<KiroProCard3DProps> = ({
               </div>
             </div>
 
-            {/* Bottom Row: Expiry, Category & Mastercard Interlocking Circles */}
+            {/* Bottom Row: Expiry, Category & Network Logo (Visa / Mastercard) */}
             <div className="relative z-10 flex items-end justify-between">
               {/* Expiry Date (Strictly LTR) */}
               <div dir="ltr" className="text-left">
@@ -229,15 +234,31 @@ export const KiroProCard3D: React.FC<KiroProCard3DProps> = ({
               {/* Sub-label */}
               <div className="text-center">
                 <span className="text-[9.5px] font-mono font-bold text-[#FBBF24] tracking-widest uppercase">
-                  VIRTUAL PREPAID
+                  {network} PREPAID
                 </span>
               </div>
 
-              {/* Mastercard Dual-Circle Logo */}
-              <div className={styles.mastercardLogo} dir="ltr">
-                <div className={styles.mcRed}></div>
-                <div className={styles.mcYellow}></div>
-              </div>
+              {/* Network Logo */}
+              {network === 'VISA' ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px 6px', background: 'rgba(255,255,255,0.08)', borderRadius: 6 }} dir="ltr">
+                  <span style={{
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    fontWeight: 900,
+                    fontStyle: 'italic',
+                    fontSize: '1.15rem',
+                    color: '#60A5FA',
+                    letterSpacing: '1.5px',
+                    lineHeight: 1
+                  }}>
+                    VISA
+                  </span>
+                </div>
+              ) : (
+                <div className={styles.mastercardLogo} dir="ltr">
+                  <div className={styles.mcRed}></div>
+                  <div className={styles.mcYellow}></div>
+                </div>
+              )}
             </div>
           </div>
 

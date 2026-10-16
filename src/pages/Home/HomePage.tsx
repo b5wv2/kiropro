@@ -17,7 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = [
   { id: 'all', name: 'الكل ✨' },
-  { id: 'cards', name: '💳 بطاقات ماستركارد' },
+  { id: 'cards', name: '💳 البطاقات الافتراضية' },
   { id: 'games', name: '🎮 الألعاب الإلكترونية' },
   { id: 'apps', name: '📱 تطبيقات البث والدردشة' },
   { id: 'numbers', name: '📱 الأرقام الافتراضية' },

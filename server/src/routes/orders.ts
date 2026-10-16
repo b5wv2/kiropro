@@ -13,6 +13,7 @@ import { getOrCreateOrderReviewToken } from '../services/reviewTokenService';
 import { getGeneralSettings } from './admin';
 import { decryptPassword } from '../utils/cryptoAccount';
 import { decryptCardData, formatCardNumber, maskCardNumber } from '../utils/cryptoCard';
+import { decryptVoucherCode, maskVoucherCode } from '../utils/cryptoVoucher';
 import { providerRouter, ProductProviderResolution } from '../providers/router';
 
 const router = Router();
@@ -67,7 +68,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       return res.status(400).json({ error: 'تسعير المنتج غير مهيأ حالياً. يرجى مراجعة إدارة المنصة.' });
     }
 
-    const isVirtualCard = localProduct.productType === 'VIRTUAL_CARD' || localProduct.category === 'VIRTUAL_CARD';
+    const isVirtualCard = localProduct.productType === 'VIRTUAL_CARD' || localProduct.category === 'VIRTUAL_CARD' || localProduct.fulfillment_type === 'KIROPRO_CARD' || localProduct.gameCategoryId === 'kiropro-card';
     const isDigitalAccount = !isVirtualCard && (localProduct.productType === 'DIGITAL_ACCOUNT' || localProduct.category === 'DIGITAL_ACCOUNT' || localProduct.provider === 'INTERNAL');
     const isInternalFulfillment = isDigitalAccount || isVirtualCard;
 
@@ -396,7 +397,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
             localProduct.gameCategoryId || 'kiropro-card',
             localProduct.id,
             effectivePackageName,
-            `بطاقة كيرو برو (•••• ${assignedKiroproCard.card_last4})`,
+            `${localProduct.arabicName || localProduct.productName} (•••• ${assignedKiroproCard.card_last4})`,
             finalChargeAmount,
             basePriceInUserCurrency,
             discountApplied,
@@ -423,6 +424,15 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
            WHERE id = $3`,
           [orderId, user.id, assignedKiroproCard.id]
         );
+
+        // Check remaining available stock for this product
+        const remRes = await client.query(
+          `SELECT COUNT(*)::int as count FROM kiropro_cards_inventory WHERE product_id = $1 AND status = 'AVAILABLE'`,
+          [localProduct.id]
+        );
+        if (Number(remRes.rows[0]?.count || 0) === 0) {
+          await client.query(`UPDATE "Product" SET "inStock" = false, "updatedAt" = NOW() WHERE id = $1`, [localProduct.id]);
+        }
       } else if (isDigitalAccount) {
         const deliveryPlayerId = quantity > 1 
           ? `${quantity} حسابات (${assignedInventoryAccounts[0].email} ...)` 
@@ -989,6 +999,92 @@ router.get('/:id/credentials', requireAuth, async (req: AuthRequest, res: Respon
   } catch (err: any) {
     console.error('[Orders] Failed to fetch digital account credentials:', err.message);
     res.status(500).json({ error: 'فشل جلب بيانات الحساب.' });
+  }
+});
+
+// Customer / Admin: Get decrypted digital voucher codes for a completed order
+router.get('/:id/voucher-codes', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const orderId = String(req.params.id);
+
+    // 1. Verify order exists and belongs to requesting user (or user is admin)
+    const orderRes = await pool.query(
+      `SELECT id, "userId", "packageName", status, "orderType", "fulfillmentKey"
+       FROM "Order"
+       WHERE id = $1`,
+      [orderId]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'الطلب غير موجود.' });
+    }
+
+    const order = orderRes.rows[0];
+    if (order.userId !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'غير مصرح لك بعرض أكواد هذا الطلب.' });
+    }
+
+    if (order.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'الطلب لم يكتمل بعد. الأكواد غير جاهزة.' });
+    }
+
+    // 2. Fetch encrypted codes from order_voucher_codes
+    const codesRes = await pool.query(
+      `SELECT id, code_encrypted, code_masked, face_value as "faceValue", currency, created_at as "createdAt"
+       FROM order_voucher_codes
+       WHERE order_id = $1
+       ORDER BY created_at ASC`,
+      [orderId]
+    );
+
+    if (codesRes.rows.length === 0) {
+      // Fallback: If fulfillmentKey exists on Order (e.g. from direct delivery)
+      const fallbackKey = order.fulfillmentKey;
+      if (fallbackKey) {
+        const rawCodes = String(fallbackKey).split('\n').filter(Boolean);
+        return res.json({
+          success: true,
+          orderId: order.id,
+          packageName: order.packageName,
+          quantity: rawCodes.length,
+          codes: rawCodes.map((code, idx) => ({
+            id: `k-${idx}`,
+            code,
+            maskedCode: maskVoucherCode(code)
+          }))
+        });
+      }
+      return res.status(404).json({ error: 'لا توجد أكواد مسجلة لهذا الطلب.' });
+    }
+
+    // 3. Decrypt each code
+    const decryptedCodes = codesRes.rows.map(row => {
+      let plainCode = row.code_masked;
+      try {
+        plainCode = decryptVoucherCode(row.code_encrypted);
+      } catch (decErr) {
+        console.error('[Orders API] Error decrypting voucher code:', decErr);
+      }
+      return {
+        id: row.id,
+        code: plainCode,
+        maskedCode: row.code_masked,
+        faceValue: row.faceValue ? Number(row.faceValue) : null,
+        currency: row.currency || 'USD'
+      };
+    });
+
+    return res.json({
+      success: true,
+      orderId: order.id,
+      packageName: order.packageName,
+      quantity: decryptedCodes.length,
+      codes: decryptedCodes
+    });
+  } catch (err: any) {
+    console.error('[Orders API] Failed to fetch voucher codes:', err.message);
+    return res.status(500).json({ error: 'فشل جلب الأكواد الرقمية.' });
   }
 });
 

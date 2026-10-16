@@ -26,6 +26,36 @@ export interface DigitalAccountCredential {
   assignedAt?: string;
 }
 
+export interface VoucherCodeItem {
+  id: string;
+  code: string;
+  maskedCode: string;
+  faceValue?: number | null;
+  currency?: string;
+}
+
+export interface AdminVoucherProduct {
+  id: string;
+  providerCategoryId: number;
+  providerProductId: number;
+  title: string;
+  arabicTitle?: string | null;
+  description?: string | null;
+  categoryTitle: string;
+  gameKey: 'freefire' | 'pubg';
+  supplierUnitPrice: number;
+  faceValue: number | null;
+  stock: number;
+  customImageUrl?: string | null;
+  currency: string;
+  customerPriceUsd: number | null;
+  isActive: boolean;
+  isInStock: boolean;
+  syncedAt: string;
+  linkedProductId?: string;
+  totalSold?: number;
+}
+
 export interface GameCategory {
   id: string;
   name: string;
@@ -202,6 +232,10 @@ export interface AdminProduct {
   gamesDropFxRate?: number;
   providerCostUsd?: number;
   customerPriceUsd: number | null;
+  defaultPartnerPriceUsd?: number | null;
+  cardNetwork?: string;
+  cardCurrency?: string;
+  faceValue?: number;
   profitUsd?: number | null;
   isActive: boolean;
   inStock: boolean;
@@ -288,6 +322,8 @@ export interface KiroProCardDetails {
   expDate: string;
   cvv: string;
   balance: number;
+  cardNetwork?: 'VISA' | 'MASTERCARD' | string;
+  currency?: 'USD' | 'CAD' | string;
   status?: string;
   assignedAt?: string;
 }
@@ -298,6 +334,10 @@ export interface AdminKiroProCard {
   maskedNumber: string;
   expDate: string;
   balance: number;
+  cardNetwork?: 'VISA' | 'MASTERCARD' | string;
+  currency?: 'USD' | 'CAD' | string;
+  productId?: string;
+  productName?: string;
   status: 'AVAILABLE' | 'CLAIMED' | 'DISABLED';
   orderId?: string | null;
   assignedAt?: string | null;
@@ -307,6 +347,23 @@ export interface AdminKiroProCard {
     email: string;
     name: string;
   } | null;
+}
+
+export interface CardProductSummary {
+  productId: string;
+  productName: string;
+  arabicName?: string;
+  cardNetwork?: string;
+  cardCurrency?: string;
+  faceValue?: number;
+  customerPriceUsd?: number;
+  defaultPartnerPriceUsd?: number;
+  isActive: boolean;
+  inStock: boolean;
+  available: number;
+  claimed: number;
+  disabled: number;
+  total: number;
 }
 
 export interface KiroProCardStats {
@@ -319,6 +376,7 @@ export interface KiroProCardStats {
   totalVouchers: number;
   redeemedVouchers: number;
   availableVouchers: number;
+  byProduct?: CardProductSummary[];
 }
 
 export interface KiroProCardVoucher {

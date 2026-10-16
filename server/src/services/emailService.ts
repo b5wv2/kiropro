@@ -236,7 +236,7 @@ async function recordAndSendEmail(params: {
   orderId?: string | null | undefined;
   topupId?: string | null | undefined;
   partnerDepositId?: string | null | undefined;
-  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED' | 'PARTNER_WELCOME' | 'PARTNER_DEPOSIT_APPROVED' | 'PARTNER_DEPOSIT_REJECTED';
+  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'ORDER_VOUCHER_DELIVERED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED' | 'PARTNER_WELCOME' | 'PARTNER_DEPOSIT_APPROVED' | 'PARTNER_DEPOSIT_REJECTED';
   recipient: string;
   subject: string;
   html: string;
@@ -1456,6 +1456,118 @@ KIROPRO Partner - تعذر اعتماد طلب الإيداع
   });
 }
 
+/**
+ * Sends a digital voucher delivery email with purchased codes and redemption guide.
+ * Status is tracked independently in email_events ('SENT' or 'FAILED').
+ */
+export async function sendVoucherDeliveryEmail(params: {
+  to: string;
+  orderId: string;
+  productName: string;
+  gameName: string;
+  quantity: number;
+  codes: string[];
+  redemptionInstructions?: string;
+  totalPaid?: string;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, orderId, productName, gameName, quantity, codes, redemptionInstructions, totalPaid } = params;
+  const subject = `أكواد طلبك جاهزة للاستخدام: ${productName} (${orderId.slice(0, 8)}) 🎁`;
+
+  const codeBoxesHtml = codes.map((c, idx) => `
+    <div style="background-color: #0B0F19; border: 1.5px solid ${BRAND_YELLOW}; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; text-align: center;">
+      <span style="display: block; font-size: 11px; color: #94A3B8; font-weight: 700; margin-bottom: 4px;">
+        كود التفعيل الرقمي ${codes.length > 1 ? `#${idx + 1}` : ''}:
+      </span>
+      <code style="font-family: 'Courier New', Courier, monospace; font-size: 18px; font-weight: 900; color: #FBBF24; letter-spacing: 1.5px; display: inline-block;">
+        ${c}
+      </code>
+    </div>
+  `).join('');
+
+  const defaultInstructions = gameName.toLowerCase().includes('pubg')
+    ? 'لاسترداد شدات ببجي: قم بزيارة موقع Midasbuy الرسمي (www.midasbuy.com)، اختر لعبة PUBG Mobile، اضغط على استرداد الرمز (Redeem)، أدخل معرّف اللاعب (Player ID) وكود الشدات أعلاه للتفعيل الفوري.'
+    : 'لاسترداد جواهر فري فاير: قم بزيارة مركز شحن قارينا الرسمي (shop2game.com)، سجّل الدخول بمعرّف اللاعب (Player ID)، اختر قسيمة غارينا (Garena Voucher) وأدخل الكود أعلاه لشحن الجواهر فوراً.';
+
+  const instructionsText = redemptionInstructions || defaultInstructions;
+
+  const contentHtml = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h2 style="margin: 0 0 6px 0; font-size: 22px; font-weight: 900; color: #0B0F19;">
+        تم تسليم طلبك بنجاح! 🎉
+      </h2>
+      <p style="margin: 0; color: #64748B; font-size: 14px;">
+        شكراً لشرائك من متجر KIROPRO. تجد أدناه بيانات وأكواد قسيمتك الرقمية.
+      </p>
+    </div>
+
+    <!-- Order Summary Table -->
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+      <tr>
+        <td style="padding: 6px 0; color: #64748B; font-size: 13px;">المنتج:</td>
+        <td style="padding: 6px 0; color: #0B0F19; font-size: 13px; font-weight: 800; text-align: left;">${productName}</td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #64748B; font-size: 13px;">الكمية:</td>
+        <td style="padding: 6px 0; color: #0B0F19; font-size: 13px; font-weight: 800; text-align: left;">${quantity}</td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #64748B; font-size: 13px;">رقم الطلب الداخلي:</td>
+        <td style="padding: 6px 0; color: #0B0F19; font-size: 13px; font-weight: 700; font-family: monospace; text-align: left;">${orderId}</td>
+      </tr>
+      ${totalPaid ? `
+      <tr>
+        <td style="padding: 6px 0; color: #64748B; font-size: 13px;">المبلغ المدفوع:</td>
+        <td style="padding: 6px 0; color: #059669; font-size: 14px; font-weight: 900; text-align: left;">${totalPaid}</td>
+      </tr>` : ''}
+    </table>
+
+    <!-- Voucher Codes Section -->
+    <div style="margin-bottom: 20px;">
+      <h3 style="margin: 0 0 10px 0; font-size: 15px; font-weight: 900; color: #0B0F19;">
+        🎁 أكواد التفعيل الرسمية:
+      </h3>
+      ${codeBoxesHtml}
+    </div>
+
+    <!-- Redemption Guide Box -->
+    <div style="background-color: #FEF3C7; border: 1px solid #FDE68A; border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+      <h4 style="margin: 0 0 6px 0; font-size: 13px; font-weight: 800; color: #92400E;">
+        ℹ️ طريقة الاسترداد والشحن:
+      </h4>
+      <p style="margin: 0; font-size: 12px; color: #78350F; line-height: 1.6;">
+        ${instructionsText}
+      </p>
+    </div>
+
+    <!-- CTA Button -->
+    <div style="text-align: center; margin: 24px 0 12px 0;">
+      ${renderEmailButton('عرض الطلب في حسابك على المتجر', 'https://kiropro.store/account', true)}
+    </div>
+  `;
+
+  const text = `
+KIROPRO - تم تسليم طلبك بنجاح!
+رقم الطلب: ${orderId}
+المنتج: ${productName}
+الأكواد:
+${codes.join('\n')}
+
+طريقة الاسترداد:
+${instructionsText}
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `أكواد طلبك جاهزة للاستخدام: ${productName}`);
+
+  return recordAndSendEmail({
+    orderId,
+    eventType: 'ORDER_VOUCHER_DELIVERED',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
 export default {
   sendVerificationOtpEmail,
   sendPasswordResetOtpEmail,
@@ -1465,6 +1577,7 @@ export default {
   sendTopupRejectedEmail,
   sendOrderProcessingEmail,
   sendOrderCompletedEmail,
+  sendVoucherDeliveryEmail,
   sendUsdtOrderCompletedEmail,
   sendUsdtOrderCanceledEmail,
   sendPartnerWelcomeEmail,
@@ -1476,5 +1589,6 @@ export default {
   renderEmailButton,
   buildVerificationOtpEmailTemplate
 };
+
 
 

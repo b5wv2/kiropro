@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import styles from './QuickTopUpModal.module.css';
 import { Game, GamePackage } from '../../types';
 import { useWallet } from '../../context/WalletContext';
-import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers } from '../../services/api';
+import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers, purchaseVoucher } from '../../services/api';
 import { formatCurrency } from '../../lib/formatters';
-import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2, Key, Copy, Check, Eye, EyeOff, ShieldCheck, CreditCard } from 'lucide-react';
+import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2, Key, Copy, Check, Eye, EyeOff, ShieldCheck, CreditCard, Gift } from 'lucide-react';
 import { CardDetailsViewModal } from '../KiroProCard/CardDetailsViewModal';
 import { getProductImageUrl } from '../../utils/imageUrl';
 import { api } from '../../lib/api';
@@ -29,6 +29,14 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [deliveredCardOrder, setDeliveredCardOrder] = useState<{ orderId: string; last4?: string } | null>(null);
+  const [deliveredVoucher, setDeliveredVoucher] = useState<{
+    orderId: string;
+    packageName: string;
+    gameKey: string;
+    quantity: number;
+    codes: string[];
+    maskedCodes?: string[];
+  } | null>(null);
   const [showCardDetailsModal, setShowCardDetailsModal] = useState(false);
 
   // KiroPro Card Dual Payment Method State
@@ -64,6 +72,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       setCopiedField(null);
       setQuantity(1);
       setDeliveredCardOrder(null);
+      setDeliveredVoucher(null);
       setShowCardDetailsModal(false);
       setCardPaymentMethod('wallet');
       setIssuanceCodeInput('');
@@ -154,9 +163,17 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
   const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
   const isVirtualCard = selectedPackage?.productType === 'VIRTUAL_CARD' || game?.id === 'kiropro-card';
+  const isVoucher = selectedPackage?.productType === 'VOUCHER' ||
+    (selectedPackage as any)?.fulfillmentType === 'G2BULK_VOUCHER' ||
+    game?.id === 'freefire-vouchers' ||
+    game?.id === 'pubg-vouchers';
+  const cardNetwork = (selectedPackage as any)?.cardNetwork || (selectedPackage?.name?.toLowerCase().includes('visa') ? 'VISA' : 'MASTERCARD');
+  const cardCurrency = (selectedPackage as any)?.cardCurrency || (selectedPackage?.name?.toLowerCase().includes('cad') ? 'CAD' : 'USD');
+  const cardFaceValue = (selectedPackage as any)?.faceValue || 1.00;
+  const cardCurrencySymbol = cardCurrency === 'CAD' ? 'C$' : '$';
   const isOutOfStock = selectedPackage?.inStock === false || (selectedPackage?.availableStock !== undefined && selectedPackage?.availableStock <= 0);
   const unitPrice = getPackagePrice(selectedPackage);
-  const rawOrderPrice = isDigitalAccount ? (unitPrice * quantity) : unitPrice;
+  const rawOrderPrice = (isDigitalAccount || isVoucher) ? (unitPrice * quantity) : unitPrice;
   const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
     ? (appliedPromo.discountAmount ? Number(appliedPromo.discountAmount) : (appliedPromo.discount ? Number(appliedPromo.discount) : 0))
     : 0;
@@ -300,8 +317,50 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
   const handleConfirmOrder = async () => {
     const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
+    const isVoucher = selectedPackage?.productType === 'VOUCHER' ||
+      (selectedPackage as any)?.fulfillmentType === 'G2BULK_VOUCHER' ||
+      game?.id === 'freefire-vouchers' ||
+      game?.id === 'pubg-vouchers';
 
-    if (!isDigitalAccount && !isVirtualCard && !playerId.trim()) {
+    if (isVoucher) {
+      if (isInsufficient) {
+        showToast('رصيد المحفظة غير كافٍ. يرجى شحن الرصيد أولاً.', 'warning');
+        openDepositModal();
+        return;
+      }
+
+      if (!selectedPackage) return;
+
+      setIsProcessing(true);
+      try {
+        const vRes = await purchaseVoucher({
+          productId: selectedPackage.id,
+          voucherId: (selectedPackage as any).voucherId || (selectedPackage as any).providerProductId,
+          quantity
+        });
+
+        await refreshBalance();
+
+        setDeliveredVoucher({
+          orderId: vRes.orderId,
+          packageName: vRes.packageName,
+          gameKey: vRes.gameKey,
+          quantity: vRes.quantity,
+          codes: vRes.codes || [],
+          maskedCodes: vRes.maskedCodes || []
+        });
+
+        showToast('تم شراء واستلام الأكواد الرقمية بنجاح! 🎉', 'success');
+      } catch (err: any) {
+        const errorMsg = err?.response?.data?.error || err.message || 'تعذر إتمام عملية شراء البطاقة.';
+        showToast(errorMsg, 'warning');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    if (!isDigitalAccount && !isVirtualCard && !isVoucher && !playerId.trim()) {
       showToast('يرجى إدخال معرّف اللاعب للاستلام', 'warning');
       return;
     }
@@ -311,7 +370,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       selectedPackage?.isRequiredGameServerId
     );
 
-    if (!isDigitalAccount && !isVirtualCard && pkgRequiresServer && serverList.length > 0 && !selectedServer) {
+    if (!isDigitalAccount && !isVirtualCard && !isVoucher && pkgRequiresServer && serverList.length > 0 && !selectedServer) {
       showToast('يرجى اختيار خادم اللعبة قبل تأكيد الشراء', 'warning');
       return;
     }
@@ -401,7 +460,158 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           </button>
         </div>
 
-        {deliveredCardOrder ? (
+        {deliveredVoucher ? (
+          <div style={{ padding: '16px 8px', textAlign: 'center' }}>
+            <div style={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.2) 0%, rgba(202, 138, 4, 0.15) 100%)',
+              color: '#facc15',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+              border: '2px solid #facc15',
+              boxShadow: '0 0 24px rgba(250, 204, 21, 0.25)'
+            }}>
+              <Gift size={32} />
+            </div>
+
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 6 }}>
+              {deliveredVoucher.codes.length > 1
+                ? `تم استلام ${deliveredVoucher.codes.length} أكواد رقمية بنجاح! 🎉`
+                : 'تم استلام كود البطاقة بنجاح! 🎉'}
+            </h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.6 }}>
+              تم حفظ الأكواد مشفرة في خزنة حسابك وأُرسلت نسخة إلى بريدك الإلكتروني.<br />
+              <strong style={{ color: '#facc15' }}>{deliveredVoucher.packageName}</strong>
+            </p>
+
+            {/* Voucher Codes List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, maxHeight: '280px', overflowY: 'auto' }}>
+              {deliveredVoucher.codes.map((code, idx) => (
+                <div key={idx} style={{
+                  background: '#0B0F19',
+                  borderRadius: 10,
+                  border: '1.5px solid #facc15',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10
+                }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: 2 }}>
+                      الكود {deliveredVoucher.codes.length > 1 ? `#${idx + 1}` : ''}:
+                    </span>
+                    <code style={{
+                      color: '#facc15',
+                      fontSize: '1rem',
+                      fontWeight: 900,
+                      fontFamily: 'monospace',
+                      direction: 'ltr',
+                      letterSpacing: '1.5px'
+                    }}>
+                      {code}
+                    </code>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(code, `voucher_${idx}` as any)}
+                    style={{
+                      background: copiedField === `voucher_${idx}` ? '#10b981' : 'rgba(250, 204, 21, 0.2)',
+                      color: copiedField === `voucher_${idx}` ? '#ffffff' : '#facc15',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '6px 12px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                  >
+                    {copiedField === `voucher_${idx}` ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{copiedField === `voucher_${idx}` ? 'تم النسخ' : 'نسخ الكود'}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Copy All Button if multiple */}
+            {deliveredVoucher.codes.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const allCodes = deliveredVoucher.codes.join('\n');
+                  handleCopyText(allCodes, 'all_vouchers' as any);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  background: '#1e293b',
+                  color: '#facc15',
+                  border: '1px solid #facc15',
+                  fontSize: '0.82rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  marginBottom: 14
+                }}
+              >
+                {copiedField === 'all_vouchers' ? <Check size={14} /> : <Copy size={14} />}
+                <span>{copiedField === 'all_vouchers' ? 'تم نسخ جميع الأكواد بنجاح ✓' : 'نسخ جميع الأكواد دفعة واحدة'}</span>
+              </button>
+            )}
+
+            {/* Official Redemption Guide */}
+            <div style={{
+              background: '#0B0F19',
+              border: '1px solid #1e293b',
+              borderRadius: 10,
+              padding: '12px 14px',
+              textAlign: 'right',
+              fontSize: '0.78rem',
+              color: '#cbd5e1',
+              lineHeight: 1.6,
+              marginBottom: 16
+            }}>
+              <strong style={{ color: '#facc15', display: 'block', marginBottom: 4, fontSize: '0.82rem' }}>
+                📖 طريقة التفعيل والاسترداد الرسمية:
+              </strong>
+              {deliveredVoucher.gameKey === 'freefire' ? (
+                <div>
+                  1. ادخل إلى موقع جارينا الرسمي: <strong>shop2game.com</strong> أو <strong>reward.ff.garena.com</strong><br />
+                  2. سجل الدخول إلى حسابك في Free Fire بواسطة معرّف اللاعب (Player ID).<br />
+                  3. اختر بطاقة جارينا (Garena Voucher) وأدخل الكود واضغط تأكيد وسيتم شحن الجواهر فوراً.
+                </div>
+              ) : (
+                <div>
+                  1. ادخل إلى موقع ميداس باي الرسمي: <strong>midasbuy.com</strong><br />
+                  2. حدد دولتك وأدخل معرّف اللاعب في ببجي (Player ID).<br />
+                  3. اختر استرداد الرموز (Redeem Code)، ضع الكود واضغط موافق لتصلك شدات UC فوراً في بريد اللعبة.
+                </div>
+              )}
+            </div>
+
+            {/* Close Button */}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onClose}
+              style={{ width: '100%', fontSize: '0.95rem' }}
+            >
+              تم الحفظ، إغلاق النافذة
+            </button>
+          </div>
+        ) : deliveredCardOrder ? (
           <div style={{ padding: '20px 10px', textAlign: 'center' }}>
             <div style={{
               width: 64,
@@ -794,7 +1004,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
               )}
             </div>
 
-            {/* Step 2: Virtual Card Info OR Digital Account Info OR Player ID & Server Selection */}
+            {/* Step 2: Virtual Card Info OR Digital Account Info OR Digital Voucher Info OR Player ID & Server Selection */}
             {isVirtualCard ? (
               <div style={{ marginBottom: 16 }}>
                 <div style={{
@@ -822,8 +1032,8 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     <CreditCard size={22} />
                   </div>
                   <div style={{ fontSize: '0.82rem', color: '#e2e8f0', lineHeight: 1.6 }}>
-                    <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: '#facc15' }}>
-                      بطاقة ماستركارد افتراضية مسبقة الدفع ($1.00 USD) ⚡
+                    <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: cardNetwork === 'VISA' ? '#60A5FA' : '#facc15' }}>
+                      بطاقة {cardNetwork === 'VISA' ? 'فيزا كندا' : 'ماستركارد'} مسبقة الدفع ({cardCurrencySymbol}{Number(cardFaceValue).toFixed(2)} {cardCurrency}) ⚡
                     </strong>
                     لا يتطلب هذا المنتج أي معرّف لاعب أو سيرفر. سيتم فوراً حجز بطاقة مشفرة من الخزنة الآمنة وربطها بحسابك بدون أي تداخل أو ازدواجية.
                     <div style={{ marginTop: 6, color: '#94a3b8', fontSize: '0.78rem' }}>
@@ -971,6 +1181,162 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     </span>
                     <span style={{ color: '#0f172a', fontWeight: 800 }}>
                       الإجمالي ({quantity} {quantity > 1 ? 'حسابات' : 'حساب'}): {formatCurrency(unitPrice * quantity, currency)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : isVoucher ? (
+              <div>
+                <div style={{
+                  marginBottom: 14,
+                  padding: '14px 16px',
+                  background: 'linear-gradient(135deg, #0b0e17 0%, #171c2f 100%)',
+                  border: '1.5px solid rgba(250, 204, 21, 0.45)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 12,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)'
+                }}>
+                  <div style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #facc15 0%, #ca8a04 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#000',
+                    fontWeight: 900,
+                    flexShrink: 0
+                  }}>
+                    <Gift size={22} />
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: '#e2e8f0', lineHeight: 1.6 }}>
+                    <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: '#facc15' }}>
+                      تسليم فوري ومباشر للأكواد الرقمية (Digital Voucher) 🎁
+                    </strong>
+                    لا يتطلب هذا المنتج أي معرّف لاعب أو سيرفر. سيتم إصدار الكود وتشفيره فوراً بعد إتمام الشراء، وستظهر الأكواد على الشاشة وتُرسل أيضاً إلى بريدك الإلكتروني مع طريقة التفعيل المعتمدة.
+                    <div style={{ marginTop: 6, fontWeight: 800, color: '#38bdf8' }}>
+                      ✓ اختر الكمية التي تحتاجها. يتم إصدار كود مستقل لكل وحدة.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quantity Selector Card */}
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1.5px solid #cbd5e1',
+                  borderRadius: '10px',
+                  padding: '14px 16px',
+                  marginBottom: 16
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0f172a', display: 'block' }}>
+                        الكمية المطلوبة (Quantity):
+                      </label>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                        {selectedPackage.availableStock !== undefined
+                          ? `المخزون المتاح: ${selectedPackage.availableStock} كود`
+                          : 'متوفر فورياً في المخزون'}
+                      </span>
+                    </div>
+
+                    {/* Counter [-] [1] [+] */}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', background: '#ffffff', border: '1.5px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                        disabled={quantity <= 1}
+                        style={{
+                          width: 38,
+                          height: 38,
+                          background: quantity <= 1 ? '#f1f5f9' : '#ffffff',
+                          border: 'none',
+                          borderLeft: '1px solid #e2e8f0',
+                          cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
+                          fontSize: '1.2rem',
+                          fontWeight: 800,
+                          color: quantity <= 1 ? '#94a3b8' : '#0f172a',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="تقليل الكمية"
+                      >
+                        -
+                      </button>
+
+                      <input
+                        type="number"
+                        min={1}
+                        max={selectedPackage.availableStock || 10}
+                        value={quantity}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (isNaN(val)) {
+                            setQuantity(1);
+                          } else {
+                            const maxStock = Math.min(10, selectedPackage.availableStock || 10);
+                            setQuantity(Math.min(maxStock, Math.max(1, val)));
+                          }
+                        }}
+                        style={{
+                          width: 50,
+                          height: 38,
+                          textAlign: 'center',
+                          border: 'none',
+                          fontSize: '1rem',
+                          fontWeight: 900,
+                          color: '#0f172a',
+                          outline: 'none',
+                          direction: 'ltr'
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const maxStock = Math.min(10, selectedPackage.availableStock || 10);
+                          setQuantity(q => Math.min(maxStock, q + 1));
+                        }}
+                        disabled={quantity >= Math.min(10, selectedPackage.availableStock || 10)}
+                        style={{
+                          width: 38,
+                          height: 38,
+                          background: quantity >= Math.min(10, selectedPackage.availableStock || 10) ? '#f1f5f9' : '#ffffff',
+                          border: 'none',
+                          borderRight: '1px solid #e2e8f0',
+                          cursor: quantity >= Math.min(10, selectedPackage.availableStock || 10) ? 'not-allowed' : 'pointer',
+                          fontSize: '1.2rem',
+                          fontWeight: 800,
+                          color: quantity >= Math.min(10, selectedPackage.availableStock || 10) ? '#94a3b8' : '#0f172a',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="زيادة الكمية"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Price Breakdown Calculation */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingTop: 8,
+                    borderTop: '1px solid #e2e8f0',
+                    fontSize: '0.82rem'
+                  }}>
+                    <span style={{ color: '#64748b' }}>
+                      السعر للبطاقة: <strong>{formatCurrency(unitPrice, currency)}</strong>
+                    </span>
+                    <span style={{ color: '#0f172a', fontWeight: 800 }}>
+                      الإجمالي ({quantity} {quantity > 1 ? 'بطاقات' : 'بطاقة'}): {formatCurrency(unitPrice * quantity, currency)}
                     </span>
                   </div>
                 </div>
@@ -1222,21 +1588,21 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                         height: 36,
                         borderRadius: 10,
                         background: '#000000',
-                        border: '1px solid #FBBF24',
+                        border: cardNetwork === 'VISA' ? '1px solid #3B82F6' : '1px solid #FBBF24',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: '#FBBF24',
-                        boxShadow: '0 2px 8px rgba(250, 204, 21, 0.2)'
+                        color: cardNetwork === 'VISA' ? '#60A5FA' : '#FBBF24',
+                        boxShadow: cardNetwork === 'VISA' ? '0 2px 8px rgba(59, 130, 246, 0.2)' : '0 2px 8px rgba(250, 204, 21, 0.2)'
                       }}>
                         <CreditCard size={20} />
                       </div>
                       <div>
                         <h4 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
-                          بطاقة كيرو برو الافتراضية
+                          {(selectedPackage as any)?.arabicName || selectedPackage?.name || `بطاقة ${cardNetwork}`}
                         </h4>
                         <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
-                          KiroPro Virtual Mastercard
+                          {cardNetwork} Virtual Card • {cardCurrency}
                         </span>
                       </div>
                     </div>
@@ -1246,15 +1612,15 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                         Card Balance
                       </span>
                       <span style={{ fontSize: '1rem', fontWeight: 900, color: '#10B981' }}>
-                        $1.00 USD
+                        {cardCurrencySymbol}{Number(cardFaceValue).toFixed(2)} {cardCurrency}
                       </span>
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 10, fontSize: '0.85rem' }}>
-                    <span style={{ color: '#CBD5E1', fontWeight: 700 }}>سعر إصدار البطاقة:</span>
+                    <span style={{ color: '#CBD5E1', fontWeight: 700 }}>سعر شراء البطاقة:</span>
                     <strong style={{ color: '#FBBF24', fontSize: '1.1rem', fontWeight: 900 }}>
-                      {formatCurrency(finalPrice, currency)} ($2.00)
+                      {formatCurrency(finalPrice, currency)}
                     </strong>
                   </div>
                 </div>
@@ -1283,7 +1649,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     }}
                   >
                     <CreditCard size={16} />
-                    <span>رصيد المتجر ($2.00)</span>
+                    <span>رصيد المتجر ({formatCurrency(finalPrice, currency)})</span>
                   </button>
 
                   <button
@@ -1308,7 +1674,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     }}
                   >
                     <Key size={16} />
-                    <span>كود إصدار ($2.00)</span>
+                    <span>كود إصدار</span>
                   </button>
                 </div>
 
@@ -1625,15 +1991,17 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
                   >
                     {isProcessing ? (
-                      <span>{isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
+                      <span>{isVoucher ? 'جاري إصدار وتشفير الأكواد الرقمية...' : isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
                     ) : (
-                      <span>{isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
+                      <span>{isVoucher ? (quantity > 1 ? `شراء ${quantity} بطاقات واستلام الأكواد فوراً ⚡` : 'شراء البطاقة واستلام الكود فوراً ⚡') : isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
                     )}
                   </button>
                 )}
 
                 <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
-                  {isDigitalAccount
+                  {isVoucher
+                    ? '🔒 يتم خصم المبلغ من رصيد محفظتك المسبق الدفع وتسليم كود القسيمة فورياً مع حفظه مشفراً في حسابك.'
+                    : isDigitalAccount
                     ? '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وتسليم بيانات الحساب فورياً.'
                     : '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وإرسال الطلب تلقائياً لمزود الخدمة.'}
                 </p>

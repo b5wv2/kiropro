@@ -209,3 +209,17 @@ export function parseCsvLine(line: string): string[] {
   result.push(current.trim());
   return result;
 }
+
+/**
+ * Detects card network based on standard BIN prefixes.
+ * Visa: starts with 4
+ * Mastercard: starts with 51-55 or 2221-2720
+ */
+export function detectCardNetwork(cleanNum: string): 'VISA' | 'MASTERCARD' | 'UNKNOWN' {
+  if (!cleanNum || typeof cleanNum !== 'string') return 'UNKNOWN';
+  if (cleanNum.startsWith('4')) return 'VISA';
+  if (/^(5[1-5]|222[1-9]|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)/.test(cleanNum)) {
+    return 'MASTERCARD';
+  }
+  return 'UNKNOWN';
+}

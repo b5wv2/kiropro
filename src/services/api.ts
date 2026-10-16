@@ -1,4 +1,4 @@
-import { Game, Order, DigitalAccountCredential } from '../types';
+import { Game, Order, DigitalAccountCredential, VoucherCodeItem, AdminVoucherProduct } from '../types';
 import { api } from '../lib/api';
 
 let cachedGames: { data: Game[]; timestamp: number } | null = null;
@@ -422,6 +422,88 @@ export async function updateProviderSettings(
 ): Promise<{ success: boolean; message: string; settings: any }> {
   return api.patch(`/api/admin/providers/${provider}`, settings);
 }
+
+export async function fetchVoucherCatalog(): Promise<{
+  success: boolean;
+  exchangeRate: number;
+  categories: Array<{
+    id: string;
+    name: string;
+    gameKey: 'freefire' | 'pubg';
+    badge: string;
+    imageUrl: string;
+    items: Array<{
+      id: string;
+      voucherId: number;
+      title: string;
+      originalTitle: string;
+      description?: string;
+      gameKey: string;
+      faceValue: number | null;
+      priceUsd: number;
+      priceSdg: number;
+      inStock: boolean;
+      stock: number;
+      imageUrl: string;
+    }>;
+  }>;
+}> {
+  return api.get('/api/vouchers/catalog');
+}
+
+export async function purchaseVoucher(payload: {
+  productId?: string;
+  voucherId?: number;
+  quantity?: number;
+}): Promise<{
+  success: boolean;
+  orderId: string;
+  status: string;
+  packageName: string;
+  gameKey: string;
+  quantity: number;
+  totalCharged: number;
+  currency: string;
+  codes: string[];
+  maskedCodes: string[];
+  message: string;
+}> {
+  return api.post('/api/vouchers/purchase', payload);
+}
+
+export async function fetchOrderVoucherCodes(orderId: string): Promise<{
+  success: boolean;
+  orderId: string;
+  packageName: string;
+  quantity: number;
+  codes: VoucherCodeItem[];
+}> {
+  return api.get(`/api/orders/${orderId}/voucher-codes`);
+}
+
+export async function fetchAdminVouchers(): Promise<{
+  success: boolean;
+  stats: any;
+  products: AdminVoucherProduct[];
+}> {
+  return api.get('/api/admin/vouchers');
+}
+
+export async function updateAdminVoucher(
+  id: string,
+  data: { customerPriceUsd?: number | null; isActive?: boolean; customImageUrl?: string | null; arabicTitle?: string | null }
+): Promise<{ success: boolean; message: string; product: AdminVoucherProduct }> {
+  return api.patch(`/api/admin/vouchers/${id}`, data);
+}
+
+export async function syncAdminVouchers(): Promise<{
+  success: boolean;
+  message: string;
+  stats: any;
+}> {
+  return api.post('/api/admin/vouchers/sync', {});
+}
+
 
 
 

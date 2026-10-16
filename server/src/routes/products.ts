@@ -155,6 +155,7 @@ router.get('/', async (req: Request, res: Response) => {
           p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
           p."platformCode", p."platformName", p."regionCode", p."regionName",
           p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          p.card_network, p.card_currency, p.face_value,
           p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
           p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
           p."gameCategoryId",
@@ -192,6 +193,7 @@ router.get('/', async (req: Request, res: Response) => {
           p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
           p."platformCode", p."platformName", p."regionCode", p."regionName",
           p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+          p.card_network, p.card_currency, p.face_value,
           'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
           p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
           p."gameCategoryId",
@@ -348,7 +350,7 @@ router.get('/', async (req: Request, res: Response) => {
         itemType = 'شحن جواهر فري فاير مباشر (Free Fire Diamonds)';
         itemCategory = 'games';
       } else if (groupKey === 'kiropro-card' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD') {
-        itemType = 'بطاقة ماستركارد افتراضية (KiroPro Virtual Card)';
+        itemType = 'بطاقات افتراضية مسبقة الدفع (Visa & Mastercard)';
         itemCategory = 'cards';
       } else if (groupKey === 'google-play-points' || row.productType === 'DIGITAL_ACCOUNT') {
         itemType = 'حساب نقاط تشغيل فوري (Google Account)';
@@ -400,6 +402,11 @@ router.get('/', async (req: Request, res: Response) => {
         description: row.description,
         subCategory: row.subCategory,
         productType: row.productType,
+        cardNetwork: row.card_network || (row.productType === 'VIRTUAL_CARD' ? 'MASTERCARD' : undefined),
+        cardCurrency: row.card_currency || (row.productType === 'VIRTUAL_CARD' ? 'USD' : undefined),
+        faceValue: row.face_value !== null && row.face_value !== undefined ? Number(row.face_value) : undefined,
+        regionCode: row.regionCode,
+        regionName: row.regionName,
         imageUrl: resolvedPackageImage,
         price: pkgPrice,
         priceSdg: pkgPriceSdg,
@@ -455,6 +462,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
             p."platformCode", p."platformName", p."regionCode", p."regionName",
             p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+            p.card_network, p.card_currency, p.face_value,
             p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
             p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
             c."imageUrl" as "categoryImageUrl",
@@ -483,6 +491,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
             p."platformCode", p."platformName", p."regionCode", p."regionName",
             p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
+            p.card_network, p.card_currency, p.face_value,
             'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
             p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
             c."imageUrl" as "categoryImageUrl",
@@ -539,6 +548,11 @@ router.get('/:id', async (req: Request, res: Response) => {
           description: row.description,
           subCategory: row.subCategory,
           productType: row.productType,
+          cardNetwork: row.card_network || (row.productType === 'VIRTUAL_CARD' ? 'MASTERCARD' : undefined),
+          cardCurrency: row.card_currency || (row.productType === 'VIRTUAL_CARD' ? 'USD' : undefined),
+          faceValue: row.face_value !== null && row.face_value !== undefined ? Number(row.face_value) : undefined,
+          regionCode: row.regionCode,
+          regionName: row.regionName,
           imageUrl: resolveImageUrl(row.productImageUrl, row.categoryImageUrl || categoryImageUrl),
           price: pkgPrice,
           priceSdg: pkgPriceSdg,
@@ -957,7 +971,7 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
   let paramIdx = 1;
 
   if (search) {
-    whereClauses.push(`(p."productName" ILIKE $${paramIdx} OR p."offerName" ILIKE $${paramIdx} OR p."providerOfferId"::text ILIKE $${paramIdx} OR p."platformName" ILIKE $${paramIdx} OR p."regionName" ILIKE $${paramIdx})`);
+    whereClauses.push(`(p."productName" ILIKE $${paramIdx} OR p."offerName" ILIKE $${paramIdx} OR p."arabicName" ILIKE $${paramIdx} OR p."providerOfferId"::text ILIKE $${paramIdx} OR p."platformName" ILIKE $${paramIdx} OR p."regionName" ILIKE $${paramIdx})`);
     params.push(`%${search}%`);
     paramIdx++;
   }
@@ -991,7 +1005,7 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
   } else if (providerFilter === 'gamesdrop_only') {
     whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true) AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)`);
   } else if (providerFilter === 'g2bulk_only') {
-    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true) AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'GAMESDROP' AND ppm."isActive" = true)`);
+    whereClauses.push(`EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true) AND NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm.provider = 'G2BULK' AND ppm."isActive" = true)`);
   } else if (providerFilter === 'missing_provider') {
     whereClauses.push(`NOT EXISTS (SELECT 1 FROM product_provider_mappings ppm WHERE ppm."productId" = p.id AND ppm."isActive" = true)`);
   }
@@ -1029,10 +1043,12 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
       pool.query(`
         SELECT 
           p.id, p."provider", p."providerOfferId", p."productId", p."productName", p."offerName",
+          p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
           p."category", p."platformCode", p."platformName", p."regionCode", p."regionName",
           p."supplierCostUsd", p."gamesDropCostUsd", p."gamesDropAddedPercent", p."gamesDropFxRate",
-          p."providerCostUsd", p."providerCurrency", p."customerPriceUsd", p."isActive",
-          p."inStock", p."imageUrl", p."displayOrder", p."isFeatured", p."gameCategoryId",
+          p."providerCostUsd", p."providerCurrency", p."customerPriceUsd", p."defaultPartnerPriceUsd",
+          p.card_network, p.card_currency, p.face_value,
+          p."isActive", p."inStock", p."imageUrl", p."displayOrder", p."isFeatured", p."gameCategoryId",
           p."requiresGameUserId", p."requiresGameServerId", p."lastProviderSyncAt",
           p."primaryProvider", p."fallbackProvider", p."fallbackEnabled",
           p."createdAt", p."updatedAt"
@@ -1178,6 +1194,7 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
   const { id } = req.params;
   const {
     customerPriceUsd,
+    defaultPartnerPriceUsd,
     isActive,
     imageUrl,
     productName,
@@ -1192,6 +1209,9 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
     fallbackProvider,
     fallbackEnabled,
     inStock,
+    cardNetwork,
+    cardCurrency,
+    faceValue,
     providerMappings
   } = req.body;
 
@@ -1224,6 +1244,10 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
     if (customerPriceUsd !== undefined) {
       updates.push(`"customerPriceUsd" = $${paramIdx++}`);
       values.push(customerPriceUsd !== null && customerPriceUsd !== '' ? Number(customerPriceUsd) : null);
+    }
+    if (defaultPartnerPriceUsd !== undefined) {
+      updates.push(`"defaultPartnerPriceUsd" = $${paramIdx++}`);
+      values.push(defaultPartnerPriceUsd !== null && defaultPartnerPriceUsd !== '' ? Number(defaultPartnerPriceUsd) : null);
     }
     if (isActive !== undefined) {
       updates.push(`"isActive" = $${paramIdx++}`);
@@ -1268,6 +1292,18 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
     if (productType !== undefined) {
       updates.push(`"productType" = $${paramIdx++}`);
       values.push(productType);
+    }
+    if (cardNetwork !== undefined) {
+      updates.push(`"card_network" = $${paramIdx++}`);
+      values.push(cardNetwork ? String(cardNetwork).toUpperCase() : null);
+    }
+    if (cardCurrency !== undefined) {
+      updates.push(`"card_currency" = $${paramIdx++}`);
+      values.push(cardCurrency ? String(cardCurrency).toUpperCase() : null);
+    }
+    if (faceValue !== undefined) {
+      updates.push(`"face_value" = $${paramIdx++}`);
+      values.push(faceValue !== null && faceValue !== '' ? Number(faceValue) : null);
     }
     if (primaryProvider !== undefined) {
       updates.push(`"primaryProvider" = $${paramIdx++}`);

@@ -710,7 +710,8 @@ export class PartnerService {
     const stockRes = await pool.query(
       `SELECT COUNT(*)::int as "availableStock" 
        FROM kiropro_cards_inventory 
-       WHERE status = 'AVAILABLE'`
+       WHERE status = 'AVAILABLE' AND product_id = $1`,
+      [CARD_PRODUCT_ID]
     );
     const availableStock = stockRes.rows[0]?.availableStock || 0;
 
@@ -820,10 +821,11 @@ export class PartnerService {
       const cardRes = await client.query(
         `SELECT id, card_last4, exp_date, balance
          FROM kiropro_cards_inventory
-         WHERE status = 'AVAILABLE'
+         WHERE status = 'AVAILABLE' AND product_id = $1
          ORDER BY created_at ASC
          LIMIT 1
-         FOR UPDATE SKIP LOCKED`
+         FOR UPDATE SKIP LOCKED`,
+        [CARD_PRODUCT_ID]
       );
       if (cardRes.rows.length === 0) {
         throw new Error('نفد مخزون بطاقات Mastercard المتاحة حالياً في المخزون.');

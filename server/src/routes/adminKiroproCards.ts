@@ -15,7 +15,8 @@ import {
   isValidCvv,
   isValidLuhn,
   hashCardNumber,
-  parseCsvLine
+  parseCsvLine,
+  detectCardNetwork
 } from '../utils/cryptoCard';
 
 const router = Router();
@@ -47,6 +48,29 @@ router.get('/stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
       FROM kiropro_card_vouchers
     `);
 
+    const byProductRes = await pool.query(`
+      SELECT 
+        p.id as "productId",
+        p."productName",
+        p."arabicName",
+        p.card_network as "cardNetwork",
+        p.card_currency as "cardCurrency",
+        p.face_value as "faceValue",
+        p."customerPriceUsd" as "customerPriceUsd",
+        p."defaultPartnerPriceUsd" as "defaultPartnerPriceUsd",
+        p."isActive",
+        p."inStock",
+        COUNT(c.id) FILTER (WHERE c.status = 'AVAILABLE')::int as "available",
+        COUNT(c.id) FILTER (WHERE c.status = 'CLAIMED')::int as "claimed",
+        COUNT(c.id) FILTER (WHERE c.status = 'DISABLED')::int as "disabled",
+        COUNT(c.id)::int as "total"
+      FROM "Product" p
+      LEFT JOIN kiropro_cards_inventory c ON c.product_id = p.id
+      WHERE p."productType" = 'VIRTUAL_CARD' OR p."gameCategoryId" = 'kiropro-card'
+      GROUP BY p.id
+      ORDER BY p."displayOrder" ASC, p.face_value ASC
+    `);
+
     // Get configurable settings
     const settingsRes = await pool.query(
       `SELECT value FROM platform_settings WHERE key = 'kiropro_card_settings'`
@@ -68,11 +92,47 @@ router.get('/stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
       isLowStock: availableCards <= lowStockThreshold,
       totalVouchers: Number(vStats.totalVouchers || 0),
       redeemedVouchers: Number(vStats.redeemedVouchers || 0),
-      availableVouchers: Number(vStats.availableVouchers || 0)
+      availableVouchers: Number(vStats.availableVouchers || 0),
+      byProduct: byProductRes.rows
     });
   } catch (err: any) {
     console.error('[AdminKiroProCards] Failed to fetch stats:', err.message);
     res.status(500).json({ error: 'فشل جلب إحصائيات المخزون.' });
+  }
+});
+
+// ==========================================
+// 1.1 VIRTUAL CARD PRODUCTS LIST (For Multi-Tier Management)
+// ==========================================
+router.get('/products', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.id,
+        p."productName",
+        p."arabicName",
+        p."customerPriceUsd",
+        p."defaultPartnerPriceUsd",
+        p."isActive",
+        p."inStock",
+        p."imageUrl",
+        p.card_network as "cardNetwork",
+        p.card_currency as "cardCurrency",
+        p.face_value as "faceValue",
+        COUNT(c.id) FILTER (WHERE c.status = 'AVAILABLE')::int as "availableStock",
+        COUNT(c.id) FILTER (WHERE c.status = 'CLAIMED')::int as "claimedStock",
+        COUNT(c.id) FILTER (WHERE c.status = 'DISABLED')::int as "disabledStock",
+        COUNT(c.id)::int as "totalStock"
+      FROM "Product" p
+      LEFT JOIN kiropro_cards_inventory c ON c.product_id = p.id
+      WHERE p."productType" = 'VIRTUAL_CARD' OR p."gameCategoryId" = 'kiropro-card'
+      GROUP BY p.id
+      ORDER BY p."displayOrder" ASC, p.face_value ASC
+    `);
+    res.json({ success: true, products: result.rows });
+  } catch (err: any) {
+    console.error('[AdminKiroProCards] Failed to list card products:', err.message);
+    res.status(500).json({ error: 'فشل جلب قائمة منتجات البطاقات الافتراضية.' });
   }
 });
 
@@ -84,6 +144,7 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
   const offset = (page - 1) * limit;
   const statusFilter = (req.query.status as string || 'ALL').toUpperCase();
+  const productIdFilter = (req.query.productId as string || '').trim();
   const search = (req.query.search as string || '').trim();
 
   try {
@@ -93,6 +154,11 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
     if (statusFilter !== 'ALL' && ['AVAILABLE', 'CLAIMED', 'DISABLED'].includes(statusFilter)) {
       params.push(statusFilter);
       whereClauses.push(`c.status = $${params.length}`);
+    }
+
+    if (productIdFilter && productIdFilter !== 'ALL') {
+      params.push(productIdFilter);
+      whereClauses.push(`c.product_id = $${params.length}`);
     }
 
     if (search) {
@@ -121,6 +187,11 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
          c.exp_date as "expDate",
          c.balance,
          c.status,
+         c.card_network as "cardNetwork",
+         c.currency,
+         c.product_id as "productId",
+         p."productName",
+         p."arabicName",
          c.order_id as "orderId",
          c.assigned_at as "assignedAt",
          c.created_at as "createdAt",
@@ -128,6 +199,7 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
          u.email as "customerEmail",
          u.name as "customerName"
        FROM kiropro_cards_inventory c
+       LEFT JOIN "Product" p ON c.product_id = p.id
        LEFT JOIN "User" u ON c.assigned_to_user_id = u.id
        ${whereSql}
        ORDER BY c.created_at DESC
@@ -142,6 +214,10 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
       expDate: row.expDate,
       balance: Number(row.balance),
       status: row.status,
+      cardNetwork: row.cardNetwork || 'MASTERCARD',
+      currency: row.currency || 'USD',
+      productId: row.productId,
+      productName: row.arabicName || row.productName || 'Virtual Card',
       orderId: row.orderId,
       assignedAt: row.assignedAt,
       createdAt: row.createdAt,
@@ -174,7 +250,7 @@ router.get('/inventory', requireAdmin, async (req: AuthRequest, res: Response) =
 // 3. ADD SINGLE CARD
 // ==========================================
 router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { cardNumber, expDate, cvv, balance } = req.body;
+  const { cardNumber, expDate, cvv, balance, productId: reqProductId } = req.body;
   const adminId = req.user?.id;
 
   try {
@@ -195,19 +271,49 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'رمز الأمان CVV يجب أن يتكون من 3 أرقام.' });
     }
 
-    const cardBalance = Number(balance || 1.00);
+    // Resolve target product for KiroPro Card
+    let targetProduct: any = null;
+    if (reqProductId) {
+      const pRes = await pool.query(
+        `SELECT id, "productName", "arabicName", card_network, card_currency, face_value FROM "Product" WHERE id = $1`,
+        [reqProductId]
+      );
+      targetProduct = pRes.rows[0];
+    }
+    if (!targetProduct) {
+      const pRes = await pool.query(
+        `SELECT id, "productName", "arabicName", card_network, card_currency, face_value 
+         FROM "Product" 
+         WHERE "productType" = 'VIRTUAL_CARD' 
+         ORDER BY "displayOrder" ASC LIMIT 1`
+      );
+      targetProduct = pRes.rows[0];
+    }
+
+    if (!targetProduct) {
+      return res.status(400).json({ error: 'لم يتم العثور على منتج بطاقة صالح.' });
+    }
+
+    const productId = targetProduct.id;
+    const expectedNetwork = (targetProduct.card_network || 'MASTERCARD').toUpperCase();
+    const cardCurrency = (targetProduct.card_currency || 'USD').toUpperCase();
+    const cardBalance = balance !== undefined && balance !== '' ? Number(balance) : Number(targetProduct.face_value || 1.00);
+
     if (isNaN(cardBalance) || cardBalance < 0) {
       return res.status(400).json({ error: 'رصيد البطاقة غير صالح.' });
     }
 
+    // Validate network prefix
+    const detectedNetwork = detectCardNetwork(cleanNum);
+    if (detectedNetwork !== 'UNKNOWN' && detectedNetwork !== expectedNetwork) {
+      return res.status(400).json({
+        error: `رقم البطاقة المدخل يتبع شبكة ${detectedNetwork}، بينما المنتج المختار (${targetProduct.arabicName || targetProduct.productName}) مخصص لشبكة ${expectedNetwork}.`
+      });
+    }
+
+    const finalNetwork = detectedNetwork !== 'UNKNOWN' ? detectedNetwork : expectedNetwork;
     const last4 = extractLast4(cleanNum);
     const cardHash = hashCardNumber(cleanNum);
-
-    // Get product ID for KiroPro Card
-    const prodRes = await pool.query(
-      `SELECT id FROM "Product" WHERE "productType" = 'VIRTUAL_CARD' LIMIT 1`
-    );
-    const productId = prodRes.rows[0]?.id || 'b0000000-0000-0000-0000-000000000001';
 
     // Duplicate check using card_hash (deterministic cryptographic fingerprint)
     const dupCheck = await pool.query(
@@ -224,11 +330,14 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
 
     const insertRes = await pool.query(
       `INSERT INTO kiropro_cards_inventory (
-         id, product_id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, status, card_hash
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8)
-       RETURNING id, card_last4, exp_date, balance, status, created_at`,
-      [uuidv4(), productId, cardNumberEncrypted, last4, expDate.trim(), cvvEncrypted, cardBalance, cardHash]
+         id, product_id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, status, card_hash, card_network, currency
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8, $9, $10)
+       RETURNING id, card_last4, exp_date, balance, status, card_network, currency, created_at`,
+      [uuidv4(), productId, cardNumberEncrypted, last4, expDate.trim(), cvvEncrypted, cardBalance, cardHash, finalNetwork, cardCurrency]
     );
+
+    // Ensure product inStock is set to true
+    await pool.query('UPDATE "Product" SET "inStock" = true, "updatedAt" = NOW() WHERE id = $1', [productId]);
 
     const newCard = insertRes.rows[0];
 
@@ -236,7 +345,7 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
     await pool.query(
       `INSERT INTO "AuditLog" (id, "adminId", action, reason) 
        VALUES ($1, $2, 'ADD_KIROPRO_CARD', $3)`,
-      [uuidv4(), adminId, `إضافة بطاقة جديدة تنتهي بالرقم ${last4}`]
+      [uuidv4(), adminId, `إضافة بطاقة جديدة (${finalNetwork} ${cardCurrency} ${cardBalance}) تنتهي بالرقم ${last4}`]
     );
 
     res.status(201).json({
@@ -249,6 +358,8 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
         expDate: newCard.exp_date,
         balance: Number(newCard.balance),
         status: newCard.status,
+        cardNetwork: newCard.card_network,
+        currency: newCard.currency,
         createdAt: newCard.created_at
       }
     });
@@ -361,10 +472,38 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
   }
 
   // 6. Connect to DB and begin atomic import transaction
-  const prodRes = await pool.query(
-    `SELECT id FROM "Product" WHERE "productType" = 'VIRTUAL_CARD' LIMIT 1`
-  );
-  const productId = prodRes.rows[0]?.id || 'b0000000-0000-0000-0000-000000000001';
+  const reqProductId = req.body.productId;
+  let targetProduct: any = null;
+  if (reqProductId) {
+    const pRes = await pool.query(
+      `SELECT id, "productName", "arabicName", card_network, card_currency, face_value FROM "Product" WHERE id = $1`,
+      [reqProductId]
+    );
+    targetProduct = pRes.rows[0];
+  }
+  if (!targetProduct) {
+    const pRes = await pool.query(
+      `SELECT id, "productName", "arabicName", card_network, card_currency, face_value 
+       FROM "Product" 
+       WHERE "productType" = 'VIRTUAL_CARD' 
+       ORDER BY "displayOrder" ASC LIMIT 1`
+    );
+    targetProduct = pRes.rows[0];
+  }
+
+  if (!targetProduct) {
+    return res.status(400).json({
+      success: false,
+      code: 'PRODUCT_NOT_FOUND',
+      message: 'لم يتم العثور على منتج بطاقة صالح للاستيراد إليه.',
+      errors: []
+    });
+  }
+
+  const productId = targetProduct.id;
+  const expectedNetwork = (targetProduct.card_network || 'MASTERCARD').toUpperCase();
+  const cardCurrency = (targetProduct.card_currency || 'USD').toUpperCase();
+  const defaultProductFaceValue = Number(targetProduct.face_value || 1.00);
 
   const client = await pool.connect();
   const errors: Array<{ row: number; reason: string }> = [];
@@ -416,8 +555,19 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
         continue;
       }
 
+      // Network validation against product
+      const detectedNetwork = detectCardNetwork(cleanNum);
+      if (detectedNetwork !== 'UNKNOWN' && detectedNetwork !== expectedNetwork) {
+        errors.push({
+          row: rowNumber,
+          reason: `شبكة البطاقة (${detectedNetwork}) لا تتطابق مع شبكة المنتج المختار (${expectedNetwork})`
+        });
+        continue;
+      }
+      const finalNetwork = detectedNetwork !== 'UNKNOWN' ? detectedNetwork : expectedNetwork;
+
       // Balance validation
-      const defaultBal = req.body.defaultBalance ? Number(req.body.defaultBalance) : 1.00;
+      const defaultBal = req.body.defaultBalance ? Number(req.body.defaultBalance) : defaultProductFaceValue;
       const cardBalance = rawBal !== undefined && rawBal !== '' ? Number(rawBal) : defaultBal;
       if (isNaN(cardBalance) || cardBalance < 0) {
         errors.push({ row: rowNumber, reason: 'رصيد البطاقة غير صالح (يجب أن يكون رقماً أكبر من أو يساوي 0)' });
@@ -449,9 +599,9 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
 
       await client.query(
         `INSERT INTO kiropro_cards_inventory (
-           id, product_id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, status, card_hash
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8)`,
-        [uuidv4(), productId, numEnc, last4, rawExp, cvvEnc, cardBalance, cardHash]
+           id, product_id, card_number_encrypted, card_last4, exp_date, cvv_encrypted, balance, status, card_hash, card_network, currency
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'AVAILABLE', $8, $9, $10)`,
+        [uuidv4(), productId, numEnc, last4, rawExp, cvvEnc, cardBalance, cardHash, finalNetwork, cardCurrency]
       );
 
       importedCount++;
@@ -471,6 +621,11 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
     }
 
     await client.query('COMMIT');
+
+    // Ensure product inStock is true if cards were imported
+    if (importedCount > 0) {
+      await pool.query('UPDATE "Product" SET "inStock" = true, "updatedAt" = NOW() WHERE id = $1', [productId]);
+    }
 
     // 8. Audit Log (Never log full card numbers or CSV contents)
     if (importedCount > 0) {
@@ -771,8 +926,9 @@ router.patch('/vouchers/:id/toggle-disable', requireAdmin, async (req: AuthReque
 // ==========================================
 // 9. SETTINGS & LOW STOCK CONFIG
 // ==========================================
-router.get('/settings', requireAdmin, async (_req: AuthRequest, res: Response) => {
+router.get('/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
+    const productId = (req.query.productId as string || '').trim();
     const settingsRes = await pool.query(
       `SELECT value FROM platform_settings WHERE key = 'kiropro_card_settings'`
     );
@@ -782,12 +938,14 @@ router.get('/settings', requireAdmin, async (_req: AuthRequest, res: Response) =
       defaultBalance: 1.00
     };
 
-    // Also get product price and isActive
-    const prodRes = await pool.query(
-      `SELECT id, "customerPriceUsd", "isActive", "inStock", description 
-       FROM "Product" 
-       WHERE "productType" = 'VIRTUAL_CARD' LIMIT 1`
-    );
+    let prodQuery = `SELECT id, "productName", "arabicName", "customerPriceUsd", "defaultPartnerPriceUsd", "isActive", "inStock", description, card_network as "cardNetwork", card_currency as "cardCurrency", face_value as "faceValue" FROM "Product" WHERE "productType" = 'VIRTUAL_CARD' ORDER BY "displayOrder" ASC LIMIT 1`;
+    let prodParams: any[] = [];
+    if (productId) {
+      prodQuery = `SELECT id, "productName", "arabicName", "customerPriceUsd", "defaultPartnerPriceUsd", "isActive", "inStock", description, card_network as "cardNetwork", card_currency as "cardCurrency", face_value as "faceValue" FROM "Product" WHERE id = $1`;
+      prodParams = [productId];
+    }
+
+    const prodRes = await pool.query(prodQuery, prodParams);
     const product = prodRes.rows[0];
 
     res.json({
@@ -795,8 +953,15 @@ router.get('/settings', requireAdmin, async (_req: AuthRequest, res: Response) =
       settings: {
         lowStockThreshold: Number(settings.lowStockThreshold || 10),
         complianceNotice: settings.complianceNotice || '',
-        defaultBalance: Number(settings.defaultBalance || 1.00),
+        defaultBalance: product ? Number(product.faceValue || 1.00) : Number(settings.defaultBalance || 1.00),
+        productId: product?.id,
+        productName: product?.productName,
+        arabicName: product?.arabicName,
+        cardNetwork: product?.cardNetwork,
+        cardCurrency: product?.cardCurrency,
+        faceValue: product ? Number(product.faceValue || 1.00) : 1.00,
         productPriceUsd: product ? Number(product.customerPriceUsd) : 2.00,
+        partnerPriceUsd: product ? Number(product.defaultPartnerPriceUsd) : null,
         isProductActive: product ? Boolean(product.isActive) : true,
         productDescription: product?.description || ''
       }
@@ -808,7 +973,7 @@ router.get('/settings', requireAdmin, async (_req: AuthRequest, res: Response) =
 });
 
 router.patch('/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
-  const { lowStockThreshold, complianceNotice, defaultBalance, productPriceUsd, isProductActive } = req.body;
+  const { lowStockThreshold, complianceNotice, defaultBalance, productPriceUsd, defaultPartnerPriceUsd, isProductActive, productId: reqProductId } = req.body;
   const adminId = req.user?.id;
 
   try {
@@ -826,18 +991,36 @@ router.patch('/settings', requireAdmin, async (req: AuthRequest, res: Response) 
       [updatedSettings]
     );
 
-    // Update Product price and active status if supplied
-    if (productPriceUsd !== undefined || isProductActive !== undefined) {
-      const price = parseFloat(productPriceUsd);
-      const active = Boolean(isProductActive);
+    // Update Product price and active status if supplied for a specific product
+    if (productPriceUsd !== undefined || defaultPartnerPriceUsd !== undefined || isProductActive !== undefined) {
+      const targetProdId = reqProductId || 'b0000000-0000-0000-0000-000000000001';
+      const updates: string[] = ['"updatedAt" = CURRENT_TIMESTAMP'];
+      const uParams: any[] = [targetProdId];
+
+      if (productPriceUsd !== undefined && productPriceUsd !== null && productPriceUsd !== '') {
+        const p = parseFloat(productPriceUsd);
+        if (!isNaN(p)) {
+          uParams.push(p);
+          updates.push(`"customerPriceUsd" = $${uParams.length}`);
+        }
+      }
+
+      if (defaultPartnerPriceUsd !== undefined && defaultPartnerPriceUsd !== null && defaultPartnerPriceUsd !== '') {
+        const pp = parseFloat(defaultPartnerPriceUsd);
+        if (!isNaN(pp)) {
+          uParams.push(pp);
+          updates.push(`"defaultPartnerPriceUsd" = $${uParams.length}`);
+        }
+      }
+
+      if (isProductActive !== undefined) {
+        uParams.push(Boolean(isProductActive));
+        updates.push(`"isActive" = $${uParams.length}`);
+      }
 
       await pool.query(
-        `UPDATE "Product" 
-         SET "customerPriceUsd" = COALESCE($1, "customerPriceUsd"),
-             "isActive" = COALESCE($2, "isActive"),
-             "updatedAt" = CURRENT_TIMESTAMP
-         WHERE "productType" = 'VIRTUAL_CARD'`,
-        [isNaN(price) ? null : price, active]
+        `UPDATE "Product" SET ${updates.join(', ')} WHERE id = $1`,
+        uParams
       );
     }
 
