@@ -62,7 +62,7 @@ app.use(helmet({
   hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
   noSniff: true, // X-Content-Type-Options: nosniff
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
-}));
+}) as unknown as express.RequestHandler);
 
 // 2. Parse Frontend Origins strictly from FRONTEND_URL environment variable
 // Supports comma-separated list of origins and strips trailing slashes
@@ -106,20 +106,45 @@ app.use(cors({
     "Origin"
   ],
   optionsSuccessStatus: 200
-}));
+}) as unknown as express.RequestHandler);
 app.use(express.json());
-app.use(cookieParser());
+app.use(cookieParser() as unknown as express.RequestHandler);
 
-// 1. Public Uploads: Dedicated, secure serving for product & category images
-const UPLOADS_PRODUCTS_DIR = path.resolve(__dirname, '../uploads/products');
-if (!fs.existsSync(UPLOADS_PRODUCTS_DIR)) {
-  fs.mkdirSync(UPLOADS_PRODUCTS_DIR, { recursive: true });
+// 1. Public Uploads: Dedicated, secure serving for product & category images with /tmp fallback for Serverless/Read-only filesystems
+const isVercelOrServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+function resolveUploadDir(subfolder: string): string {
+  // If not running in Vercel/serverless, try the standard relative directory first
+  if (!isVercelOrServerless) {
+    try {
+      const preferredDir = path.resolve(__dirname, `../uploads/${subfolder}`);
+      if (!fs.existsSync(preferredDir)) {
+        fs.mkdirSync(preferredDir, { recursive: true });
+      }
+      // Verify directory is writeable
+      const testFile = path.join(preferredDir, `.write-test-${Date.now()}`);
+      fs.writeFileSync(testFile, '');
+      fs.unlinkSync(testFile);
+      return preferredDir;
+    } catch (fsErr: any) {
+      console.warn(`[AssetServer] Relative uploads directory for '${subfolder}' not writeable, falling back to /tmp:`, fsErr.message);
+    }
+  }
+
+  // Fallback to /tmp in read-only / serverless environments (e.g. Vercel)
+  const fallbackDir = path.join('/tmp', `uploads/${subfolder}`);
+  try {
+    if (!fs.existsSync(fallbackDir)) {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+    }
+  } catch (tmpErr: any) {
+    console.warn(`[AssetServer] Warning: Could not create fallback directory '${fallbackDir}':`, tmpErr.message);
+  }
+  return fallbackDir;
 }
 
-const UPLOADS_MARKETPLACE_DIR = path.resolve(__dirname, '../uploads/marketplace');
-if (!fs.existsSync(UPLOADS_MARKETPLACE_DIR)) {
-  fs.mkdirSync(UPLOADS_MARKETPLACE_DIR, { recursive: true });
-}
+const UPLOADS_PRODUCTS_DIR = resolveUploadDir('products');
+const UPLOADS_MARKETPLACE_DIR = resolveUploadDir('marketplace');
 
 const MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
@@ -135,12 +160,14 @@ async function restoreAssetsFromDatabase() {
     const assets = await pool.query('SELECT "filename", "dataBase64" FROM "UploadedAsset"');
     let restoredCount = 0;
     for (const asset of assets.rows) {
-      const targetDir = asset.filename.startsWith('mkt_') ? UPLOADS_MARKETPLACE_DIR : UPLOADS_PRODUCTS_DIR;
-      const filePath = path.join(targetDir, asset.filename);
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, Buffer.from(asset.dataBase64, 'base64'));
-        restoredCount++;
-      }
+      try {
+        const targetDir = asset.filename.startsWith('mkt_') ? UPLOADS_MARKETPLACE_DIR : UPLOADS_PRODUCTS_DIR;
+        const filePath = path.join(targetDir, asset.filename);
+        if (!fs.existsSync(filePath)) {
+          fs.writeFileSync(filePath, Buffer.from(asset.dataBase64, 'base64'));
+          restoredCount++;
+        }
+      } catch {}
     }
     if (restoredCount > 0) {
       console.log(`[AssetServer] Restored ${restoredCount} persistent images from database to disk cache.`);
@@ -261,7 +288,7 @@ app.get('/uploads/marketplace/:filename', async (req: Request, res: Response) =>
 });
 
 // 2. Private Financial Documents: Bank Transfer Receipts (Authenticated & Authorized Only)
-app.use('/uploads/receipts', receiptsRoutes);
+app.use('/uploads/receipts', receiptsRoutes as unknown as express.RequestHandler);
 
 // 1. Dedicated Public Read Products Limiter (High capacity for customer catalog browsing)
 const productsReadLimiter = rateLimit({
@@ -285,12 +312,12 @@ const generalApiLimiter = rateLimit({
   }
 });
 
-app.use('/api/', generalApiLimiter);
+app.use('/api/', generalApiLimiter as unknown as express.RequestHandler);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/wallet', banCheckMiddleware, walletRoutes);
 app.use('/api/orders', banCheckMiddleware, ordersRoutes);
-app.use('/api/products', productsReadLimiter, productsRoutes);
+app.use('/api/products', productsReadLimiter as unknown as express.RequestHandler, productsRoutes as unknown as express.RequestHandler);
 app.use('/api/admin', adminRoutes);
 app.use('/api', banCheckMiddleware, topupRoutes);
 app.use('/api/promo-codes', promoRoutes);
@@ -396,31 +423,37 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  // Start background order polling service (7-second interval)
-  orderPollingService.start();
-  // Start background virtual number polling service (4-second interval)
-  virtualNumberPollingService.start();
+let server: any = null;
 
-  // Start embedded Telegram Bot service with error isolation
-  try {
-    await telegramBotService.start();
-  } catch (botErr: any) {
-    console.error('[TelegramBot] Failed to start bot service on server startup:', botErr.message);
-  }
+if (!process.env.VERCEL) {
+  server = app.listen(PORT, async () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    // Start background order polling service (7-second interval)
+    orderPollingService.start();
+    // Start background virtual number polling service (4-second interval)
+    virtualNumberPollingService.start();
 
-  // Rate-safe Scheduled Catalog Sync (every 30 minutes)
-  const SYNC_INTERVAL_MS = 30 * 60 * 1000;
-  setInterval(async () => {
+    // Start embedded Telegram Bot service with error isolation
     try {
-      console.log('[ScheduledSync] Executing 30-minute background catalog sync...');
-      await catalogSyncService.syncTargetedProducts();
-    } catch (syncErr: any) {
-      console.warn('[ScheduledSync] Background catalog sync notice:', syncErr.message);
+      await telegramBotService.start();
+    } catch (botErr: any) {
+      console.error('[TelegramBot] Failed to start bot service on server startup:', botErr.message);
     }
-  }, SYNC_INTERVAL_MS).unref();
-});
+
+    // Rate-safe Scheduled Catalog Sync (every 30 minutes)
+    const SYNC_INTERVAL_MS = 30 * 60 * 1000;
+    setInterval(async () => {
+      try {
+        console.log('[ScheduledSync] Executing 30-minute background catalog sync...');
+        await catalogSyncService.syncTargetedProducts();
+      } catch (syncErr: any) {
+        console.warn('[ScheduledSync] Background catalog sync notice:', syncErr.message);
+      }
+    }, SYNC_INTERVAL_MS).unref();
+  });
+} else {
+  console.log('[Server] Vercel environment detected - Express app exported directly.');
+}
 
 function gracefulShutdown(signal: string) {
   console.log(`[Server] Received ${signal}. Starting graceful shutdown...`);
@@ -442,17 +475,23 @@ function gracefulShutdown(signal: string) {
     console.warn('[Server] Error stopping telegramBotService:', err.message);
   }
 
-  server.close(() => {
-    console.log('[Server] HTTP server closed.');
-    process.exit(0);
-  });
+  if (server) {
+    server.close(() => {
+      console.log('[Server] HTTP server closed.');
+      process.exit(0);
+    });
 
-  // Force shutdown after 10 seconds if hanging
-  setTimeout(() => {
-    console.error('[Server] Forced shutdown after timeout.');
-    process.exit(1);
-  }, 10000).unref();
+    // Force shutdown after 10 seconds if hanging
+    setTimeout(() => {
+      console.error('[Server] Forced shutdown after timeout.');
+      process.exit(1);
+    }, 10000).unref();
+  } else {
+    process.exit(0);
+  }
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+export default app;
