@@ -1,7 +1,7 @@
 import pool from '../db';
 import { gamesDropClient } from '../providers/gamesdrop/client';
 import { GamesDropSyncResponse } from '../providers/gamesdrop/types';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 export interface SyncCatalogStats {
   productsChecked: number;

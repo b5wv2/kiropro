@@ -2,7 +2,7 @@ import { Router, Response, Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import pool from '../db';
 import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { gamesDropProvider } from '../providers/gamesdrop';
 import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';

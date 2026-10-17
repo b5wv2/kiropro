@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { encryptPassword, decryptPassword, isValidEmail } from '../utils/cryptoAccount';
 
 const router = Router();

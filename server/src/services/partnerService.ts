@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import pool from '../db';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { sendPartnerWelcomeEmail } from './emailService';
 import { sanitizeEmail, isValidEmailFormat } from '../utils/sanitizeEmail';
 import { decryptCardData } from '../utils/cryptoCard';

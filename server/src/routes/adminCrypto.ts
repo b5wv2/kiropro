@@ -16,15 +16,17 @@ import {
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 const router = Router();
 
 // Configure local storage upload for USDT product image matching products.ts
 const uploadsDir = path.resolve(__dirname, '../../uploads/products');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch {}
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {

@@ -1,6 +1,6 @@
 import pool from '../db';
 import { providerRouter } from '../providers/router';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { awardOrderCashback, reverseOrderCashback } from './cashbackService';
 import { processReferralRewardOnOrder } from './referralService';
 import { grantBonusSpinForOrder } from './wheelService';

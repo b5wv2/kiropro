@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcrypt';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { revokeAllUserSessions } from '../services/sessionService';

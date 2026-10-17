@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import pool from '../db';
 import { requirePartner, PartnerAuthRequest } from '../middlewares/authMiddleware';
 import { JWT_SECRET, getAuthCookieOptions } from '../config';

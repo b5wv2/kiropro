@@ -1,6 +1,6 @@
 import pool from '../db';
 import { isAddress } from 'ethers';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { sendUsdtOrderCompletedEmail, sendUsdtOrderCanceledEmail } from './emailService';
 
 export interface CryptoNetworkRow {

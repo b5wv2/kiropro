@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { g2BulkVoucherService } from '../services/g2bulkVoucherService';
 import { g2BulkVoucherPurchaseProvider } from '../providers/g2bulk/voucherPurchaseProvider';
 import { encryptVoucherCode, maskVoucherCode } from '../utils/cryptoVoucher';

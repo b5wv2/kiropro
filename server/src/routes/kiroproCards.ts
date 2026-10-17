@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { decryptCardData, formatCardNumber, maskCardNumber } from '../utils/cryptoCard';

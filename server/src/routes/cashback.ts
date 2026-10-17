@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import pool from '../db';
 import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 const router = Router();
 

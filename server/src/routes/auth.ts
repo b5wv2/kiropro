@@ -1,9 +1,8 @@
 import { Router, Response, Request } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+import crypto, { randomUUID as uuidv4 } from 'crypto';
 import rateLimit from 'express-rate-limit';
-import { v4 as uuidv4 } from 'uuid';
 import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { sendVerificationOtpEmail, sendPasswordResetOtpEmail } from '../services/emailService';

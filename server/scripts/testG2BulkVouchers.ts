@@ -4,7 +4,7 @@ dotenv.config();
 import fs from 'fs';
 import path from 'path';
 import pool from '../src/db';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { g2BulkVoucherService } from '../src/services/g2bulkVoucherService';
 import { g2BulkVoucherPurchaseProvider } from '../src/providers/g2bulk/voucherPurchaseProvider';
 import { encryptVoucherCode, decryptVoucherCode, maskVoucherCode } from '../src/utils/cryptoVoucher';

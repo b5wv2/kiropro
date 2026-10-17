@@ -1,8 +1,7 @@
 import { Router, Response, Request } from 'express';
-import crypto from 'crypto';
+import crypto, { randomUUID as uuidv4 } from 'crypto';
 import pool from '../db';
 import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
-import { v4 as uuidv4 } from 'uuid';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
 import { grantBonusSpinForOrder } from '../services/wheelService';
 import { 

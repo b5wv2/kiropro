@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import pool from '../db';
 import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { JWT_SECRET } from '../config';

@@ -1,7 +1,7 @@
 import pool from '../db';
 import { g2BulkClient } from '../providers/g2bulk/client';
 import { productMatchingService, CandidateProduct } from './productMatchingService';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 export interface G2BulkSyncStats {
   gamesFetched: number;

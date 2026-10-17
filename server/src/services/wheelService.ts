@@ -1,5 +1,5 @@
 import pool from '../db';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 export const WHEEL_TIMEZONE = 'Africa/Khartoum';
 
