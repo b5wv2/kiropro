@@ -302,7 +302,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
         setVerifiedPlayerName(null);
         setVerifyStatus({
           loading: false,
-          message: result.message || 'تعذر التحقق من معرّف اللاعب. تأكد من الرقم وحاول مرة أخرى.',
+          message: result.message || 'تعذّر التحقق من معرّف اللاعب. تأكد من صحة المعرّف وحاول مرة أخرى.',
           success: false
         });
       }
@@ -310,7 +310,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
       setVerifiedPlayerName(null);
       setVerifyStatus({
         loading: false,
-        message: 'تعذر التحقق من معرّف اللاعب. تأكد من الرقم وحاول مرة أخرى.',
+        message: 'تعذّر التحقق من معرّف اللاعب. تأكد من صحة المعرّف وحاول مرة أخرى.',
         success: false
       });
     }

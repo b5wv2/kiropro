@@ -44,6 +44,18 @@ export interface PlayerValidationResponse {
   message?: string;
 }
 
+function sanitizeCustomerErrorMessage(msg?: string, fallback = 'تعذّر التحقق من معرّف اللاعب. تأكد من صحة المعرّف وحاول مرة أخرى.'): string {
+  if (!msg || typeof msg !== 'string') return fallback;
+  const clean = msg.trim();
+  if (/\b(g2bulk|gamesdrop|fivesim|5sim|provider|المزود|مورد|400|401|403|500|502|503|504|error|exception|fail)\b/i.test(clean)) {
+    if (clean.includes('خدمة') || clean.includes('متاح') || clean.includes('صيانة') || clean.includes('اتصال') || clean.includes('شبكة')) {
+      return 'خدمة التحقق غير متاحة حالياً، يرجى المحاولة لاحقاً.';
+    }
+    return fallback;
+  }
+  return clean;
+}
+
 export async function verifyPlayerId(
   productId: string, 
   playerId: string, 
@@ -58,21 +70,33 @@ export async function verifyPlayerId(
       gameUserId: playerId.trim(),
       gameServerId: serverId ? serverId.trim() : undefined
     });
-    return res;
+    return {
+      valid: res.valid,
+      playerName: res.playerName,
+      message: res.message ? sanitizeCustomerErrorMessage(res.message, 'تم التحقق من الحساب بنجاح') : undefined
+    };
   } catch (err: any) {
     const status = err?.status || err?.response?.status;
-    const errorMsg = err?.message || err?.response?.data?.error || err?.response?.data?.message;
+    const rawDataMsg = err?.response?.data?.message || err?.response?.data?.error;
+    const errorMsg = rawDataMsg || err?.message;
 
     if (status === 429) {
       return {
         valid: false,
-        message: 'تم تجاوز الحد المسموح لعمليات التحقق. حاول مرة أخرى بعد قليل.'
+        message: 'تم تجاوز الحد المسموح لمحاولات فحص معرّف اللاعب (5 محاولات في الساعة). يرجى الانتظار والمحاولة لاحقاً.'
+      };
+    }
+
+    if (status === 503 || status === 502 || status === 504) {
+      return {
+        valid: false,
+        message: 'خدمة التحقق غير متاحة حالياً، يرجى المحاولة لاحقاً.'
       };
     }
 
     return {
       valid: false,
-      message: errorMsg || 'تعذر التحقق من معرّف اللاعب. تأكد من الرقم وحاول مرة أخرى.'
+      message: sanitizeCustomerErrorMessage(errorMsg, 'تعذّر التحقق من معرّف اللاعب. تأكد من صحة المعرّف وحاول مرة أخرى.')
     };
   }
 }
