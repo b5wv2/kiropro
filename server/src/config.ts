@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../server/.env') });
 
 if (!process.env.JWT_SECRET || !process.env.JWT_SECRET.trim()) {
   throw new Error('FATAL: JWT_SECRET is required. Cannot start application without a configured JWT secret.');

@@ -15,10 +15,23 @@ const router = Router();
 // =========================================================================
 // 1. STORAGE & DIRECTORY INITIALIZATION
 // =========================================================================
-const UPLOADS_MARKETPLACE_DIR = path.resolve(__dirname, '../../uploads/marketplace');
-if (!fs.existsSync(UPLOADS_MARKETPLACE_DIR)) {
-  fs.mkdirSync(UPLOADS_MARKETPLACE_DIR, { recursive: true });
+function getSafeMarketplaceUploadDir(): string {
+  try {
+    const preferred = path.resolve(__dirname, '../../uploads/marketplace');
+    if (!fs.existsSync(preferred)) {
+      fs.mkdirSync(preferred, { recursive: true });
+    }
+    return preferred;
+  } catch {
+    const fallback = path.join('/tmp', 'uploads/marketplace');
+    try {
+      if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
+    } catch {}
+    return fallback;
+  }
 }
+
+const UPLOADS_MARKETPLACE_DIR = getSafeMarketplaceUploadDir();
 
 // Allowed MIME types and extensions
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -28,7 +41,7 @@ const MAX_IMAGES_COUNT = 10;
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, UPLOADS_MARKETPLACE_DIR);
+    cb(null, getSafeMarketplaceUploadDir());
   },
   filename: (_req, file, cb) => {
     const randomHex = crypto.randomBytes(16).toString('hex');

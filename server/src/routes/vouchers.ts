@@ -89,6 +89,14 @@ router.get('/catalog', async (_req, res: Response) => {
         badge: 'أكواد Midasbuy معتمدة',
         imageUrl: '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg',
         items: [] as any[]
+      },
+      {
+        id: 'test-vouchers',
+        name: '[اختبار مؤقت] بطاقات تجريبية',
+        gameKey: 'test',
+        badge: 'اختبار مؤقت',
+        imageUrl: '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg',
+        items: [] as any[]
       }
     ];
 
@@ -286,7 +294,7 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
       console.warn(`[Vouchers API] Purchase pre-check blocked: ${readiness.reason} (Voucher ${voucher.id})`);
       return res.status(400).json({
         error: readiness.customerMessage,
-        code: readiness.reason // Internal diagnostic code
+        code: readiness.reason === 'PRODUCT_OUT_OF_STOCK' ? 'OUT_OF_STOCK' : 'ITEM_UNAVAILABLE'
       });
     }
 
@@ -381,7 +389,7 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
         [
           orderId,
           user.id,
-          voucher.game_key === 'freefire' ? 'freefire-vouchers' : 'pubg-vouchers',
+          voucher.game_key === 'freefire' ? 'freefire-vouchers' : (voucher.game_key === 'pubg' ? 'pubg-vouchers' : 'test-vouchers'),
           voucher.product_uuid || voucher.id,
           effectivePackageName,
           user.email,

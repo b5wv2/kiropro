@@ -20,25 +20,11 @@ const topupCreateLimiter = rateLimit({
   message: { error: 'تم تجاوز الحد المسموح لطلبات الشحن مؤقتاً. يرجى الانتظار 15 دقيقة.' }
 });
 
-// Configure Uploads Directory
-const UPLOADS_DIR = path.join(__dirname, '../../uploads/receipts');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+// Memory storage for Multer: Zero disk dependency on boot or during upload.
+// Completely prevents ENOENT / EROFS crashes in read-only serverless environments (e.g. Vercel).
+const storage = multer.memoryStorage();
 
 // Multer Storage Configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(ext) ? ext : '.jpg';
-    const uniqueFilename = `receipt_${uuidv4()}${safeExt}`;
-    cb(null, uniqueFilename);
-  }
-});
-
 // File Filter & MIME Validation
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
@@ -61,16 +47,12 @@ const upload = multer({
 });
 
 /**
- * Validates actual file signature (magic bytes) to ensure uploaded file
- * matches its purported format and is not an executable or script disguised as image.
+ * Validates actual file signature (magic bytes) from buffer to ensure uploaded file
+ * matches its purported format and is not an executable or script disguised as image or document.
  */
-function isValidFileSignature(filePath: string, ext: string): boolean {
+function isValidFileSignature(buffer: Buffer, ext: string): boolean {
   try {
-    const fd = fs.openSync(filePath, 'r');
-    const buffer = Buffer.alloc(16);
-    const bytesRead = fs.readSync(fd, buffer, 0, 16, 0);
-    fs.closeSync(fd);
-    if (bytesRead < 4) return false;
+    if (!buffer || buffer.length < 4) return false;
 
     const cleanExt = ext.toLowerCase();
     // JPEG: FF D8 FF
@@ -83,7 +65,7 @@ function isValidFileSignature(filePath: string, ext: string): boolean {
     }
     // WEBP: RIFF .... WEBP
     if (cleanExt === '.webp') {
-      return buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+      return buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
     }
     // PDF: %PDF
     if (cleanExt === '.pdf') {
@@ -168,16 +150,13 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
       });
     }
 
-    if (!req.file) {
+    if (!req.file || !req.file.buffer) {
       return res.status(400).json({ error: 'يرجى إرفاق إيصال التحويل البنكي.' });
     }
 
-    // Deep File Inspection: Verify genuine magic bytes signature to reject malicious disguised files
+    // Deep File Inspection: Verify genuine magic bytes signature from buffer
     const fileExt = path.extname(req.file.originalname).toLowerCase();
-    if (!isValidFileSignature(req.file.path, fileExt)) {
-      if (fs.existsSync(req.file.path)) {
-        try { fs.unlinkSync(req.file.path); } catch {}
-      }
+    if (!isValidFileSignature(req.file.buffer, fileExt)) {
       return res.status(400).json({ 
         error: 'محتوى الملف المرفق غير صالح أو تالف. يرجى رفع ملف صورة (JPG, PNG, WEBP) أو مستند PDF حقيقي فقط.' 
       });
@@ -210,7 +189,6 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
       if (targetCurrency === 'SDG') {
         const rawSdg = Number(requested_amount || (Number(amount_usd) * exchangeRate));
         if (!Number.isFinite(rawSdg) || rawSdg <= 0) {
-          if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
           return res.status(400).json({ error: 'يرجى تحديد مبلغ شحن صحيح بالجنيه السوداني.' });
         }
         calcAmountSdg = Math.round(rawSdg);
@@ -219,7 +197,6 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
       } else {
         const rawUsd = Number(requested_amount || amount_usd);
         if (!Number.isFinite(rawUsd) || rawUsd <= 0) {
-          if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
           return res.status(400).json({ error: 'يرجى تحديد مبلغ شحن صحيح بالدولار.' });
         }
         calcAmountUsd = Math.round(rawUsd * 100) / 100;
@@ -228,19 +205,49 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
       }
 
       if (calcAmountUsd < minTopupUsd) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         const minLabel = targetCurrency === 'SDG' ? `${Math.round(minTopupUsd * exchangeRate).toLocaleString()} ج.س` : `$${minTopupUsd}`;
         return res.status(400).json({ error: `أقل مبلغ للشحن هو ${minLabel}.` });
       }
 
       if (calcAmountUsd > maxTopupUsd) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         const maxLabel = targetCurrency === 'SDG' ? `${Math.round(maxTopupUsd * exchangeRate).toLocaleString()} ج.س` : `$${maxTopupUsd}`;
         return res.status(400).json({ error: `أقصى مبلغ للشحن في المرة الواحدة هو ${maxLabel}.` });
       }
 
-      const receiptUrl = `/uploads/receipts/${req.file.filename}`;
+      const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(fileExt) ? fileExt : '.jpg';
+      const uniqueFilename = `receipt_${uuidv4()}${safeExt}`;
+      const receiptUrl = `/uploads/receipts/${uniqueFilename}`;
       const requestId = uuidv4();
+
+      // Permanently persist receipt into PostgreSQL "UploadedAsset" table
+      try {
+        const base64 = req.file.buffer.toString('base64');
+        const mimeType = req.file.mimetype || (safeExt === '.pdf' ? 'application/pdf' : 'image/jpeg');
+        await pool.query(
+          `INSERT INTO "UploadedAsset" ("id", "filename", "mimeType", "dataBase64", "fileSize", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+           ON CONFLICT ("filename") DO UPDATE SET
+             "dataBase64" = EXCLUDED."dataBase64",
+             "fileSize" = EXCLUDED."fileSize",
+             "mimeType" = EXCLUDED."mimeType",
+             "updatedAt" = NOW()`,
+          [uniqueFilename, uniqueFilename, mimeType, base64, req.file.size]
+        );
+      } catch (assetErr: any) {
+        console.error('[Topup] Failed to persist receipt to database:', assetErr.message);
+        return res.status(500).json({
+          error: 'تعذر حفظ إيصال التحويل بشكل دائم في النظام. يرجى المحاولة لاحقاً.'
+        });
+      }
+
+      // Optional best-effort local disk caching (survives inside session; non-blocking)
+      try {
+        const cacheDir = process.env.VERCEL ? path.join('/tmp', 'uploads/receipts') : path.join(__dirname, '../../uploads/receipts');
+        if (!fs.existsSync(cacheDir)) {
+          fs.mkdirSync(cacheDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(cacheDir, uniqueFilename), req.file.buffer);
+      } catch {}
 
       // Insert Pending Top-up Request with locked exchange rate and requested currency details
       const insertRes = await pool.query(
@@ -278,9 +285,6 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
       });
     } catch (dbErr: any) {
       console.error('Error creating topup request:', dbErr);
-      if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
       res.status(500).json({ error: 'فشل تسجيل طلب الشحن في النظام.' });
     }
   });

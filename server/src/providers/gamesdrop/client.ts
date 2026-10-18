@@ -51,6 +51,13 @@ export class GamesDropClient {
   }
 
   /**
+   * Check if circuit breaker is open due to 401 INVALID_TOKEN
+   */
+  public isCircuitBreakerOpen(): boolean {
+    return this.authFailureUntil > Date.now();
+  }
+
+  /**
    * Execute authenticated HTTP request to GamesDrop Partner API
    * Uses native node:https for 100% reliable Windows networking without undici socket drops.
    */
@@ -161,7 +168,7 @@ export class GamesDropClient {
         reject({
           status: 504,
           code: 'TIMEOUT',
-          message: `انتهت مهلة الاتصال بـ GamesDrop (${timeout}ms).`,
+          message: `انتهت مهلة الاتصال بخدمة التحقق (${timeout}ms).`,
           details: { endpoint: url.pathname }
         });
       });
@@ -171,7 +178,7 @@ export class GamesDropClient {
         reject({
           status: 502,
           code: 'NETWORK_ERROR',
-          message: err.message || 'فشل الاتصال بمزود الألعاب GamesDrop.',
+          message: err.message || 'فشل الاتصال بالخدمة.',
           details: err
         });
       });

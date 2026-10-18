@@ -120,7 +120,7 @@ class OrderPollingService {
         const key = statusRes.fulfillmentKey || null;
         console.log(`[OrderPollingService] Order ${order.id} COMPLETED successfully. Key present: ${!!key}`);
 
-        await pool.query(`
+        const updateRes = await pool.query(`
           UPDATE "Order"
           SET 
             status = 'COMPLETED',
@@ -128,8 +128,14 @@ class OrderPollingService {
             "fulfillmentKey" = COALESCE($2, "fulfillmentKey"),
             "completedAt" = NOW(),
             "updatedAt" = NOW()
-          WHERE id = $3
+          WHERE id = $3 AND status = 'PROCESSING'
+          RETURNING id
         `, [rawStatus, key, order.id]);
+
+        if (updateRes.rows.length === 0) {
+          console.log(`[OrderPollingService] Order ${order.id} was already finalized by Webhook or concurrent worker. Skipping post-actions.`);
+          return;
+        }
 
         // Trigger Cashback Awarding (Idempotent & Safe)
         try {
@@ -193,6 +199,17 @@ class OrderPollingService {
         const client = await pool.connect();
         try {
           await client.query('BEGIN');
+
+          // Lock order to check if webhook already refunded or processed it
+          const orderCheck = await client.query(
+            'SELECT status FROM "Order" WHERE id = $1 FOR UPDATE',
+            [order.id]
+          );
+          if (orderCheck.rows[0]?.status !== 'PROCESSING') {
+            console.log(`[OrderPollingService] Order ${order.id} was already finalized (Status: ${orderCheck.rows[0]?.status}). Skipping duplicate refund.`);
+            await client.query('ROLLBACK');
+            return;
+          }
 
           // Revert any awarded cashback first
           try {

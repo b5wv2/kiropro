@@ -7,6 +7,7 @@ import {
   ProviderBalance
 } from './types';
 import { gamesDropAdapter } from './gamesdrop/adapter';
+import { gamesDropClient } from './gamesdrop/client';
 import { g2BulkAdapter } from './g2bulk/adapter';
 
 export interface ProviderSettings {
@@ -225,25 +226,29 @@ export class ProviderRouter {
 
     // Guard 1: Verify Primary Provider's global orders_enabled
     const primarySettings = await this.getProviderSettings(routing.primaryProviderName);
-    if (!primarySettings.ordersEnabled) {
-      console.warn(`[ProviderRouter] Primary provider ${routing.primaryProviderName} is globally DISABLED for orders.`);
+    const isPrimaryCircuitBroken = routing.primaryProviderName === 'GAMESDROP' && gamesDropClient.isCircuitBreakerOpen();
+
+    if (!primarySettings.ordersEnabled || isPrimaryCircuitBroken) {
+      const reason = !primarySettings.ordersEnabled ? 'globally DISABLED for orders' : 'Circuit Breaker OPEN (401 INVALID_TOKEN)';
+      console.warn(`[ProviderRouter] Primary provider ${routing.primaryProviderName} is ${reason}.`);
 
       // If fallback is configured and order-enabled, route directly to fallback
       if (routing.fallbackEnabled && routing.fallbackAdapter && routing.fallbackProductId) {
         const fallbackSettings = await this.getProviderSettings(routing.fallbackProviderName!);
         if (fallbackSettings.ordersEnabled) {
-          console.log(`[ProviderRouter] Routing order directly to Fallback ${routing.fallbackProviderName} because Primary is globally disabled.`);
+          console.log(`[ProviderRouter] Routing order directly to Fallback ${routing.fallbackProviderName} because Primary is unavailable (${reason}).`);
           const fallbackParams: CreateTopupOrderParams = {
             ...baseParams,
             providerProductId: routing.fallbackProductId,
             gameCode: routing.fallbackMetadata?.gameCode || baseParams.gameCode,
-            expectedPriceUsd: routing.fallbackCostUsd || 0
+            expectedPriceUsd: routing.fallbackCostUsd || 0,
+            callbackUrl: 'https://api.kiropro.store/webhook/prvidr'
           };
           const fallbackResult = await routing.fallbackAdapter.createTopupOrder(fallbackParams);
           return {
             ...fallbackResult,
             fallbackUsed: true,
-            message: fallbackResult.message || `تم التوجيه للمزود الاحتياطي (${routing.fallbackProviderName}) لتعطيل المزود الأساسي.`
+            message: fallbackResult.message || `تم التوجيه للمزود الاحتياطي (${routing.fallbackProviderName}) لتعطل المزود الأساسي.`
           };
         }
       }
@@ -253,11 +258,13 @@ export class ProviderRouter {
         success: false,
         provider: routing.primaryProviderName,
         providerOrderId: 0,
-        providerStatus: 'PROVIDER_DISABLED',
+        providerStatus: isPrimaryCircuitBroken ? 'CIRCUIT_BREAKER_OPEN' : 'PROVIDER_DISABLED',
         canonicalStatus: 'FAILED',
         isAmbiguous: false,
         fallbackUsed: false,
-        message: `المزود الأساسي (${routing.primaryProviderName}) معطل حالياً لاستقبال الطلبات من قبل الإدارة.`
+        message: isPrimaryCircuitBroken
+          ? `المزود الأساسي (${routing.primaryProviderName}) معطل مؤقتاً لعدم صلاحية المصادقة.`
+          : `المزود الأساسي (${routing.primaryProviderName}) معطل حالياً لاستقبال الطلبات من قبل الإدارة.`
       };
     }
 
@@ -325,7 +332,8 @@ export class ProviderRouter {
         ...baseParams,
         providerProductId: routing.fallbackProductId,
         gameCode: routing.fallbackMetadata?.gameCode || baseParams.gameCode,
-        expectedPriceUsd: routing.fallbackCostUsd || 0
+        expectedPriceUsd: routing.fallbackCostUsd || 0,
+        callbackUrl: 'https://api.kiropro.store/webhook/prvidr'
       };
 
       let fallbackResult: CreateTopupOrderResult;

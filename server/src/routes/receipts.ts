@@ -7,8 +7,6 @@ import { JWT_SECRET } from '../config';
 
 const router = Router();
 
-const UPLOADS_RECEIPTS_DIR = path.join(__dirname, '../../uploads/receipts');
-
 /**
  * SECURE RECEIPT ACCESS
  * GET /uploads/receipts/:filename
@@ -73,19 +71,53 @@ router.get('/:filename', async (req: Request, res: Response) => {
       }
     }
 
-    // 4. File Existence & Safe Delivery
-    const filePath = path.join(UPLOADS_RECEIPTS_DIR, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'ملف الإيصال غير موجود.' });
-    }
-
     // Set strict privacy and cache headers
     res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
-    return res.sendFile(filePath);
+    // 4. Primary: Retrieve permanently stored receipt from PostgreSQL UploadedAsset table
+    try {
+      const assetRes = await pool.query(
+        'SELECT "mimeType", "dataBase64" FROM "UploadedAsset" WHERE "filename" = $1 LIMIT 1',
+        [filename]
+      );
+      if (assetRes.rows.length > 0) {
+        const row = assetRes.rows[0];
+        const buffer = Buffer.from(row.dataBase64, 'base64');
+        const ext = path.extname(filename).toLowerCase();
+        const mimeTypeMap: Record<string, string> = {
+          '.pdf': 'application/pdf',
+          '.png': 'image/png',
+          '.webp': 'image/webp',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg'
+        };
+        const contentType = row.mimeType || mimeTypeMap[ext] || 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        return res.send(buffer);
+      }
+    } catch (dbErr: any) {
+      console.warn('[ReceiptServer] Database asset lookup warning:', dbErr.message);
+    }
+
+    // 5. Fallback: Search local directories (for legacy receipts or local cache)
+    const candidateDirs = [
+      path.join(__dirname, '../../uploads/receipts'),
+      path.join('/tmp', 'uploads/receipts')
+    ];
+
+    for (const dir of candidateDirs) {
+      try {
+        const filePath = path.join(dir, filename);
+        if (fs.existsSync(filePath)) {
+          return res.sendFile(filePath);
+        }
+      } catch {}
+    }
+
+    return res.status(404).json({ error: 'ملف الإيصال غير موجود.' });
   } catch (err: any) {
     console.error('Error serving receipt:', err);
     return res.status(500).json({ error: 'حدث خطأ أثناء عرض الإيصال.' });

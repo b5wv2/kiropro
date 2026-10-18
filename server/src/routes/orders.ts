@@ -4,6 +4,8 @@ import pool from '../db';
 import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { randomUUID as uuidv4 } from 'crypto';
 import { gamesDropProvider } from '../providers/gamesdrop';
+import { gamesDropClient } from '../providers/gamesdrop/client';
+import { validatePlayerAccount } from '../services/playerValidationService';
 import { mapGamesDropStatus, mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
 import { processReferralRewardOnOrder } from '../services/referralService';
@@ -15,6 +17,7 @@ import { decryptPassword } from '../utils/cryptoAccount';
 import { decryptCardData, formatCardNumber, maskCardNumber } from '../utils/cryptoCard';
 import { decryptVoucherCode, maskVoucherCode } from '../utils/cryptoVoucher';
 import { providerRouter, ProductProviderResolution } from '../providers/router';
+import { sanitizeCustomerErrorMessage } from '../utils/providerErrorHandler';
 
 const router = Router();
 
@@ -93,7 +96,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
     if (!isInternalFulfillment) {
       routing = await providerRouter.resolveProductProviders(localProduct.id);
       if (!routing.hasAnyOrderableProvider) {
-        return res.status(400).json({ error: 'نعتذر، هذا المنتج غير متاح للشحن مؤقتاً نظراً لتعطيل مزودات الخدمة المرتبطة به.' });
+        return res.status(400).json({ error: 'نعتذر، هذا المنتج غير متاح للشحن مؤقتاً. يرجى المحاولة لاحقاً.' });
       }
       providerOfferId = Number(routing.primaryProductId || localProduct.providerOfferId || 0);
 
@@ -176,45 +179,58 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         } else {
           deliveryGameUserId = playerId.trim();
         }
+        // Validate player account before order placement (Requirement 4 & 8)
+        const valCheck = await validatePlayerAccount({
+          productId: localProduct.id,
+          gameUserId: deliveryGameUserId,
+          gameServerId: effectiveServerId || undefined,
+          userId: user.id
+        });
+
+        if (!valCheck.valid) {
+          return res.status(400).json({
+            error: valCheck.message || 'تعذر التحقق من معرّف اللاعب. يرجى التأكد من المعرّف والمحاولة لاحقاً.'
+          });
+        }
       }
 
-      if (routing.primaryProviderName === 'GAMESDROP' && providerOfferId > 0) {
+      let gamesDropAvailable = false;
+      const isGamesDropCircuitOpen = gamesDropClient.isCircuitBreakerOpen();
+
+      if (routing.primaryProviderName === 'GAMESDROP' && providerOfferId > 0 && !isGamesDropCircuitOpen) {
         // Fetch latest authoritative provider price from GamesDrop before creating order (find-one)
-        let latestOffer: any;
         try {
-          latestOffer = await gamesDropProvider.findOffer(providerOfferId);
+          const latestOffer = await gamesDropProvider.findOffer(providerOfferId);
+          latestProviderPrice = Number(latestOffer.price);
+          providerCurrency = latestOffer.currency || 'USD';
+          gamesDropAvailable = true;
+
+          // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
+          const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
+          if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
+            // Upstream cost increased by more than 5%: prevent under-pricing loss
+            await pool.query(
+              `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
+              [latestProviderPrice, localProduct.id]
+            );
+            return res.status(409).json({
+              error: 'تغير سعر المنتج. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
+            });
+          }
         } catch (err: any) {
-          console.error(`[Internal Provider Error] Failed to query upstream find-one(${providerOfferId}):`, err.message);
-          const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
-          return res.status(502).json({ 
-            error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
-          });
+          console.warn(`[Orders] GamesDrop findOffer(${providerOfferId}) failed (${err.message}). Checking fallback...`);
+          if (!routing.fallbackEnabled || !routing.fallbackOrdersEnabled) {
+            const friendlyErr = mapGamesDropErrorMessage(err.errorCode || err.code || err.message);
+            return res.status(502).json({ 
+              error: friendlyErr || 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
+            });
+          }
         }
+      }
 
-        latestProviderPrice = Number(latestOffer.price);
-        if (!Number.isFinite(latestProviderPrice) || latestProviderPrice <= 0) {
-          return res.status(502).json({ 
-            error: 'تعذر استكمال العملية حالياً. يرجى المحاولة لاحقاً.' 
-          });
-        }
-
-        // Price Safety Check: Ensure latest provider price does not cause a financial discrepancy
-        const previousCost = Number(localProduct.gamesDropCostUsd || localProduct.providerCostUsd || 0);
-        if (previousCost > 0 && latestProviderPrice > previousCost * 1.05) {
-          // Upstream cost increased by more than 5%: prevent under-pricing loss
-          await pool.query(
-            `UPDATE "Product" SET "gamesDropCostUsd" = $1, "providerCostUsd" = $1, "lastProviderSyncAt" = NOW() WHERE id = $2`,
-            [latestProviderPrice, localProduct.id]
-          );
-          return res.status(409).json({
-            error: 'تغير سعر المنتج لدى المزود. يرجى تحديث الصفحة والمحاولة بالسعر المحدث.'
-          });
-        }
-
-        providerCurrency = latestOffer.currency || 'USD';
-      } else {
-        // G2Bulk or secondary provider: use authoritative routed cost
-        latestProviderPrice = Number(routing.primaryCostUsd || localProduct.providerCostUsd || 0);
+      if (!gamesDropAvailable) {
+        // Fallback to secondary provider (G2Bulk) authoritative routed cost
+        latestProviderPrice = Number(routing.fallbackCostUsd || routing.primaryCostUsd || localProduct.providerCostUsd || 0);
         providerCurrency = 'USD';
       }
     }
@@ -738,7 +754,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       return res.status(201).json({
         id: orderId,
         status: 'PROVIDER_UNKNOWN',
-        message: 'تم استلام طلبك وجارٍ معالجته والتحقق من حالة التنفيذ تلقائياً لدى مزود الخدمة.',
+        message: 'تم استلام طلبك وجارٍ معالجته والتحقق من حالة التنفيذ تلقائياً.',
         chargedAmount: finalChargeAmount,
         discountApplied,
         promoCode: promoRecord ? promoRecord.code : null,
@@ -759,7 +775,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
           await refundClient.query('UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2', [restoredBalance, w.id]);
           await refundClient.query(
             'INSERT INTO "WalletTransaction" (id, "walletId", amount, type, description, "created_by_type") VALUES ($1, $2, $3, $4, $5, $6)',
-            [uuidv4(), w.id, finalChargeAmount, 'REFUND', `استرجاع تلقائي لفشل تنفيذ الطلب لدى المزود (${packageName || localProduct.offerName})`, 'SYSTEM']
+            [uuidv4(), w.id, finalChargeAmount, 'REFUND', `استرجاع تلقائي لتعذر استكمال الطلب (${packageName || localProduct.offerName})`, 'SYSTEM']
           );
         }
 
@@ -780,7 +796,9 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         refundClient.release();
       }
 
-      const friendlyErrMsg = mapGamesDropErrorMessage(dispatchResult.message || 'Provider failed');
+      const friendlyErrMsg = sanitizeCustomerErrorMessage(
+        mapGamesDropErrorMessage(dispatchResult.message || 'Provider failed')
+      );
       return res.status(400).json({ error: friendlyErrMsg || 'تعذر تنفيذ الطلب حاليًا. حاول مرة أخرى.' });
     }
 
@@ -1098,7 +1116,11 @@ router.get('/my-orders', requireAuth, async (req: AuthRequest, res: Response) =>
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
         status, "fulfillmentKey", "createdAt", "completedAt",
-        CASE WHEN "orderType" = 'G2BULK_VOUCHER' THEN 'DIGITAL_VOUCHER' ELSE "orderType" END as "orderType",
+        CASE 
+          WHEN "orderType" = 'G2BULK_VOUCHER' THEN 'DIGITAL_VOUCHER' 
+          WHEN "orderType" LIKE '%G2BULK%' OR "orderType" LIKE '%GAMESDROP%' THEN 'DIRECT_TOPUP'
+          ELSE "orderType" 
+        END as "orderType",
         quantity, "unitPrice", "unitPriceUsd"
        FROM "Order" 
        WHERE "userId" = $1 
@@ -1124,7 +1146,11 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
         status, "fulfillmentKey", "createdAt", "completedAt",
-        CASE WHEN "orderType" = 'G2BULK_VOUCHER' THEN 'DIGITAL_VOUCHER' ELSE "orderType" END as "orderType"
+        CASE 
+          WHEN "orderType" = 'G2BULK_VOUCHER' THEN 'DIGITAL_VOUCHER' 
+          WHEN "orderType" LIKE '%G2BULK%' OR "orderType" LIKE '%GAMESDROP%' THEN 'DIRECT_TOPUP'
+          ELSE "orderType" 
+        END as "orderType"
        FROM "Order" 
        WHERE id = $1 AND "userId" = $2
        LIMIT 1`,

@@ -69,7 +69,7 @@ export class G2BulkClient {
     if (requiresAuth && !apiKey) {
       throw {
         status: 401,
-        message: 'G2Bulk API key is not configured in environment variables (API_G2BULK).',
+        message: 'API key is not configured in environment variables.',
         isAuthError: true
       } as G2BulkError;
     }
@@ -133,7 +133,7 @@ export class G2BulkClient {
               if (status >= 400) {
                 const isRateLimit = status === 429;
                 const isAuthError = status === 401;
-                const errMsg = parsed?.message || parsed?.detail?.message || `G2Bulk error (${status})`;
+                const errMsg = parsed?.message || parsed?.detail?.message || `Upstream service error (${status})`;
 
                 return reject({
                   status,
@@ -152,7 +152,7 @@ export class G2BulkClient {
             req.destroy();
             reject({
               status: 504,
-              message: `G2Bulk request timed out after ${timeoutMs}ms.`,
+              message: `Upstream request timed out after ${timeoutMs}ms.`,
               isTimeout: true
             } as G2BulkError);
           });
@@ -160,7 +160,7 @@ export class G2BulkClient {
           req.on('error', (err) => {
             reject({
               status: 502,
-              message: `Network error connecting to G2Bulk: ${err.message}`,
+              message: `Network error connecting to upstream service: ${err.message}`,
               raw: err
             } as G2BulkError);
           });
@@ -248,11 +248,23 @@ export class G2BulkClient {
    * Validates player account and returns in-game player name
    */
   public async checkPlayerId(params: G2BulkCheckPlayerParams): Promise<G2BulkCheckPlayerResponse> {
-    return this.request<G2BulkCheckPlayerResponse>('/games/checkPlayerId', {
-      method: 'POST',
-      body: params,
-      requiresAuth: false
-    });
+    try {
+      return await this.request<G2BulkCheckPlayerResponse>('/games/checkPlayerId', {
+        method: 'POST',
+        body: params,
+        requiresAuth: false
+      });
+    } catch (err: any) {
+      // When G2Bulk returns 400 with { name: "", valid: "invalid" }, it indicates an invalid player ID
+      if (err.status === 400 && err.raw && (err.raw.valid === 'invalid' || err.raw.valid === false)) {
+        return {
+          name: '',
+          valid: 'invalid',
+          message: 'معرف اللاعب غير صالح'
+        };
+      }
+      throw err;
+    }
   }
 
   /**

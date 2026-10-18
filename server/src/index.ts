@@ -1,4 +1,11 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Attempt loading .env from CWD, server/.env, or parent folder
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../server/.env') });
+
 import './config';
 import dns from 'node:dns';
 // Force IPv4 first to prevent Node.js fetch from hanging/failing on unrouted IPv6 networks
@@ -39,12 +46,12 @@ import marketplaceRoutes from './routes/marketplace';
 import adminMarketplaceRoutes from './routes/adminMarketplace';
 import vouchersRoutes from './routes/vouchers';
 import adminVouchersRoutes from './routes/adminVouchers';
+import webhooksRoutes, { handleG2BulkWebhook } from './routes/webhooks';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
 import { telegramBotService } from './services/telegramBotService';
 import { catalogSyncService } from './services/catalogSyncService';
 import pool from './db';
-import path from 'path';
 import fs from 'fs';
 
 const app = express();
@@ -110,7 +117,11 @@ app.use(cors({
   ],
   optionsSuccessStatus: 200
 }) as unknown as express.RequestHandler);
-app.use(express.json());
+app.use(express.json({
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(cookieParser() as unknown as express.RequestHandler);
 
 // 1. Public Uploads: Dedicated, secure serving for product & category images with /tmp fallback for Serverless/Read-only filesystems
@@ -179,7 +190,10 @@ async function restoreAssetsFromDatabase() {
     console.warn('[AssetServer] Notice: asset auto-restore deferred:', err.message);
   }
 }
-restoreAssetsFromDatabase();
+
+if (!isVercelOrServerless) {
+  restoreAssetsFromDatabase();
+}
 
 app.get('/uploads/products/:filename', async (req: Request, res: Response) => {
   const filename = Array.isArray(req.params.filename) ? req.params.filename[0] : String(req.params.filename || '');
@@ -345,6 +359,12 @@ app.use('/api/admin/marketplace', adminMarketplaceRoutes);
 app.use('/api/vouchers', vouchersRoutes);
 app.use('/api/admin/vouchers', adminVouchersRoutes);
 
+// G2Bulk Webhook endpoints (Public HTTPS, Direct Delivery, Strictly No Redirects)
+app.post('/webhook/prvidr', handleG2BulkWebhook);
+app.post('/webhook/providr', handleG2BulkWebhook);
+app.use('/api/webhook/prvidr', webhooksRoutes);
+app.use('/api/webhook/providr', webhooksRoutes);
+
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {
   try {
@@ -408,8 +428,18 @@ app.get('/api/settings/maintenance', async (_req: Request, res: Response) => {
   }
 });
 
+// Root health check for serverless platforms / cold starts (e.g. Vercel)
+app.get('/', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', service: 'kiropro-backend' });
+});
+
+// Favicon handler to prevent unhandled 404 / 500 noise
+app.get('/favicon.ico', (_req: Request, res: Response) => {
+  res.status(204).end();
+});
+
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'kiropro-backend' });
 });
 

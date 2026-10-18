@@ -120,19 +120,20 @@ export class G2BulkAdapter implements ProviderAdapter {
     const catalogueName = params.providerProductId; // catalogue denomination name (e.g. "60")
 
     try {
-      const orderPayload: G2BulkCreateOrderParams = {
+      const orderPayload: G2BulkCreateOrderParams & { denom_id?: string } = {
         catalogue_name: catalogueName,
+        denom_id: catalogueName,
         player_id: params.playerUserId.trim(),
-        remark: params.remark || `KIROPRO-${params.koaraOrderId}`
+        remark: params.remark || `KIROPRO-${params.koaraOrderId}`,
+        callback_url: params.callbackUrl && params.callbackUrl.trim()
+          ? params.callbackUrl.trim()
+          : 'https://api.kiropro.store/webhook/prvidr'
       };
       if (params.serverZoneId && params.serverZoneId.trim()) {
         orderPayload.server_id = params.serverZoneId.trim();
       }
       if (params.charName && params.charName.trim()) {
         orderPayload.charname = params.charName.trim();
-      }
-      if (params.callbackUrl && params.callbackUrl.trim()) {
-        orderPayload.callback_url = params.callbackUrl.trim();
       }
 
       const res = await this.client.createTopupOrder(

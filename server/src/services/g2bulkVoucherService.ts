@@ -44,7 +44,12 @@ export interface VoucherSyncStats {
 }
 
 export class G2BulkVoucherService {
-  private readonly catalogFilePath = path.join(__dirname, '../../data/g2bulk-voucher-catalog.json');
+  private get catalogFilePath(): string {
+    if (process.env.VERCEL) {
+      return path.join('/tmp', 'data/g2bulk-voucher-catalog.json');
+    }
+    return path.join(__dirname, '../../data/g2bulk-voucher-catalog.json');
+  }
 
   /**
    * Generates a stable deterministic UUID for a voucher product
@@ -166,17 +171,21 @@ export class G2BulkVoucherService {
         products: fetchedProducts
       };
 
-      const dataDir = path.dirname(this.catalogFilePath);
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
+      try {
+        const dataDir = path.dirname(this.catalogFilePath);
+        if (!fs.existsSync(dataDir)) {
+          fs.mkdirSync(dataDir, { recursive: true });
+        }
+
+        // Atomic write using temporary file
+        const tempPath = `${this.catalogFilePath}.tmp`;
+        fs.writeFileSync(tempPath, JSON.stringify(catalogData, null, 2), 'utf8');
+        fs.renameSync(tempPath, this.catalogFilePath);
+
+        console.log(`[G2BulkVoucherService] Catalog file saved successfully at ${this.catalogFilePath} with ${fetchedProducts.length} products.`);
+      } catch (fileErr: any) {
+        console.warn(`[G2BulkVoucherService] Local catalog file write notice (database sync will proceed):`, fileErr.message);
       }
-
-      // Atomic write using temporary file
-      const tempPath = `${this.catalogFilePath}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(catalogData, null, 2), 'utf8');
-      fs.renameSync(tempPath, this.catalogFilePath);
-
-      console.log(`[G2BulkVoucherService] Catalog file saved successfully at ${this.catalogFilePath} with ${fetchedProducts.length} products.`);
 
       // 6. Update database tables (g2bulk_voucher_catalog & Product)
       const { approvedCount } = await this.syncProductsToDatabase(fetchedProducts, nowIso);
@@ -588,11 +597,15 @@ export class G2BulkVoucherService {
         products
       };
 
-      const dataDir = path.dirname(this.catalogFilePath);
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
+      try {
+        const dataDir = path.dirname(this.catalogFilePath);
+        if (!fs.existsSync(dataDir)) {
+          fs.mkdirSync(dataDir, { recursive: true });
+        }
+        fs.writeFileSync(this.catalogFilePath, JSON.stringify(fileData, null, 2), 'utf8');
+      } catch (fileErr: any) {
+        console.warn(`[G2BulkVoucherService] Local catalog restore write notice:`, fileErr.message);
       }
-      fs.writeFileSync(this.catalogFilePath, JSON.stringify(fileData, null, 2), 'utf8');
       return fileData;
     } catch (err: any) {
       console.error('[G2BulkVoucherService] Failed restoring catalog file from DB:', err.message);

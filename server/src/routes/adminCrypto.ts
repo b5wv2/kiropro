@@ -20,20 +20,28 @@ import { randomUUID as uuidv4 } from 'crypto';
 
 const router = Router();
 
-// Configure local storage upload for USDT product image matching products.ts
-const uploadsDir = path.resolve(__dirname, '../../uploads/products');
-try {
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+// Safe directory resolution with /tmp fallback for Serverless / Read-Only filesystems (e.g. Vercel)
+function getSafeProductsUploadDir(): string {
+  try {
+    const preferred = path.resolve(__dirname, '../../uploads/products');
+    if (!fs.existsSync(preferred)) {
+      fs.mkdirSync(preferred, { recursive: true });
+    }
+    return preferred;
+  } catch {
+    const fallback = path.join('/tmp', 'uploads/products');
+    try {
+      if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
+    } catch {}
+    return fallback;
   }
-} catch {}
+}
+
+const uploadsDir = getSafeProductsUploadDir();
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
+    cb(null, getSafeProductsUploadDir());
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();

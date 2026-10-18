@@ -12,18 +12,28 @@ import { g2BulkVoucherPurchaseProvider } from '../providers/g2bulk/voucherPurcha
 
 const router = Router();
 
-// Configure local object storage upload for admin product images
-const uploadsDir = path.resolve(__dirname, '../../uploads/products');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Safe directory resolution with /tmp fallback for Serverless / Read-Only filesystems (e.g. Vercel)
+function getSafeProductsUploadDir(): string {
+  try {
+    const preferred = path.resolve(__dirname, '../../uploads/products');
+    if (!fs.existsSync(preferred)) {
+      fs.mkdirSync(preferred, { recursive: true });
+    }
+    return preferred;
+  } catch {
+    const fallback = path.join('/tmp', 'uploads/products');
+    try {
+      if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
+    } catch {}
+    return fallback;
+  }
 }
+
+const uploadsDir = getSafeProductsUploadDir();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
+    cb(null, getSafeProductsUploadDir());
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -744,26 +754,42 @@ router.post('/:id/validate-player', optionalAuth, async (req: AuthRequest, res: 
       ip: clientIp
     });
 
-    if (!result.valid && result.message?.includes('تم تجاوز الحد المسموح')) {
+    if (!result.valid && (result.rateLimited || result.message?.includes('تم تجاوز الحد المسموح'))) {
+      if (result.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      }
       return res.status(429).json({
         valid: false,
         error: result.message,
-        message: result.message
+        message: result.message,
+        retryAfterSeconds: result.retryAfterSeconds
       });
     }
 
     // Sanitized response for customer
-    return res.json({
-      valid: result.valid,
+    if (!result.valid) {
+      const statusCode = result.isUnavailable ? 503 : 400;
+      return res.status(statusCode).json({
+        valid: false,
+        message: result.message || (result.isUnavailable 
+          ? 'خدمة التحقق غير متاحة حالياً، يرجى المحاولة لاحقاً.' 
+          : 'تعذّر التحقق من معرّف اللاعب. تأكد من صحة المعرّف وحاول مرة أخرى.'),
+        correlationId: result.correlationId
+      });
+    }
+
+    return res.status(200).json({
+      valid: true,
       playerName: result.playerName,
       telegramUserId: result.telegramUserId,
-      message: result.message
+      message: result.message || 'تم التحقق من الحساب بنجاح',
+      correlationId: result.correlationId
     });
   } catch (err: any) {
     console.error('[Products Route] validate-player exception:', err.message);
-    return res.status(500).json({
+    return res.status(503).json({
       valid: false,
-      message: 'خدمة التحقق غير متاحة مؤقتًا. يرجى المحاولة لاحقاً.'
+      message: 'خدمة التحقق غير متاحة حالياً، يرجى المحاولة لاحقاً.'
     });
   }
 });
