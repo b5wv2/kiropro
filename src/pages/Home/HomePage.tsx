@@ -17,7 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = [
   { id: 'all', name: 'الكل ✨' },
-  { id: 'cards', name: '💳 البطاقات الافتراضية' },
+  { id: 'cards', name: '💳 البطاقات وقسائم الهدايا' },
   { id: 'games', name: '🎮 الألعاب الإلكترونية' },
   { id: 'apps', name: '📱 تطبيقات البث والدردشة' },
   { id: 'numbers', name: '📱 الأرقام الافتراضية' },
@@ -80,13 +80,14 @@ export const HomePage: React.FC = () => {
     if (activeCategory === 'transfers' || activeCategory === 'numbers') {
       matchesCat = false;
     } else if (activeCategory === 'cards') {
-      matchesCat = game.category === 'cards' || game.id === 'kiropro-card' || game.id.includes('card');
+      matchesCat = game.category === 'cards' || game.id === 'kiropro-card' || game.id.includes('card') || game.id.includes('voucher');
     } else if (activeCategory === 'games') {
-      // Strictly real gaming products! Exclude Likee, Telegram, and cards
+      // Strictly real gaming products! Exclude Likee, Telegram, and cards/vouchers
       matchesCat = (game.category === 'games' || game.category === 'mobile') &&
         !game.id.includes('likee') &&
         !game.id.includes('telegram') &&
-        !game.id.includes('card');
+        !game.id.includes('card') &&
+        !game.id.includes('voucher');
     } else if (activeCategory === 'apps') {
       matchesCat = game.category === 'apps' || game.id.includes('likee');
     } else if (activeCategory === 'digital') {
@@ -108,7 +109,8 @@ export const HomePage: React.FC = () => {
     (g.category === 'games' || g.category === 'mobile') &&
     !g.id.includes('likee') &&
     !g.id.includes('telegram') &&
-    !g.id.includes('card')
+    !g.id.includes('card') &&
+    !g.id.includes('voucher')
   );
 
   const onlyDigitalAndAppsList = games.filter(g => 
@@ -119,7 +121,8 @@ export const HomePage: React.FC = () => {
     g.id === 'kiropro-card' ||
     g.id.includes('likee') ||
     g.id.includes('telegram') ||
-    g.id.includes('card')
+    g.id.includes('card') ||
+    g.id.includes('voucher')
   );
 
   // Determine whether USDT card should be displayed based on filters

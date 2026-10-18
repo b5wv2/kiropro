@@ -8,6 +8,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID as uuidv4 } from 'crypto';
+import { g2BulkVoucherPurchaseProvider } from '../providers/g2bulk/voucherPurchaseProvider';
 
 const router = Router();
 
@@ -183,7 +184,7 @@ router.get('/', async (req: Request, res: Response) => {
           GROUP BY product_id
         ) kci ON p.id = kci.product_id
         WHERE p."isActive" = true
-        ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
+        ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
       `);
     } catch {
       // Fallback query if migration 036 provider columns are not yet present in production DB
@@ -193,7 +194,7 @@ router.get('/', async (req: Request, res: Response) => {
           p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
           p."platformCode", p."platformName", p."regionCode", p."regionName",
           p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
-          p.card_network, p.card_currency, p.face_value,
+          NULL as card_network, NULL as card_currency, NULL as face_value,
           'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
           p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
           p."gameCategoryId",
@@ -221,7 +222,7 @@ router.get('/', async (req: Request, res: Response) => {
           GROUP BY product_id
         ) kci ON p.id = kci.product_id
         WHERE p."isActive" = true
-        ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."productName" ASC
+        ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
       `);
     }
 
@@ -255,6 +256,14 @@ router.get('/', async (req: Request, res: Response) => {
         return 'blood-strike-me';
       }
 
+      // Digital Vouchers: STRICT check before general keywords to prevent hijacking into direct top-ups
+      if (explicitCat === 'freefire-vouchers' || (text.includes('voucher') && (text.includes('freefire') || text.includes('free fire') || text.includes('garena')))) {
+        return 'freefire-vouchers';
+      }
+      if (explicitCat === 'pubg-vouchers' || (text.includes('voucher') && text.includes('pubg'))) {
+        return 'pubg-vouchers';
+      }
+
       if (text.includes('pubg') || explicitCat === 'pubg-mobile') {
         return 'pubg-mobile';
       }
@@ -274,6 +283,8 @@ router.get('/', async (req: Request, res: Response) => {
     };
 
     const defaultCovers: Record<string, string> = {
+      'freefire-vouchers': '/uploads/products/prod_1789435947312_54dc7dd7.webp',
+      'pubg-vouchers': '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg',
       'pubg-mobile': '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg',
       'freefire-me': '/uploads/products/prod_1789435947312_54dc7dd7.webp',
       'likee': '/uploads/products/prod_1790076515614_23d0ac5a.jpg',
@@ -285,6 +296,8 @@ router.get('/', async (req: Request, res: Response) => {
     };
 
     const defaultNames: Record<string, string> = {
+      'freefire-vouchers': 'قسائم فري فاير (Free Fire Vouchers)',
+      'pubg-vouchers': 'بطاقات ببجي شدات (PUBG UC Vouchers)',
       'pubg-mobile': 'PUBG Mobile',
       'freefire-me': 'Free Fire (الشرق الأوسط)',
       'likee': 'لايكي (Likee)',
@@ -296,6 +309,8 @@ router.get('/', async (req: Request, res: Response) => {
     };
 
     const defaultLabels: Record<string, { label: string; placeholder: string }> = {
+      'freefire-vouchers': { label: 'تسليم كود فوري', placeholder: 'لا يلزم إدخال معرف - استلام الكود فوراً' },
+      'pubg-vouchers': { label: 'تسليم كود فوري', placeholder: 'لا يلزم إدخال معرف - استلام الكود فوراً' },
       'pubg-mobile': { label: 'معرّف اللاعب (Player ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (Player ID)' },
       'freefire-me': { label: 'معرّف اللاعب (Player ID)', placeholder: 'أدخل معرّف اللاعب الخاص بك (Player ID)' },
       'likee': { label: 'معرف حساب Likee (Likee ID)', placeholder: 'أدخل معرّف حساب Likee الخاص بك' },
@@ -331,7 +346,13 @@ router.get('/', async (req: Request, res: Response) => {
       let itemType = 'شحن ألعاب مباشر (Direct Top-Up)';
       let itemCategory = row.categoryPlatform || 'games';
 
-      if (groupKey === 'likee') {
+      if (groupKey === 'freefire-vouchers') {
+        itemType = 'قسائم فري فاير رقمية فورية (Free Fire Vouchers)';
+        itemCategory = 'cards';
+      } else if (groupKey === 'pubg-vouchers') {
+        itemType = 'بطاقات ببجي شدات رقمية فورية (PUBG UC Vouchers)';
+        itemCategory = 'cards';
+      } else if (groupKey === 'likee') {
         itemType = 'شحن ماسات لايكي فوري (Likee Diamonds)';
         itemCategory = 'apps';
       } else if (groupKey === 'telegram-stars') {
@@ -381,10 +402,11 @@ router.get('/', async (req: Request, res: Response) => {
       const resolvedPackageImage = resolveImageUrl(row.productImageUrl, row.categoryImageUrl);
 
       const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';
+      const isVoucher = row.productType === 'VOUCHER' || row.fulfillment_type === 'G2BULK_VOUCHER' || groupKey === 'freefire-vouchers' || groupKey === 'pubg-vouchers';
       const availableStockCount = isInventoryTracked ? Number(row.availableStock || 0) : undefined;
 
       let hasOrderableProv = true;
-      if (!isInventoryTracked) {
+      if (!isInventoryTracked && !isVoucher) {
         const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
         const primEnabled = provOrdersEnabledMap.get(primName) !== false;
         const fallName = row.fallbackProvider ? String(row.fallbackProvider).toUpperCase() : null;
@@ -392,7 +414,21 @@ router.get('/', async (req: Request, res: Response) => {
         hasOrderableProv = primEnabled || fallEnabled;
       }
 
-      const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : (Boolean(row.inStock) && hasOrderableProv);
+      const inStockFlag = isInventoryTracked 
+        ? (Number(row.availableStock || 0) > 0) 
+        : isVoucher 
+          ? Boolean(row.inStock) 
+          : (Boolean(row.inStock) && hasOrderableProv);
+
+      const isPurchasable = isVoucher
+        ? g2BulkVoucherPurchaseProvider.checkVoucherReadiness({
+            providerProductId: row.providerOfferId || row.providerProductId,
+            isActive: row.isActive !== false,
+            inStock: inStockFlag,
+            stock: isInventoryTracked ? Number(row.availableStock || 0) : 1,
+            g2bulkOrdersEnabled: provOrdersEnabledMap.get('G2BULK') !== false
+          }).isAllowed
+        : inStockFlag;
 
       card.packages.push({
         id: row.id,
@@ -401,7 +437,9 @@ router.get('/', async (req: Request, res: Response) => {
         arabicName: row.arabicName,
         description: row.description,
         subCategory: row.subCategory,
-        productType: row.productType,
+        productType: isVoucher ? 'VOUCHER' : row.productType,
+        fulfillmentType: row.fulfillment_type === 'G2BULK_VOUCHER' ? 'DIGITAL_VOUCHER' : row.fulfillment_type,
+        voucherId: row.providerOfferId || row.providerProductId,
         cardNetwork: row.card_network || (row.productType === 'VIRTUAL_CARD' ? 'MASTERCARD' : undefined),
         cardCurrency: row.card_currency || (row.productType === 'VIRTUAL_CARD' ? 'USD' : undefined),
         faceValue: row.face_value !== null && row.face_value !== undefined ? Number(row.face_value) : undefined,
@@ -413,10 +451,11 @@ router.get('/', async (req: Request, res: Response) => {
         originalPrice: Math.round(pkgPrice * 1.2 * 100) / 100,
         originalPriceSdg: Math.round(pkgPriceSdg * 1.2),
         bestValue: card.packages.length === 0,
-        requiresGameServerId: Boolean(row.requiresGameServerId),
-        isRequiredGameServerId: Boolean(row.requiresGameServerId),
+        requiresGameServerId: isVoucher ? false : Boolean(row.requiresGameServerId),
+        isRequiredGameServerId: isVoucher ? false : Boolean(row.requiresGameServerId),
         availableStock: availableStockCount,
-        inStock: inStockFlag
+        inStock: inStockFlag,
+        isPurchasable
       });
 
       if (pkgPrice > 0 && (card.minPrice === 0 || pkgPrice < card.minPrice)) {
@@ -482,7 +521,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             GROUP BY product_id
           ) kci ON p.id = kci.product_id
           WHERE p."isActive" = true AND p."gameCategoryId" = $1
-          ORDER BY p."displayOrder" ASC, p."productName" ASC
+          ORDER BY p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
         `, [targetCatId]);
       } catch {
         result = await pool.query(`
@@ -491,7 +530,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             p."arabicName", p.description, p."subCategory", p."productType", p.fulfillment_type,
             p."platformCode", p."platformName", p."regionCode", p."regionName",
             p."customerPriceUsd" as price, p."inStock", p."imageUrl" as "productImageUrl",
-            p.card_network, p.card_currency, p.face_value,
+            NULL as card_network, NULL as card_currency, NULL as face_value,
             'GAMESDROP' as "primaryProvider", NULL as "fallbackProvider", false as "fallbackEnabled",
             p."requiresGameUserId", p."requiresGameServerId", p."displayOrder",
             c."imageUrl" as "categoryImageUrl",
@@ -511,7 +550,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             GROUP BY product_id
           ) kci ON p.id = kci.product_id
           WHERE p."isActive" = true AND p."gameCategoryId" = $1
-          ORDER BY p."displayOrder" ASC, p."productName" ASC
+          ORDER BY p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
         `, [targetCatId]);
       }
 
@@ -527,10 +566,11 @@ router.get('/:id', async (req: Request, res: Response) => {
         const pkgPrice = Number(row.price || 0);
         const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
         const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';
+        const isVoucher = row.productType === 'VOUCHER' || row.fulfillment_type === 'G2BULK_VOUCHER' || targetCatId === 'freefire-vouchers' || targetCatId === 'pubg-vouchers';
         const availableStockCount = isInventoryTracked ? Number(row.availableStock || 0) : undefined;
 
         let hasOrderableProv = true;
-        if (!isInventoryTracked) {
+        if (!isInventoryTracked && !isVoucher) {
           const primName = (row.primaryProvider || 'GAMESDROP').toUpperCase();
           const primEnabled = provOrdersEnabledMap.get(primName) !== false;
           const fallName = row.fallbackProvider ? String(row.fallbackProvider).toUpperCase() : null;
@@ -538,7 +578,21 @@ router.get('/:id', async (req: Request, res: Response) => {
           hasOrderableProv = primEnabled || fallEnabled;
         }
 
-        const inStockFlag = isInventoryTracked ? (Number(row.availableStock || 0) > 0) : (Boolean(row.inStock) && hasOrderableProv);
+        const inStockFlag = isInventoryTracked 
+          ? (Number(row.availableStock || 0) > 0) 
+          : isVoucher 
+            ? Boolean(row.inStock) 
+            : (Boolean(row.inStock) && hasOrderableProv);
+
+        const isPurchasable = isVoucher
+          ? g2BulkVoucherPurchaseProvider.checkVoucherReadiness({
+              providerProductId: row.providerOfferId || row.providerProductId,
+              isActive: row.isActive !== false,
+              inStock: inStockFlag,
+              stock: isInventoryTracked ? Number(row.availableStock || 0) : 1,
+              g2bulkOrdersEnabled: provOrdersEnabledMap.get('G2BULK') !== false
+            }).isAllowed
+          : inStockFlag;
 
         return {
           id: row.id,
@@ -547,7 +601,9 @@ router.get('/:id', async (req: Request, res: Response) => {
           arabicName: row.arabicName,
           description: row.description,
           subCategory: row.subCategory,
-          productType: row.productType,
+          productType: isVoucher ? 'VOUCHER' : row.productType,
+          fulfillmentType: row.fulfillment_type === 'G2BULK_VOUCHER' ? 'DIGITAL_VOUCHER' : row.fulfillment_type,
+          voucherId: row.providerOfferId || row.providerProductId,
           cardNetwork: row.card_network || (row.productType === 'VIRTUAL_CARD' ? 'MASTERCARD' : undefined),
           cardCurrency: row.card_currency || (row.productType === 'VIRTUAL_CARD' ? 'USD' : undefined),
           faceValue: row.face_value !== null && row.face_value !== undefined ? Number(row.face_value) : undefined,
@@ -559,10 +615,11 @@ router.get('/:id', async (req: Request, res: Response) => {
           originalPrice: Math.round(pkgPrice * 1.2 * 100) / 100,
           originalPriceSdg: Math.round(pkgPriceSdg * 1.2),
           bestValue: idx === 0,
-          requiresGameServerId: Boolean(row.requiresGameServerId),
-          isRequiredGameServerId: Boolean(row.requiresGameServerId),
+          requiresGameServerId: isVoucher ? false : Boolean(row.requiresGameServerId),
+          isRequiredGameServerId: isVoucher ? false : Boolean(row.requiresGameServerId),
           availableStock: availableStockCount,
-          inStock: inStockFlag
+          inStock: inStockFlag,
+          isPurchasable
         };
       });
 

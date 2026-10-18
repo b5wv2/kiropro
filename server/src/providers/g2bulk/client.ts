@@ -296,6 +296,33 @@ export class G2BulkClient {
   }
 
   /**
+   * POST /v1/products/:id/purchase
+   * Digital voucher / product direct purchase endpoint per G2Bulk documentation
+   */
+  public async purchaseProduct(
+    productId: number | string,
+    params: { quantity: number; [key: string]: any },
+    idempotencyKey?: string
+  ): Promise<{
+    success: boolean;
+    order_id?: number | string;
+    transaction_id?: number | string;
+    status: string;
+    delivery_items?: string[];
+    poll_url?: string;
+    message?: string;
+    order?: any;
+    [key: string]: any;
+  }> {
+    return this.request(`/products/${encodeURIComponent(String(productId))}/purchase`, {
+      method: 'POST',
+      body: params,
+      requiresAuth: true,
+      idempotencyKey
+    });
+  }
+
+  /**
    * GET /v1/orders/:id/delivery
    * Delivery polling endpoint
    */

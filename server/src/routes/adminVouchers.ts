@@ -60,19 +60,73 @@ router.get('/', requireAdmin, async (_req: AuthRequest, res: Response) => {
 });
 
 /**
+ * GET /api/admin/vouchers/:id
+ * Fetch single voucher details by UUID or provider product ID.
+ */
+router.get('/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const rawId = typeof id === 'string' ? id.trim() : String(id || '').trim();
+  if (!rawId) {
+    return res.status(400).json({ error: 'معرف البطاقة غير صالح.' });
+  }
+
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId);
+  const isNumeric = /^\d+$/.test(rawId);
+
+  if (!isUuid && !isNumeric) {
+    return res.status(400).json({ error: 'معرف البطاقة غير صالح.' });
+  }
+
+  try {
+    const result = isUuid
+      ? await pool.query(`SELECT * FROM g2bulk_voucher_catalog WHERE id = $1::uuid`, [rawId])
+      : await pool.query(`SELECT * FROM g2bulk_voucher_catalog WHERE provider_product_id = $1::integer`, [parseInt(rawId, 10)]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'فئة البطاقة غير موجودة.' });
+    }
+
+    return res.json({
+      success: true,
+      product: result.rows[0]
+    });
+  } catch (err: any) {
+    console.error('[Admin Vouchers] Error fetching voucher:', err.message);
+    return res.status(500).json({ error: 'فشل جلب بيانات البطاقة.' });
+  }
+});
+
+/**
  * PATCH /api/admin/vouchers/:id
  * Update selling price, active status, custom image, and Arabic title.
  */
 router.patch('/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
+  const rawId = typeof id === 'string' ? id.trim() : String(id || '').trim();
+  if (!rawId) {
+    return res.status(400).json({ error: 'معرف البطاقة غير صالح.' });
+  }
+
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId);
+  const isNumeric = /^\d+$/.test(rawId);
+
+  if (!isUuid && !isNumeric) {
+    return res.status(400).json({ error: 'معرف البطاقة غير صالح.' });
+  }
+
   const { customerPriceUsd, isActive, customImageUrl, arabicTitle } = req.body;
 
   try {
-    // 1. Fetch existing item
-    const existingRes = await pool.query(
-      `SELECT * FROM g2bulk_voucher_catalog WHERE id = $1 OR provider_product_id::text = $1`,
-      [id]
-    );
+    // 1. Fetch existing item by matching type with schema
+    const existingRes = isUuid
+      ? await pool.query(
+          `SELECT * FROM g2bulk_voucher_catalog WHERE id = $1::uuid`,
+          [rawId]
+        )
+      : await pool.query(
+          `SELECT * FROM g2bulk_voucher_catalog WHERE provider_product_id = $1::integer`,
+          [parseInt(rawId, 10)]
+        );
 
     if (existingRes.rows.length === 0) {
       return res.status(404).json({ error: 'فئة البطاقة غير موجودة.' });
@@ -118,7 +172,7 @@ router.patch('/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
     const updateRes = await pool.query(
       `UPDATE g2bulk_voucher_catalog 
        SET ${fields.join(', ')} 
-       WHERE id = $${idx} 
+       WHERE id = $${idx}::uuid 
        RETURNING *`,
       values
     );

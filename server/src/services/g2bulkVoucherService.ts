@@ -179,141 +179,7 @@ export class G2BulkVoucherService {
       console.log(`[G2BulkVoucherService] Catalog file saved successfully at ${this.catalogFilePath} with ${fetchedProducts.length} products.`);
 
       // 6. Update database tables (g2bulk_voucher_catalog & Product)
-      const client = await pool.connect();
-      let approvedCount = 0;
-
-      try {
-        await client.query('BEGIN');
-
-        for (const item of fetchedProducts) {
-          // Upsert into g2bulk_voucher_catalog
-          // Preserves existing customer_price_usd, custom_image_url, and is_active!
-          const catalogUpsertRes = await client.query(
-            `INSERT INTO g2bulk_voucher_catalog (
-               provider_category_id, provider_product_id, title, description,
-               category_title, game_key, unit_price, face_value, stock,
-               custom_image_url, currency, is_in_stock, synced_at, updated_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, $11, $12, NOW())
-             ON CONFLICT (provider_product_id) DO UPDATE SET
-               title = EXCLUDED.title,
-               description = EXCLUDED.description,
-               category_title = EXCLUDED.category_title,
-               unit_price = EXCLUDED.unit_price,
-               face_value = EXCLUDED.face_value,
-               stock = EXCLUDED.stock,
-               is_in_stock = EXCLUDED.is_in_stock,
-               synced_at = EXCLUDED.synced_at,
-               updated_at = NOW()
-             RETURNING id, customer_price_usd, is_active, custom_image_url, arabic_title`,
-            [
-              item.provider_category_id,
-              item.provider_product_id,
-              item.title,
-              item.description,
-              item.category_title,
-              item.game_key,
-              item.unit_price,
-              item.face_value,
-              item.stock,
-              item.currency,
-              item.stock > 0,
-              nowIso
-            ]
-          );
-
-          const savedRow = catalogUpsertRes.rows[0];
-          if (savedRow?.is_active && savedRow?.customer_price_usd) {
-            approvedCount++;
-          }
-
-          // Mirror into "Product" table for unified catalog visibility
-          const deterministicId = this.generateDeterministicProductId(item.provider_product_id);
-          const targetGameCategoryId = item.game_key === 'freefire' ? 'freefire-vouchers' : 'pubg-vouchers';
-          
-          // Generate default Arabic name if not set
-          const arabicTitle = savedRow.arabic_title || (
-            item.game_key === 'freefire'
-              ? `قسيمة فري فاير ${item.face_value ? `$${item.face_value}` : ''} (${item.title})`
-              : `بطاقة ببجي ${item.title}`
-          );
-
-          await client.query(
-            `INSERT INTO "Product" (
-               id, "productName", "offerName", "arabicName", "gameCategoryId", "productType",
-               fulfillment_type, provider, "providerCostUsd", "customerPriceUsd",
-               "inStock", "isActive", "imageUrl", description, "requires_player_id",
-               "requires_server_id", "requires_inventory", "face_value", "createdAt", "updatedAt"
-             ) VALUES (
-               $1, $2, $2, $3, $4, 'VOUCHER',
-               'G2BULK_VOUCHER', 'G2BULK', $5, $6,
-               $7, $8, $9, $10, false,
-               false, true, $11, NOW(), NOW()
-             )
-             ON CONFLICT (id) DO UPDATE SET
-               "productName" = EXCLUDED."productName",
-               "offerName" = EXCLUDED."offerName",
-               "providerCostUsd" = EXCLUDED."providerCostUsd",
-               "inStock" = EXCLUDED."inStock",
-               "face_value" = EXCLUDED."face_value",
-               "requires_player_id" = false,
-               "requires_server_id" = false,
-               "updatedAt" = NOW()`,
-            [
-              deterministicId,
-              item.title,
-              arabicTitle,
-              targetGameCategoryId,
-              item.unit_price,
-              savedRow.customer_price_usd, // Retain Admin set customer price
-              item.stock > 0,
-              savedRow.is_active, // Retain Admin active toggle
-              savedRow.custom_image_url || (item.game_key === 'freefire' ? '/uploads/products/prod_1789435947312_54dc7dd7.webp' : '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg'),
-              item.description,
-              item.face_value
-            ]
-          );
-
-          // Maintain mapping in product_provider_mappings
-          await client.query(
-            `INSERT INTO product_provider_mappings (
-               "productId", provider, "providerProductId", "providerCostUsd",
-               "isActive", "isPrimary", "isFallback", "providerMetadata", "createdAt", "updatedAt"
-             ) VALUES ($1, 'G2BULK', $2, $3, $4, true, false, $5, NOW(), NOW())
-             ON CONFLICT ("productId", provider, "providerProductId") DO UPDATE SET
-               "providerCostUsd" = EXCLUDED."providerCostUsd",
-               "isActive" = EXCLUDED."isActive",
-               "updatedAt" = NOW()`,
-            [
-              deterministicId,
-              String(item.provider_product_id),
-              item.unit_price,
-              savedRow.is_active,
-              JSON.stringify({
-                title: item.title,
-                category_id: item.provider_category_id,
-                game_key: item.game_key,
-                stock: item.stock
-              })
-            ]
-          );
-        }
-
-        // Mark disappeared products as out of stock (Do NOT delete)
-        const currentProviderIds = fetchedProducts.map(p => p.provider_product_id);
-        await client.query(
-          `UPDATE g2bulk_voucher_catalog 
-           SET is_in_stock = false, updated_at = NOW() 
-           WHERE provider_product_id != ALL($1::int[])`,
-          [currentProviderIds]
-        );
-
-        await client.query('COMMIT');
-      } catch (dbErr: any) {
-        await client.query('ROLLBACK');
-        throw dbErr;
-      } finally {
-        client.release();
-      }
+      const { approvedCount } = await this.syncProductsToDatabase(fetchedProducts, nowIso);
 
       const stats: VoucherSyncStats = {
         last_sync_at: nowIso,
@@ -359,6 +225,293 @@ export class G2BulkVoucherService {
       ).catch(() => {});
 
       return { success: false, stats: statsError, error: err.message };
+    }
+  }
+
+  /**
+   * Synchronizes products into PostgreSQL (g2bulk_voucher_catalog and Product tables).
+   * Supports both live sync and local catalog sync.
+   */
+  public async syncProductsToDatabase(
+    products: G2BulkVoucherItem[],
+    syncTimeIso?: string
+  ): Promise<{ approvedCount: number }> {
+    const nowIso = syncTimeIso || new Date().toISOString();
+    const client = await pool.connect();
+    let approvedCount = 0;
+
+    const defaultApprovedPrices: Record<number, number> = {
+      43: 0.95,
+      44: 1.99,
+      45: 4.99,
+      46: 9.95,
+      47: 19.80,
+      2: 0.95,
+      3: 4.75,
+      4: 9.45,
+      5: 23.80,
+      6: 47.50,
+      7: 93.50,
+      8: 192.00,
+      9: 285.00,
+      10: 385.00,
+      11: 480.00
+    };
+
+    const defaultArabicTitles: Record<number, string> = {
+      43: 'قسيمة 100+10 جوهرة فري فاير (1 USD)',
+      44: 'قسيمة 210+21 جوهرة فري فاير (2 USD)',
+      45: 'قسيمة 530+53 جوهرة فري فاير (5 USD)',
+      46: 'قسيمة 1080+108 جوهرة فري فاير (10 USD)',
+      47: 'قسيمة 2200+220 جوهرة فري فاير (20 USD)',
+      2: 'بطاقة 60 شدة ببجي (60 UC Voucher)',
+      3: 'بطاقة 325 شدة ببجي (325 UC Voucher)',
+      4: 'بطاقة 660 شدة ببجي (660 UC Voucher)',
+      5: 'بطاقة 1800 شدة ببجي (1800 UC Voucher)',
+      6: 'بطاقة 3850 شدة ببجي (3850 UC Voucher)',
+      7: 'بطاقة 8100 شدة ببجي (8100 UC Voucher)',
+      8: 'بطاقة 16200 شدة ببجي (16200 UC Voucher)',
+      9: 'بطاقة 24300 شدة ببجي (24300 UC Voucher)',
+      10: 'بطاقة 32400 شدة ببجي (32400 UC Voucher)',
+      11: 'بطاقة 40500 شدة ببجي (40500 UC Voucher)'
+    };
+
+    const defaultFaceValues: Record<number, number> = {
+      43: 1,
+      44: 2,
+      45: 5,
+      46: 10,
+      47: 20,
+      2: 60,
+      3: 325,
+      4: 660,
+      5: 1800,
+      6: 3850,
+      7: 8100,
+      8: 16200,
+      9: 24300,
+      10: 32400,
+      11: 40500
+    };
+
+    try {
+      await client.query('BEGIN');
+
+      for (const item of products) {
+        const fallbackPrice = defaultApprovedPrices[item.provider_product_id] || (item.unit_price > 0 ? Math.round(item.unit_price * 1.06 * 100) / 100 : null);
+        const fallbackTitle = defaultArabicTitles[item.provider_product_id] || item.title;
+        const fallbackFaceValue = item.face_value !== null ? item.face_value : (defaultFaceValues[item.provider_product_id] || null);
+
+        // Upsert into g2bulk_voucher_catalog
+        // Preserves existing custom pricing, active state, and images set by Admin!
+        const catalogUpsertRes = await client.query(
+          `INSERT INTO g2bulk_voucher_catalog (
+             provider_category_id, provider_product_id, title, description,
+             category_title, game_key, unit_price, face_value, stock,
+             custom_image_url, currency, is_in_stock, customer_price_usd, is_active, arabic_title, synced_at, updated_at
+           ) VALUES (
+             $1, $2, $3, $4,
+             $5, $6, $7, $8, $9,
+             NULL, $10, $11, $12, true, $13, $14, NOW()
+           )
+           ON CONFLICT (provider_product_id) DO UPDATE SET
+             title = EXCLUDED.title,
+             description = EXCLUDED.description,
+             category_title = EXCLUDED.category_title,
+             unit_price = EXCLUDED.unit_price,
+             face_value = COALESCE(g2bulk_voucher_catalog.face_value, EXCLUDED.face_value),
+             stock = EXCLUDED.stock,
+             is_in_stock = EXCLUDED.is_in_stock,
+             customer_price_usd = COALESCE(g2bulk_voucher_catalog.customer_price_usd, EXCLUDED.customer_price_usd),
+             arabic_title = COALESCE(g2bulk_voucher_catalog.arabic_title, EXCLUDED.arabic_title),
+             synced_at = EXCLUDED.synced_at,
+             updated_at = NOW()
+           RETURNING id, customer_price_usd, is_active, custom_image_url, arabic_title, face_value`,
+          [
+            item.provider_category_id,
+            item.provider_product_id,
+            item.title,
+            item.description,
+            item.category_title,
+            item.game_key,
+            item.unit_price,
+            fallbackFaceValue,
+            item.stock,
+            item.currency,
+            item.stock > 0,
+            fallbackPrice,
+            fallbackTitle,
+            nowIso
+          ]
+        );
+
+        const savedRow = catalogUpsertRes.rows[0];
+        const effectiveCustomerPrice = savedRow.customer_price_usd !== null ? Number(savedRow.customer_price_usd) : fallbackPrice;
+        const effectiveIsActive = savedRow.is_active !== null ? Boolean(savedRow.is_active) : true;
+        const effectiveArabicTitle = savedRow.arabic_title || fallbackTitle;
+        const effectiveFaceValue = savedRow.face_value !== null ? Number(savedRow.face_value) : fallbackFaceValue;
+
+        if (effectiveIsActive && effectiveCustomerPrice) {
+          approvedCount++;
+        }
+
+        // Mirror into "Product" table for unified catalog visibility
+        const deterministicId = this.generateDeterministicProductId(item.provider_product_id);
+        const targetGameCategoryId = item.game_key === 'freefire' ? 'freefire-vouchers' : 'pubg-vouchers';
+        const defaultCover = item.game_key === 'freefire' 
+          ? '/uploads/products/prod_1789435947312_54dc7dd7.webp' 
+          : '/uploads/products/PUGB-Mobile-Logo-1024x576.jpg';
+
+        await client.query(
+          `INSERT INTO "Product" (
+             id, "productName", "offerName", "arabicName", "gameCategoryId", "productType",
+             fulfillment_type, provider, "providerCostUsd", "customerPriceUsd",
+             "inStock", "isActive", "imageUrl", description, "requires_player_id",
+             "requires_server_id", "requires_inventory", "face_value", "card_currency",
+             "providerOfferId", "createdAt", "updatedAt"
+           ) VALUES (
+             $1, $2, $2, $3, $4, 'VOUCHER',
+             'G2BULK_VOUCHER', 'G2BULK', $5, $6,
+             $7, $8, $9, $10, false,
+             false, false, $11, 'USD',
+             $12, NOW(), NOW()
+           )
+           ON CONFLICT (id) DO UPDATE SET
+             "productName" = EXCLUDED."productName",
+             "offerName" = EXCLUDED."offerName",
+             "arabicName" = EXCLUDED."arabicName",
+             "providerCostUsd" = EXCLUDED."providerCostUsd",
+             "customerPriceUsd" = EXCLUDED."customerPriceUsd",
+             "inStock" = EXCLUDED."inStock",
+             "isActive" = EXCLUDED."isActive",
+             "face_value" = EXCLUDED."face_value",
+             "card_currency" = 'USD',
+             "providerOfferId" = EXCLUDED."providerOfferId",
+             "gameCategoryId" = EXCLUDED."gameCategoryId",
+             "requires_player_id" = false,
+             "requires_server_id" = false,
+             "requires_inventory" = false,
+             "updatedAt" = NOW()`,
+          [
+            deterministicId,
+            item.title,
+            effectiveArabicTitle,
+            targetGameCategoryId,
+            item.unit_price,
+            effectiveCustomerPrice,
+            item.stock > 0,
+            effectiveIsActive,
+            savedRow.custom_image_url || defaultCover,
+            item.description,
+            effectiveFaceValue,
+            item.provider_product_id
+          ]
+        );
+
+        // Maintain mapping in product_provider_mappings
+        await client.query(
+          `INSERT INTO product_provider_mappings (
+             "productId", provider, "providerProductId", "providerCostUsd",
+             "isActive", "isPrimary", "isFallback", "providerMetadata", "createdAt", "updatedAt"
+           ) VALUES ($1, 'G2BULK', $2, $3, $4, true, false, $5, NOW(), NOW())
+           ON CONFLICT ("productId", provider, "providerProductId") DO UPDATE SET
+             "providerCostUsd" = EXCLUDED."providerCostUsd",
+             "isActive" = EXCLUDED."isActive",
+             "updatedAt" = NOW()`,
+          [
+            deterministicId,
+            String(item.provider_product_id),
+            item.unit_price,
+            effectiveIsActive,
+            JSON.stringify({
+              title: item.title,
+              category_id: item.provider_category_id,
+              game_key: item.game_key,
+              stock: item.stock
+            })
+          ]
+        );
+      }
+
+      await client.query('COMMIT');
+      return { approvedCount };
+    } catch (dbErr: any) {
+      await client.query('ROLLBACK');
+      throw dbErr;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Synchronizes voucher products directly from local catalog JSON file.
+   * Completely safe: ZERO external API calls, ZERO purchase calls, ZERO money spent.
+   */
+  public async syncFromLocalCatalogFile(): Promise<{ success: boolean; stats: VoucherSyncStats; error?: string }> {
+    console.log('[G2BulkVoucherService] Synchronizing from local catalog file...');
+    const nowIso = new Date().toISOString();
+
+    if (!fs.existsSync(this.catalogFilePath)) {
+      return {
+        success: false,
+        stats: {
+          last_sync_at: nowIso,
+          freefire_categories_count: 0,
+          pubg_categories_count: 0,
+          products_count: 0,
+          products_in_stock_count: 0,
+          products_approved_count: 0,
+          last_error: `Local catalog file not found at ${this.catalogFilePath}`
+        },
+        error: `ملف الكتالوج المحلي غير موجود في المسار: ${this.catalogFilePath}`
+      };
+    }
+
+    try {
+      const rawContent = fs.readFileSync(this.catalogFilePath, 'utf8');
+      const catalogData: G2BulkVoucherCatalogFile = JSON.parse(rawContent);
+      const products = catalogData.products || [];
+
+      if (products.length === 0) {
+        throw new Error('ملف الكتالوج المحلي لا يحتوي على أي منتجات.');
+      }
+
+      const { approvedCount } = await this.syncProductsToDatabase(products, nowIso);
+
+      const stats: VoucherSyncStats = {
+        last_sync_at: nowIso,
+        freefire_categories_count: catalogData.categories?.freefire ? 1 : 0,
+        pubg_categories_count: catalogData.categories?.pubg ? 1 : 0,
+        products_count: products.length,
+        products_in_stock_count: products.filter(p => p.stock > 0).length,
+        products_approved_count: approvedCount,
+        last_error: null
+      };
+
+      await pool.query(
+        `INSERT INTO platform_settings (key, value, updated_at)
+         VALUES ('g2bulk_voucher_sync_stats', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [JSON.stringify(stats)]
+      );
+
+      console.log(`[G2BulkVoucherService] Local catalog synced successfully! ${products.length} products processed (${approvedCount} approved).`);
+      return { success: true, stats };
+    } catch (err: any) {
+      console.error('[G2BulkVoucherService] Failed syncing from local catalog file:', err.message);
+      return {
+        success: false,
+        stats: {
+          last_sync_at: nowIso,
+          freefire_categories_count: 0,
+          pubg_categories_count: 0,
+          products_count: 0,
+          products_in_stock_count: 0,
+          products_approved_count: 0,
+          last_error: err.message
+        },
+        error: err.message
+      };
     }
   }
 

@@ -62,7 +62,8 @@ export class TelegramBotService {
     const response = await fetch(`https://api.telegram.org/bot${this.botToken}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(35000)
     });
 
     const data: any = await response.json();

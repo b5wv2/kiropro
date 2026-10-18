@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styles from './QuickTopUpModal.module.css';
 import { Game, GamePackage } from '../../types';
 import { useWallet } from '../../context/WalletContext';
-import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers, purchaseVoucher } from '../../services/api';
+import { verifyPlayerId, createOrder, validatePromoCode, PromoValidationResult, fetchProductServers, purchaseVoucher, resendVoucherEmail, pollVoucherOrderStatus } from '../../services/api';
 import { formatCurrency } from '../../lib/formatters';
 import { Tag, Sparkles, X, CheckCircle2, AlertCircle, Loader2, Key, Copy, Check, Eye, EyeOff, ShieldCheck, CreditCard, Gift } from 'lucide-react';
 import { CardDetailsViewModal } from '../KiroProCard/CardDetailsViewModal';
@@ -17,7 +17,7 @@ interface QuickTopUpModalProps {
 
 export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, onClose }) => {
   const { balance, currency, exchangeRate, refreshBalance, openDepositModal, showToast } = useWallet();
-  const [selectedPackage, setSelectedPackage] = useState<GamePackage | null>(null);
+  const [selectedPackage, setSelectedPackage] = useState<GamePackage | null>(() => (game?.packages && game.packages.length > 0 ? game.packages[0] : null));
   const [playerId, setPlayerId] = useState('');
   const [verifyStatus, setVerifyStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
   const [verifiedPlayerName, setVerifiedPlayerName] = useState<string | null>(null);
@@ -36,7 +36,12 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     quantity: number;
     codes: string[];
     maskedCodes?: string[];
+    emailSent?: boolean;
+    emailMessage?: string;
   } | null>(null);
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [resendEmailSuccess, setResendEmailSuccess] = useState<boolean | null>(null);
+  const [pendingVoucherOrderId, setPendingVoucherOrderId] = useState<string | null>(null);
   const [showCardDetailsModal, setShowCardDetailsModal] = useState(false);
 
   // KiroPro Card Dual Payment Method State
@@ -51,6 +56,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [appliedPromo, setAppliedPromo] = useState<PromoValidationResult | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
   const [promoError, setPromoError] = useState<string | null>(null);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
   const [activeSubCategory, setActiveSubCategory] = useState<string>('ALL');
 
@@ -83,6 +89,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
   useEffect(() => {
     setQuantity(1);
+    setPurchaseError(null);
   }, [selectedPackage?.id]);
 
   const availableSubCategories = React.useMemo(() => {
@@ -159,20 +166,63 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     };
   }, [isOpen]);
 
+  // Background polling for PENDING voucher orders
+  useEffect(() => {
+    if (!pendingVoucherOrderId) return;
+    let pollCount = 0;
+    const interval = setInterval(async () => {
+      pollCount++;
+      try {
+        const res = await pollVoucherOrderStatus(pendingVoucherOrderId);
+        if (res.status === 'COMPLETED' && res.codes && res.codes.length > 0) {
+          clearInterval(interval);
+          setPendingVoucherOrderId(null);
+          setDeliveredVoucher({
+            orderId: res.orderId,
+            packageName: res.packageName || '',
+            gameKey: (res as any).gameKey || 'voucher',
+            quantity: res.codes.length,
+            codes: res.codes,
+            maskedCodes: res.maskedCodes || [],
+            emailSent: (res as any).emailSent,
+            emailMessage: (res as any).emailMessage
+          });
+          showToast('تم استلام أكواد البطاقة بنجاح! 🎉', 'success');
+        } else if (res.status === 'FAILED') {
+          clearInterval(interval);
+          setPendingVoucherOrderId(null);
+          showToast(res.message || 'تعذر إصدار الأكواد وتم استرجاع المبلغ إلى محفظتك.', 'warning');
+        }
+      } catch (err: any) {
+        console.warn('Poll error:', err);
+      }
+      if (pollCount >= 15) {
+        clearInterval(interval);
+        setPendingVoucherOrderId(null);
+        showToast('طلبك قيد التجهيز وسيتم تسليم الأكواد فور صدورها في سجل طلباتك.', 'info');
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [pendingVoucherOrderId, showToast]);
+
   if (!isOpen || !game || !selectedPackage) return null;
 
   const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
   const isVirtualCard = selectedPackage?.productType === 'VIRTUAL_CARD' || game?.id === 'kiropro-card';
   const isVoucher = selectedPackage?.productType === 'VOUCHER' ||
     (selectedPackage as any)?.fulfillmentType === 'G2BULK_VOUCHER' ||
+    (selectedPackage as any)?.fulfillmentType === 'DIGITAL_VOUCHER' ||
     game?.id === 'freefire-vouchers' ||
     game?.id === 'pubg-vouchers';
+  const isVoucherPurchasable = !isVoucher || (selectedPackage as any)?.isPurchasable !== false;
   const cardNetwork = (selectedPackage as any)?.cardNetwork || (selectedPackage?.name?.toLowerCase().includes('visa') ? 'VISA' : 'MASTERCARD');
   const cardCurrency = (selectedPackage as any)?.cardCurrency || (selectedPackage?.name?.toLowerCase().includes('cad') ? 'CAD' : 'USD');
   const cardFaceValue = (selectedPackage as any)?.faceValue || 1.00;
   const cardCurrencySymbol = cardCurrency === 'CAD' ? 'C$' : '$';
   const isOutOfStock = selectedPackage?.inStock === false || (selectedPackage?.availableStock !== undefined && selectedPackage?.availableStock <= 0);
   const unitPrice = getPackagePrice(selectedPackage);
+  const isUnpriced = !unitPrice || unitPrice <= 0 || !selectedPackage?.price || Number(selectedPackage.price) <= 0;
   const rawOrderPrice = (isDigitalAccount || isVoucher) ? (unitPrice * quantity) : unitPrice;
   const discountAmount = (appliedPromo && appliedPromo.type === 'DISCOUNT')
     ? (appliedPromo.discountAmount ? Number(appliedPromo.discountAmount) : (appliedPromo.discount ? Number(appliedPromo.discount) : 0))
@@ -291,6 +341,29 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     }
   };
 
+
+  const handleResendEmail = async () => {
+    if (!deliveredVoucher?.orderId || isResendingEmail) return;
+    setIsResendingEmail(true);
+    setResendEmailSuccess(null);
+    try {
+      const res = await resendVoucherEmail(deliveredVoucher.orderId);
+      if (res.success) {
+        setResendEmailSuccess(true);
+        showToast('تم إرسال الأكواد إلى بريدك الإلكتروني بنجاح ✓', 'success');
+      } else {
+        setResendEmailSuccess(false);
+        showToast(res.error || 'تعذر إرسال البريد الإلكتروني.', 'warning');
+      }
+    } catch (err: any) {
+      setResendEmailSuccess(false);
+      const msg = err?.response?.data?.error || err.message || 'تعذر إرسال البريد.';
+      showToast(msg, 'warning');
+    } finally {
+      setIsResendingEmail(false);
+    }
+  };
+
   const handleRedeemIssuanceCode = async () => {
     if (!issuanceCodeInput.trim() || issuanceCodeLoading) return;
     setIssuanceCodeLoading(true);
@@ -319,8 +392,21 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     const isDigitalAccount = selectedPackage?.productType === 'DIGITAL_ACCOUNT' || game?.id === 'google-play-points';
     const isVoucher = selectedPackage?.productType === 'VOUCHER' ||
       (selectedPackage as any)?.fulfillmentType === 'G2BULK_VOUCHER' ||
+      (selectedPackage as any)?.fulfillmentType === 'DIGITAL_VOUCHER' ||
       game?.id === 'freefire-vouchers' ||
       game?.id === 'pubg-vouchers';
+
+    if (!selectedPackage) return;
+
+    if (isUnpriced) {
+      showToast('سعر هذه البطاقة غير معتمد حالياً من قبل الإدارة.', 'warning');
+      return;
+    }
+
+    if (isOutOfStock) {
+      showToast('عذراً، هذا المنتج غير متوفر حالياً في المخزون.', 'warning');
+      return;
+    }
 
     if (isVoucher) {
       if (isInsufficient) {
@@ -328,8 +414,6 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
         openDepositModal();
         return;
       }
-
-      if (!selectedPackage) return;
 
       setIsProcessing(true);
       try {
@@ -341,18 +425,25 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
 
         await refreshBalance();
 
-        setDeliveredVoucher({
-          orderId: vRes.orderId,
-          packageName: vRes.packageName,
-          gameKey: vRes.gameKey,
-          quantity: vRes.quantity,
-          codes: vRes.codes || [],
-          maskedCodes: vRes.maskedCodes || []
-        });
-
-        showToast('تم شراء واستلام الأكواد الرقمية بنجاح! 🎉', 'success');
+        if (vRes.status === 'COMPLETED' && vRes.codes && vRes.codes.length > 0) {
+          setDeliveredVoucher({
+            orderId: vRes.orderId,
+            packageName: vRes.packageName,
+            gameKey: vRes.gameKey,
+            quantity: vRes.quantity,
+            codes: vRes.codes || [],
+            maskedCodes: vRes.maskedCodes || [],
+            emailSent: vRes.emailSent,
+            emailMessage: vRes.emailMessage
+          });
+          showToast('تم شراء واستلام الأكواد الرقمية بنجاح! 🎉', 'success');
+        } else if (vRes.status === 'PROCESSING') {
+          setPendingVoucherOrderId(vRes.orderId);
+          showToast('تم تأكيد الطلب، جاري تجهيز وإصدار الأكواد الرقمية...', 'info');
+        }
       } catch (err: any) {
         const errorMsg = err?.response?.data?.error || err.message || 'تعذر إتمام عملية شراء البطاقة.';
+        setPurchaseError(errorMsg);
         showToast(errorMsg, 'warning');
       } finally {
         setIsProcessing(false);
@@ -460,7 +551,22 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
           </button>
         </div>
 
-        {deliveredVoucher ? (
+        {pendingVoucherOrderId ? (
+          <div style={{ padding: '36px 12px', textAlign: 'center' }}>
+            <div style={{ margin: '0 auto 16px', display: 'flex', justifyContent: 'center' }}>
+              <Loader2 size={46} className="animate-spin" style={{ color: '#facc15' }} />
+            </div>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 8 }}>
+              جاري تجهيز الأكواد الرقمية... ⏳
+            </h3>
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.6 }}>
+              تم استلام وتأكيد طلبك بنجاح. يتم الآن تجهيز وإصدار الأكواد تلقائياً لعرضها على شاشتك فوراً.
+            </p>
+            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+              سيتم تحديث الشاشة تلقائياً خلال لحظات...
+            </div>
+          </div>
+        ) : deliveredVoucher ? (
           <div style={{ padding: '16px 8px', textAlign: 'center' }}>
             <div style={{
               width: 64,
@@ -483,10 +589,65 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                 ? `تم استلام ${deliveredVoucher.codes.length} أكواد رقمية بنجاح! 🎉`
                 : 'تم استلام كود البطاقة بنجاح! 🎉'}
             </h3>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.6 }}>
-              تم حفظ الأكواد مشفرة في خزنة حسابك وأُرسلت نسخة إلى بريدك الإلكتروني.<br />
-              <strong style={{ color: '#facc15' }}>{deliveredVoucher.packageName}</strong>
-            </p>
+            <div style={{ marginBottom: 16 }}>
+              <strong style={{ color: '#facc15', fontSize: '0.95rem', display: 'block', marginBottom: 6 }}>
+                {deliveredVoucher.packageName}
+              </strong>
+
+              {deliveredVoucher.emailSent ? (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color: '#10b981',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  marginTop: 4
+                }}>
+                  <CheckCircle2 size={15} />
+                  <span>أُرسلت نسخة إلى بريدك الإلكتروني بنجاح ✓</span>
+                </div>
+              ) : (
+                <div style={{
+                  background: 'rgba(234, 179, 8, 0.08)',
+                  border: '1px solid rgba(234, 179, 8, 0.25)',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  marginTop: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  textAlign: 'right'
+                }}>
+                  <span style={{ fontSize: '0.78rem', color: '#facc15' }}>
+                    {resendEmailSuccess === true
+                      ? '✓ تم إرسال البريد الإلكتروني بنجاح!'
+                      : '⚠️ تعذر إرسال نسخة إلى البريد (الأكواد محفوظة في حسابك أدناه).'}
+                  </span>
+                  {resendEmailSuccess !== true && (
+                    <button
+                      type="button"
+                      onClick={handleResendEmail}
+                      disabled={isResendingEmail}
+                      style={{
+                        background: 'rgba(250, 204, 21, 0.2)',
+                        color: '#facc15',
+                        border: '1px solid #facc15',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: '0.74rem',
+                        fontWeight: 800,
+                        cursor: isResendingEmail ? 'not-allowed' : 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {isResendingEmail ? 'جاري الإرسال...' : 'إعادة إرسال'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Voucher Codes List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, maxHeight: '280px', overflowY: 'auto' }}>
@@ -967,21 +1128,38 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
               )}
 
               <div className={styles.packageGrid}>
-                {filteredPackages.map((pkg) => (
-                  <div
-                    key={pkg.id}
-                    className={`${styles.packageOption} ${selectedPackage.id === pkg.id ? styles.selected : ''}`}
-                    onClick={() => setSelectedPackage(pkg)}
-                  >
-                    <span className={styles.packageAmount}>{pkg.name}</span>
-                    <span className={styles.packagePrice}>{formatCurrency(getPackagePrice(pkg), 'SDG')}</span>
-                    {pkg.bestValue && (
-                      <span style={{ fontSize: '0.65rem', color: '#16A34A', background: '#DCFCE7', borderRadius: 4, padding: '1px 4px', fontWeight: 800 }}>
-                        أفضل قيمة
+                {filteredPackages.map((pkg) => {
+                  const pkgPrice = getPackagePrice(pkg);
+                  const isPkgUnpriced = !pkgPrice || pkgPrice <= 0 || !pkg.price || Number(pkg.price) <= 0;
+                  const isPkgOutOfStock = pkg.inStock === false || (pkg.availableStock !== undefined && pkg.availableStock <= 0);
+
+                  return (
+                    <div
+                      key={pkg.id}
+                      className={`${styles.packageOption} ${selectedPackage.id === pkg.id ? styles.selected : ''}`}
+                      onClick={() => setSelectedPackage(pkg)}
+                    >
+                      <span className={styles.packageAmount}>{pkg.name}</span>
+                      <span className={styles.packagePrice}>
+                        {isPkgUnpriced ? 'قيد الاعتماد' : formatCurrency(pkgPrice, 'SDG')}
                       </span>
-                    )}
-                  </div>
-                ))}
+                      {pkg.faceValue ? (
+                        <span style={{ fontSize: '0.66rem', color: '#6366f1', background: '#e0e7ff', borderRadius: 4, padding: '1px 5px', fontWeight: 800 }}>
+                          {isVoucher ? (game?.id === 'pubg-vouchers' ? `${pkg.faceValue} UC` : `$${pkg.faceValue}`) : `$${pkg.faceValue}`}
+                        </span>
+                      ) : null}
+                      {isPkgOutOfStock ? (
+                        <span style={{ fontSize: '0.65rem', color: '#dc2626', background: '#fee2e2', borderRadius: 4, padding: '1px 4px', fontWeight: 800 }}>
+                          نفد المخزون
+                        </span>
+                      ) : pkg.bestValue ? (
+                        <span style={{ fontSize: '0.65rem', color: '#16A34A', background: '#DCFCE7', borderRadius: 4, padding: '1px 4px', fontWeight: 800 }}>
+                          أفضل قيمة
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
 
               {selectedPackage.description && (
@@ -1214,9 +1392,9 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                   </div>
                   <div style={{ fontSize: '0.82rem', color: '#e2e8f0', lineHeight: 1.6 }}>
                     <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: '#facc15' }}>
-                      تسليم فوري ومباشر للأكواد الرقمية (Digital Voucher) 🎁
+                      بطاقات وقسائم رقمية معتمدة (Digital Voucher) 🎁
                     </strong>
-                    لا يتطلب هذا المنتج أي معرّف لاعب أو سيرفر. سيتم إصدار الكود وتشفيره فوراً بعد إتمام الشراء، وستظهر الأكواد على الشاشة وتُرسل أيضاً إلى بريدك الإلكتروني مع طريقة التفعيل المعتمدة.
+                    لا يتطلب هذا المنتج أي معرّف لاعب أو سيرفر. سيتم إصدار الكود وتشفيره فور تأكيد الشراء، وتظهر الأكواد على الشاشة وتُرسل أيضاً إلى بريدك الإلكتروني مع طريقة التفعيل المعتمدة.
                     <div style={{ marginTop: 6, fontWeight: 800, color: '#38bdf8' }}>
                       ✓ اختر الكمية التي تحتاجها. يتم إصدار كود مستقل لكل وحدة.
                     </div>
@@ -1941,8 +2119,26 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                   </div>
                 </div>
 
-                {/* Insufficient Balance State */}
-                {isOutOfStock ? (
+                {/* Unpriced or Out of Stock or Insufficient Balance State */}
+                {isUnpriced ? (
+                  <div className={styles.insufficientBox} style={{ background: '#fffbeb', borderColor: '#fef3c7' }}>
+                    <div className={styles.insufficientTitle} style={{ color: '#b45309' }}>
+                      <AlertCircle size={18} color="#d97706" />
+                      <span>سعر البيع قيد الاعتماد</span>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#92400e' }}>
+                      نعتذر، سعر هذه البطاقة غير معتمد حالياً من قبل الإدارة. لا يمكن إتمام الشراء حتى اعتماد السعر.
+                    </p>
+                    <button
+                      type="button"
+                      disabled
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', opacity: 0.6, cursor: 'not-allowed', marginTop: 8 }}
+                    >
+                      السعر قيد الاعتماد
+                    </button>
+                  </div>
+                ) : isOutOfStock ? (
                   <div className={styles.insufficientBox} style={{ background: '#fef2f2', borderColor: '#fecaca' }}>
                     <div className={styles.insufficientTitle} style={{ color: '#b91c1c' }}>
                       <AlertCircle size={18} color="#dc2626" />
@@ -1958,6 +2154,24 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                       style={{ width: '100%', opacity: 0.6, cursor: 'not-allowed', marginTop: 8 }}
                     >
                       نفد المخزون مؤقتاً
+                    </button>
+                  </div>
+                ) : (!isVoucherPurchasable || (isVoucher && purchaseError?.includes('غير متاحة'))) ? (
+                  <div className={styles.insufficientBox} style={{ background: '#f8fafc', borderColor: '#e2e8f0' }}>
+                    <div className={styles.insufficientTitle} style={{ color: '#475569' }}>
+                      <AlertCircle size={18} color="#64748b" />
+                      <span>غير متاحة للشراء حالياً</span>
+                    </div>
+                    <p style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.6, margin: '6px 0 10px' }}>
+                      هذه البطاقة غير متاحة للشراء مؤقتاً. يرجى المحاولة لاحقاً.
+                    </p>
+                    <button
+                      type="button"
+                      disabled
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', opacity: 0.6, cursor: 'not-allowed' }}
+                    >
+                      غير متاحة للشراء مؤقتاً
                     </button>
                   </div>
                 ) : isInsufficient ? (
@@ -1983,19 +2197,41 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     </button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={handleConfirmOrder}
-                    disabled={isProcessing}
-                    style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
-                  >
-                    {isProcessing ? (
-                      <span>{isVoucher ? 'جاري إصدار وتشفير الأكواد الرقمية...' : isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
-                    ) : (
-                      <span>{isVoucher ? (quantity > 1 ? `شراء ${quantity} بطاقات واستلام الأكواد فوراً ⚡` : 'شراء البطاقة واستلام الكود فوراً ⚡') : isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
+                  <>
+                    {purchaseError && (
+                      <div style={{
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        borderRadius: '8px',
+                        padding: '10px 14px',
+                        marginTop: 10,
+                        marginBottom: 6,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        color: '#991b1b',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                        lineHeight: 1.5
+                      }}>
+                        <AlertCircle size={16} color="#dc2626" style={{ flexShrink: 0 }} />
+                        <span>{purchaseError}</span>
+                      </div>
                     )}
-                  </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleConfirmOrder}
+                      disabled={isProcessing}
+                      style={{ width: '100%', fontSize: '1rem', marginTop: 8 }}
+                    >
+                      {isProcessing ? (
+                        <span>{isVoucher ? 'جاري إصدار وتشفير الأكواد الرقمية...' : isDigitalAccount ? 'جاري تخصيص الحساب وتنفيذ الطلب...' : 'جاري خصم الرصيد وتنفيذ الطلب...'}</span>
+                      ) : (
+                        <span>{isVoucher ? (quantity > 1 ? `شراء ${quantity} بطاقات واستلام الأكواد ⚡` : 'شراء البطاقة واستلام الكود ⚡') : isDigitalAccount ? 'شراء الحساب واستلام البيانات فوراً ⚡' : 'تأكيد الطلب وشحنه فوراً ⚡'}</span>
+                      )}
+                    </button>
+                  </>
                 )}
 
                 <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
@@ -2003,7 +2239,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     ? '🔒 يتم خصم المبلغ من رصيد محفظتك المسبق الدفع وتسليم كود القسيمة فورياً مع حفظه مشفراً في حسابك.'
                     : isDigitalAccount
                     ? '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وتسليم بيانات الحساب فورياً.'
-                    : '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وإرسال الطلب تلقائياً لمزود الخدمة.'}
+                    : '🔒 يتم خصم المبلغ من رصيدك المسبق الدفع وتنفيذ الطلب تلقائياً وبأمان.'}
                 </p>
               </>
             )}

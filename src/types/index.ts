@@ -6,6 +6,11 @@ export interface GamePackage {
   description?: string;
   subCategory?: string;
   productType?: string;
+  fulfillmentType?: string;
+  voucherId?: number | string;
+  cardNetwork?: string;
+  cardCurrency?: string;
+  faceValue?: number;
   imageUrl?: string;
   price: number;
   priceSdg?: number;

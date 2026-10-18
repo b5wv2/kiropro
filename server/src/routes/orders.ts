@@ -1097,7 +1097,8 @@ router.get('/my-orders', requireAuth, async (req: AuthRequest, res: Response) =>
       `SELECT 
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
-        status, "fulfillmentKey", "createdAt", "completedAt", "orderType",
+        status, "fulfillmentKey", "createdAt", "completedAt",
+        CASE WHEN "orderType" = 'G2BULK_VOUCHER' THEN 'DIGITAL_VOUCHER' ELSE "orderType" END as "orderType",
         quantity, "unitPrice", "unitPriceUsd"
        FROM "Order" 
        WHERE "userId" = $1 
@@ -1122,7 +1123,8 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
       `SELECT 
         id, "gameId", "packageId", "packageName", "playerId", 
         amount, "originalAmount", "discountAmount", "promoCode", 
-        status, "fulfillmentKey", "createdAt", "completedAt", "orderType"
+        status, "fulfillmentKey", "createdAt", "completedAt",
+        CASE WHEN "orderType" = 'G2BULK_VOUCHER' THEN 'DIGITAL_VOUCHER' ELSE "orderType" END as "orderType"
        FROM "Order" 
        WHERE id = $1 AND "userId" = $2
        LIMIT 1`,

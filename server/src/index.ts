@@ -49,9 +49,12 @@ import fs from 'fs';
 
 const app = express();
 
-// 1. Trust proxy: Required for Railway + Cloudflare multi-hop reverse proxies.
-// Enables req.secure and proper handling of Secure HttpOnly cookies behind proxies.
-app.set('trust proxy', true);
+// 1. Trust proxy: Configured securely to trust reverse proxy hops (e.g. Railway, Cloudflare, Vercel)
+// Setting to a specific hop count (default 1) prevents IP spoofing and fixes ERR_ERL_PERMISSIVE_TRUST_PROXY
+const trustProxyHops = process.env.TRUST_PROXY
+  ? (isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY))
+  : 1;
+app.set('trust proxy', trustProxyHops);
 
 // Security Headers: Protection against clickjacking, MIME sniffing, and insecure transport
 app.use(helmet({

@@ -22,6 +22,8 @@ const httpsAgent = new https.Agent({
 export class GamesDropClient {
   private baseUrl: string;
   private token: string;
+  private authFailureUntil: number = 0;
+  private lastFailedToken: string = '';
 
   constructor() {
     this.baseUrl = (process.env.GAMESDROP_API_URL || 'https://partner.gamesdrop.io').replace(/\/+$/, '');
@@ -41,6 +43,14 @@ export class GamesDropClient {
   }
 
   /**
+   * Reset authentication throttling if token has changed or upon explicit request
+   */
+  public resetAuthThrottle(): void {
+    this.authFailureUntil = 0;
+    this.lastFailedToken = '';
+  }
+
+  /**
    * Execute authenticated HTTP request to GamesDrop Partner API
    * Uses native node:https for 100% reliable Windows networking without undici socket drops.
    */
@@ -55,9 +65,27 @@ export class GamesDropClient {
       throw new Error('GAMESDROP_API_TOKEN_MISSING: لم يتم تكوين رمز مصادقة GamesDrop في السيرفر.');
     }
 
+    // Reset circuit breaker if the token has been changed in .env
+    if (this.lastFailedToken && activeToken !== this.lastFailedToken) {
+      this.resetAuthThrottle();
+    }
+
+    const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+    // Throttle repeated calls to balance/status if authentication was rejected with 401 INVALID_TOKEN
+    if (this.authFailureUntil > Date.now() && cleanPath.includes('/balance')) {
+      const remainingSeconds = Math.ceil((this.authFailureUntil - Date.now()) / 1000);
+      throw {
+        status: 401,
+        code: 'INVALID_TOKEN',
+        message: `رمز مصادقة GamesDrop مرفوض من المزود (401 INVALID_TOKEN). تم تعليق محاولات فحص الرصيد مؤقتاً لتجنب تكرار الأخطاء (المتبقي ${remainingSeconds} ثانية). يرجى تحديث GAMESDROP_API_TOKEN لإعادة التفعيل الفوري.`,
+        details: { throttled: true, remainingSeconds }
+      } as GamesDropApiError;
+    }
+
     const fullUrlStr = endpoint.startsWith('http://') || endpoint.startsWith('https://')
       ? endpoint
-      : `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+      : `${this.baseUrl}${cleanPath}`;
 
     const url = new URL(fullUrlStr);
     const bodyStr = options.body !== undefined ? JSON.stringify(options.body) : null;
@@ -107,7 +135,13 @@ export class GamesDropClient {
             const errorCode = parsedData?.error?.code || parsedData?.error || parsedData?.code || (statusCode === 404 ? 'ENDPOINT_NOT_FOUND' : 'API_ERROR');
             const errorMessage = parsedData?.error?.message || parsedData?.message || parsedData?.error || `GamesDrop API returned HTTP ${statusCode}`;
             
-            console.error(`[GamesDrop Error] ${options.method || 'GET'} ${url.pathname} -> ${statusCode}:`, errorMessage);
+            if (statusCode === 401 && (errorCode === 'INVALID_TOKEN' || String(errorMessage).includes('INVALID_TOKEN'))) {
+              this.authFailureUntil = Date.now() + 10 * 60 * 1000; // 10 minutes backoff
+              this.lastFailedToken = activeToken;
+              console.warn(`[GamesDrop Auth] 401 INVALID_TOKEN on ${url.pathname}. Throttling repeated balance calls for 10 minutes to protect server logs.`);
+            } else {
+              console.error(`[GamesDrop Error] ${options.method || 'GET'} ${url.pathname} -> ${statusCode}:`, errorMessage);
+            }
             
             const err: GamesDropApiError = {
               status: statusCode,

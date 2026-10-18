@@ -94,9 +94,11 @@ const sslConfig = isLocalhost
 export const pool = new Pool({
   connectionString,
   ssl: sslConfig,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 30000,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 10000,
   max: poolMax,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 // Prevent unhandled error event on idle clients from crashing Node.js

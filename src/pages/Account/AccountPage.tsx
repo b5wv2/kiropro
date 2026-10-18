@@ -1006,7 +1006,7 @@ export const AccountPage: React.FC = () => {
                                 </span>
                               )}
 
-                              {(ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
+                              {(ord.orderType === 'DIGITAL_VOUCHER' || ord.orderType === 'VOUCHER' || ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
                                 <span style={{ fontSize: '0.75rem', color: '#854d0e', background: '#fef9c3', border: '1px solid #fde047', padding: '2px 10px', borderRadius: 12, fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   <Gift size={12} />
                                   بطاقة رقمية معتمدة 🎁
@@ -1034,7 +1034,7 @@ export const AccountPage: React.FC = () => {
                                 </div>
                               )}
 
-                              {(ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
+                              {(ord.orderType === 'DIGITAL_VOUCHER' || ord.orderType === 'VOUCHER' || ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
                                 <div style={{ fontSize: '0.82rem', color: '#0369a1', fontWeight: 800, marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                                   <span>الكمية: <strong>{ord.quantity || 1}</strong> {((ord.quantity || 1) > 1) ? 'بطاقات' : 'بطاقة'}</span>
                                   {ord.unitPrice && (
@@ -1440,7 +1440,7 @@ export const AccountPage: React.FC = () => {
                         )}
 
                         {/* DIGITAL VOUCHER CODES DELIVERY CARD */}
-                        {isCompleted && (ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
+                        {isCompleted && (ord.orderType === 'DIGITAL_VOUCHER' || ord.orderType === 'VOUCHER' || ord.orderType === 'G2BULK_VOUCHER' || ord.gameId === 'freefire-vouchers' || ord.gameId === 'pubg-vouchers') && (
                           <div style={{ 
                             background: '#0B0F19', 
                             borderRadius: '10px', 
@@ -2284,7 +2284,7 @@ export const AccountPage: React.FC = () => {
                         borderRadius: 10
                       }}>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>المزود المعتمد:</span>
+                          <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block' }}>المشغل / الخدمة:</span>
                           <strong style={{ color: '#0F172A', fontSize: '0.9rem' }}>
                             {order.providerName || order.operator || '—'}
                           </strong>

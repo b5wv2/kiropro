@@ -466,9 +466,31 @@ export async function purchaseVoucher(payload: {
   currency: string;
   codes: string[];
   maskedCodes: string[];
+  emailSent?: boolean;
+  emailMessage?: string;
   message: string;
 }> {
   return api.post('/api/vouchers/purchase', payload);
+}
+
+export async function pollVoucherOrderStatus(orderId: string): Promise<{
+  success: boolean;
+  orderId: string;
+  status: string;
+  codes?: string[];
+  maskedCodes?: string[];
+  packageName?: string;
+  message?: string;
+}> {
+  return api.get(`/api/vouchers/orders/${orderId}/status`);
+}
+
+export async function resendVoucherEmail(orderId: string): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  return api.post(`/api/vouchers/orders/${orderId}/resend-email`, {});
 }
 
 export async function fetchOrderVoucherCodes(orderId: string): Promise<{

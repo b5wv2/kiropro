@@ -10,7 +10,8 @@ async function main() {
   console.log('=====================================================');
 
   const startTime = Date.now();
-  const result = await g2BulkVoucherService.syncCatalog();
+  // Safe sync strictly from local discovered catalog file (No external calls)
+  const result = await g2BulkVoucherService.syncFromLocalCatalogFile();
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
 
   if (result.success) {
