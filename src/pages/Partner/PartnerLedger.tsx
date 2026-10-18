@@ -34,11 +34,16 @@ export const PartnerLedger: React.FC = () => {
     try {
       setLoading(true);
       const res = await partnerFetch<{ success: boolean; ledger: LedgerRecord[] }>('/api/partner/ledger?limit=100');
-      if (res?.ledger) {
+      if (res && Array.isArray(res.ledger)) {
         setEntries(res.ledger);
+      } else if (Array.isArray(res)) {
+        setEntries(res);
+      } else {
+        setEntries([]);
       }
     } catch (err) {
       console.error('Failed to load ledger', err);
+      setEntries([]);
     } finally {
       setLoading(false);
     }
@@ -50,17 +55,18 @@ export const PartnerLedger: React.FC = () => {
 
   // Filtered entries
   const filteredEntries = useMemo(() => {
-    if (filterType === 'ALL') return entries;
+    const safeEntries = Array.isArray(entries) ? entries : [];
+    if (filterType === 'ALL') return safeEntries;
     if (filterType === 'CREDIT') {
-      return entries.filter((e) => e.transactionType.includes('CREDIT') || e.transactionType.includes('REFUND'));
+      return safeEntries.filter((e) => e.transactionType.includes('CREDIT') || e.transactionType.includes('REFUND'));
     }
     if (filterType === 'DEBIT') {
-      return entries.filter((e) => e.transactionType.includes('DEBIT'));
+      return safeEntries.filter((e) => e.transactionType.includes('DEBIT'));
     }
     if (filterType === 'REFUND') {
-      return entries.filter((e) => e.transactionType === 'ORDER_REFUND');
+      return safeEntries.filter((e) => e.transactionType === 'ORDER_REFUND');
     }
-    return entries;
+    return safeEntries;
   }, [entries, filterType]);
 
   // Aggregate stats

@@ -142,7 +142,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               localStorage.setItem(CACHED_MAINT_KEY, isMaint ? 'true' : 'false');
             } catch {}
           }
-          if (settingsData.contactChannels) {
+          if (settingsData.contactChannels && Array.isArray(settingsData.contactChannels)) {
             setContactChannels(settingsData.contactChannels);
           }
           if (settingsData.primaryWhatsapp !== undefined) {

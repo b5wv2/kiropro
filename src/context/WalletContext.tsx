@@ -56,10 +56,11 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!isAuthenticated) return;
     try {
       const data = await api.get<any[]>('/api/topups');
-      setTopupRequests(data);
-      const pendingSum = data
-        .filter(t => t.status === 'PENDING')
-        .reduce((sum, t) => {
+      const list: any[] = Array.isArray(data) ? data : (Array.isArray((data as any)?.topups) ? (data as any).topups : []);
+      setTopupRequests(list);
+      const pendingSum = list
+        .filter((t: any) => t && t.status === 'PENDING')
+        .reduce((sum: number, t: any) => {
           if (currentCurr === 'SDG') {
             return sum + parseFloat(t.amount_sdg || t.requested_amount || 0);
           }
@@ -68,6 +69,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setPendingBalance(pendingSum);
     } catch (err) {
       console.error('Failed to fetch user topups', err);
+      setTopupRequests([]);
     }
   };
 

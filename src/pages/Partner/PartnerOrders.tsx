@@ -66,11 +66,16 @@ export const PartnerOrders: React.FC = () => {
     try {
       setLoading(true);
       const res = await partnerFetch<{ success: boolean; orders: PartnerOrder[] }>('/api/partner/orders?limit=100');
-      if (res?.orders) {
+      if (res && Array.isArray(res.orders)) {
         setOrders(res.orders);
+      } else if (Array.isArray(res)) {
+        setOrders(res);
+      } else {
+        setOrders([]);
       }
     } catch (err) {
       console.error('Failed to load partner orders', err);
+      setOrders([]);
     } finally {
       setLoading(false);
     }
@@ -111,7 +116,8 @@ export const PartnerOrders: React.FC = () => {
 
   // Filtered orders
   const filteredOrders = useMemo(() => {
-    return orders.filter((o) => {
+    const safeOrders = Array.isArray(orders) ? orders : [];
+    return safeOrders.filter((o) => {
       const matchStatus = statusFilter === 'ALL' || o.status === statusFilter;
       const q = searchQuery.toLowerCase().trim();
       const matchSearch = !q ||

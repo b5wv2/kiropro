@@ -58,10 +58,12 @@ export const HomeReviewsSection: React.FC = () => {
     api.get<FeaturedReviewsResponse>('/api/reviews/featured?limit=9')
       .then(res => {
         if (!isMounted) return;
-        if (res && res.reviews) {
+        if (res && Array.isArray(res.reviews)) {
           setReviews(res.reviews);
           setTotalCount(res.total || 0);
           setAvgRating(res.averageRating || 5.0);
+        } else {
+          setReviews([]);
         }
       })
       .catch(err => {

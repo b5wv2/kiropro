@@ -44,13 +44,20 @@ export const HomePage: React.FC = () => {
     fetchGames()
       .then(data => {
         if (isMounted) {
-          setGames(data);
+          if (Array.isArray(data)) {
+            setGames(data);
+            setError(null);
+          } else {
+            setGames([]);
+            setError('تنسيق استجابة غير صالح من الخادم.');
+          }
           setLoading(false);
         }
       })
       .catch(err => {
         if (isMounted) {
           console.error('[HomePage] Failed to fetch games:', err);
+          setGames([]);
           setError(err?.message || 'تعذر تحميل المنتجات');
           setLoading(false);
         }
@@ -72,10 +79,11 @@ export const HomePage: React.FC = () => {
     };
   }, []);
 
-  const featuredGame = games[0] || null;
+  const safeGames = Array.isArray(games) ? games : [];
+  const featuredGame = safeGames[0] || null;
 
   // Filter games based on activeCategory and search
-  const filteredGames = games.filter(game => {
+  const filteredGames = safeGames.filter(game => {
     let matchesCat = activeCategory === 'all';
     if (activeCategory === 'transfers' || activeCategory === 'numbers') {
       matchesCat = false;
@@ -105,7 +113,7 @@ export const HomePage: React.FC = () => {
   });
 
   // Separate games vs digital/apps for the 'all' view
-  const onlyGamesList = games.filter(g => 
+  const onlyGamesList = safeGames.filter(g => 
     (g.category === 'games' || g.category === 'mobile') &&
     !g.id.includes('likee') &&
     !g.id.includes('telegram') &&
@@ -113,7 +121,7 @@ export const HomePage: React.FC = () => {
     !g.id.includes('voucher')
   );
 
-  const onlyDigitalAndAppsList = games.filter(g => 
+  const onlyDigitalAndAppsList = safeGames.filter(g => 
     g.category === 'apps' || 
     g.category === 'digital' || 
     g.category === 'subscriptions' ||
@@ -225,8 +233,21 @@ export const HomePage: React.FC = () => {
                   setLoading(true);
                   setError(null);
                   fetchGames(true)
-                    .then(data => { setGames(data); setLoading(false); })
-                    .catch(err => { setError(err?.message || 'تعذر تحميل المنتجات'); setLoading(false); });
+                    .then(data => {
+                      if (Array.isArray(data)) {
+                        setGames(data);
+                        setError(null);
+                      } else {
+                        setGames([]);
+                        setError('تنسيق استجابة غير صالح من الخادم.');
+                      }
+                      setLoading(false);
+                    })
+                    .catch(err => {
+                      setGames([]);
+                      setError(err?.message || 'تعذر تحميل المنتجات');
+                      setLoading(false);
+                    });
                 }}
               >
                 إعادة المحاولة

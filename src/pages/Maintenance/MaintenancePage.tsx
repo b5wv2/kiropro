@@ -165,16 +165,20 @@ export const MaintenancePage: React.FC<MaintenancePageProps> = ({ onCheckStatus 
         </div>
 
         {/* قسم قنوات التواصل المعتمدة من الإدارة */}
-        {contactChannels && contactChannels.filter(c => c.enabled && c.url).length > 0 && (
-          <section className={styles.contactSection} aria-label="قنوات التواصل والدعم">
-            <h2 className={styles.contactTitle}>
-              <span>محتاج تتواصل معانا؟ 👇</span>
-            </h2>
-            <div className={styles.channelsGrid}>
-              {contactChannels
-                .filter(c => c.enabled && c.url)
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map(channel => {
+        {(() => {
+          const safeChannels = Array.isArray(contactChannels) ? contactChannels : [];
+          const activeChannels = safeChannels.filter(c => c && c.enabled && c.url);
+          if (activeChannels.length === 0) return null;
+
+          return (
+            <section className={styles.contactSection} aria-label="قنوات التواصل والدعم">
+              <h2 className={styles.contactTitle}>
+                <span>محتاج تتواصل معانا؟ 👇</span>
+              </h2>
+              <div className={styles.channelsGrid}>
+                {activeChannels
+                  .sort((a, b) => (a.order || 0) - (b.order || 0))
+                  .map(channel => {
                   let cardSpecificClass = styles.channelCard;
                   let platformEmoji = '💬';
                   let iconElement = null;
@@ -224,9 +228,10 @@ export const MaintenancePage: React.FC<MaintenancePageProps> = ({ onCheckStatus 
                     </a>
                   );
                 })}
-            </div>
-          </section>
-        )}
+              </div>
+            </section>
+          );
+        })()}
 
         <div className={styles.footerNote}>
           <span>KIROPRO</span>

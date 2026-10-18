@@ -100,8 +100,8 @@ async function request<T = any>(endpoint: string, options: ApiRequestOptions = {
   }
 
   let data: any = null;
-  const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('application/json')) {
     try {
       data = await response.json();
     } catch {
@@ -113,6 +113,21 @@ async function request<T = any>(endpoint: string, options: ApiRequestOptions = {
     } catch {
       data = null;
     }
+  }
+
+  // Guard against SPA fallback (e.g. Cloudflare Pages / Workers returning index.html for unrouted /api/* endpoints)
+  const isHtmlResponse = typeof data === 'string' && (
+    contentType.includes('text/html') ||
+    data.trim().startsWith('<!DOCTYPE') ||
+    data.trim().startsWith('<html')
+  );
+
+  if (isHtmlResponse) {
+    throw new ApiError(
+      response.status === 200 ? 502 : response.status,
+      'استجابة غير صالحة من الـ API (تم إرجاع صفحة HTML بدلاً من بيانات JSON). يرجى التحقق من اتصال الخادم الخلفي.',
+      data
+    );
   }
 
   if (!response.ok) {

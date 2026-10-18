@@ -49,10 +49,12 @@ export const LeaderboardPage: React.FC = () => {
         : Promise.resolve(null);
 
       const [lbData, rankData] = await Promise.all([lbPromise, rankPromise]);
-      setLeaderboard(lbData || []);
+      const safeLb = Array.isArray(lbData) ? lbData : (Array.isArray((lbData as any)?.leaderboard) ? (lbData as any).leaderboard : []);
+      setLeaderboard(safeLb);
       setUserRank(rankData || null);
     } catch (err) {
       console.error('[LeaderboardPage] Error fetching data:', err);
+      setLeaderboard([]);
     } finally {
       setLoading(false);
     }
@@ -73,10 +75,11 @@ export const LeaderboardPage: React.FC = () => {
     }
   };
 
-  const top1 = leaderboard.find(item => item.rank === 1);
-  const top2 = leaderboard.find(item => item.rank === 2);
-  const top3 = leaderboard.find(item => item.rank === 3);
-  const restLeaderboard = leaderboard.filter(item => item.rank > 3);
+  const safeLeaderboard = Array.isArray(leaderboard) ? leaderboard : [];
+  const top1 = safeLeaderboard.find(item => item.rank === 1);
+  const top2 = safeLeaderboard.find(item => item.rank === 2);
+  const top3 = safeLeaderboard.find(item => item.rank === 3);
+  const restLeaderboard = safeLeaderboard.filter(item => item.rank > 3);
 
   const originUrl = typeof window !== 'undefined' ? window.location.origin : 'https://kiropro.store';
   const myShareUrl = userRank?.referralCode ? `${originUrl}/register?ref=${userRank.referralCode}` : '';

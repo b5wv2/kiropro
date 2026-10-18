@@ -21,6 +21,7 @@ import { MyListingsPage } from './pages/Marketplace/MyListingsPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
 import { PartnerApp } from './pages/Partner/PartnerApp';
+import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary';
 
 const AppContent: React.FC = () => {
   const { currentView, user, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
@@ -497,7 +498,9 @@ const AppRouter: React.FC = () => {
   return (
     <OverlayProvider>
       <WalletProvider>
-        <AppContent />
+        <ErrorBoundary>
+          <AppContent />
+        </ErrorBoundary>
       </WalletProvider>
     </OverlayProvider>
   );

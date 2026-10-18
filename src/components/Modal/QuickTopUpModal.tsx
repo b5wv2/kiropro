@@ -93,7 +93,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   }, [selectedPackage?.id]);
 
   const availableSubCategories = React.useMemo(() => {
-    if (!game) return [];
+    if (!game || !Array.isArray(game.packages)) return [];
     const set = new Set<string>();
     game.packages.forEach(p => {
       if (p.subCategory) set.add(p.subCategory);
@@ -102,7 +102,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   }, [game]);
 
   const filteredPackages = React.useMemo(() => {
-    if (!game) return [];
+    if (!game || !Array.isArray(game.packages)) return [];
     if (activeSubCategory === 'ALL') return game.packages;
     return game.packages.filter(p => p.subCategory === activeSubCategory);
   }, [game, activeSubCategory]);
@@ -1095,7 +1095,8 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                                       cat === 'MEMBERSHIP' ? 'عضويات' :
                                         cat === 'LEVEL_UP' ? 'حزم الترقية' : cat;
 
-                    const count = game.packages.filter(p => p.subCategory === cat).length;
+                    const packagesList = Array.isArray(game.packages) ? game.packages : [];
+                    const count = packagesList.filter(p => p.subCategory === cat).length;
                     const isCurrent = activeSubCategory === cat;
 
                     return (
@@ -1104,7 +1105,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                         type="button"
                         onClick={() => {
                           setActiveSubCategory(cat);
-                          const firstInCat = game.packages.find(p => p.subCategory === cat);
+                          const firstInCat = packagesList.find(p => p.subCategory === cat);
                           if (firstInCat) setSelectedPackage(firstInCat);
                         }}
                         style={{

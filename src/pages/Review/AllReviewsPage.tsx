@@ -327,7 +327,7 @@ export const AllReviewsPage: React.FC = () => {
             <div className="spinner" style={{ margin: '0 auto 12px', width: '36px', height: '36px', border: '3px solid rgba(245,158,11,0.2)', borderTopColor: '#F59E0B', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             <span>جارٍ تحميل التقييمات...</span>
           </div>
-        ) : !data || data.reviews.length === 0 ? (
+        ) : !data || !Array.isArray(data.reviews) || data.reviews.length === 0 ? (
           <div style={{
             backgroundColor: '#111827',
             borderRadius: '16px',

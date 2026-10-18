@@ -1,5 +1,5 @@
 import { Game, Order, DigitalAccountCredential, VoucherCodeItem, AdminVoucherProduct } from '../types';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 
 let cachedGames: { data: Game[]; timestamp: number } | null = null;
 let inFlightGamesPromise: Promise<Game[]> | null = null;
@@ -9,10 +9,11 @@ const GAMES_CACHE_TTL_MS = 30 * 1000; // 30 seconds local memory cache
  * Fetch real products from KIROPRO API.
  * Deduplicates concurrent calls (e.g. React 18 StrictMode mount)
  * and caches results in-memory for 30s to prevent duplicate request storms.
+ * Validates and normalizes the response to guarantee an Array is returned or an explicit error thrown.
  */
 export async function fetchGames(forceRefresh = false): Promise<Game[]> {
   const now = Date.now();
-  if (!forceRefresh && cachedGames && (now - cachedGames.timestamp < GAMES_CACHE_TTL_MS)) {
+  if (!forceRefresh && cachedGames && Array.isArray(cachedGames.data) && (now - cachedGames.timestamp < GAMES_CACHE_TTL_MS)) {
     return cachedGames.data;
   }
 
@@ -20,15 +21,41 @@ export async function fetchGames(forceRefresh = false): Promise<Game[]> {
     return inFlightGamesPromise;
   }
 
-  inFlightGamesPromise = api.get<Game[]>('/api/products')
-    .then((data) => {
-      cachedGames = { data, timestamp: Date.now() };
+  inFlightGamesPromise = api.get<any>('/api/products')
+    .then((raw: any) => {
       inFlightGamesPromise = null;
-      return data;
+
+      // 1. If backend returned explicit error payload with 200 OK
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        if (raw.error || raw.message) {
+          throw new ApiError(500, raw.error || raw.message, raw);
+        }
+      }
+
+      // 2. Normalize array response (direct array, { data: [...] }, or { products: [...] })
+      let normalized: Game[] | null = null;
+      if (Array.isArray(raw)) {
+        normalized = raw;
+      } else if (raw && Array.isArray(raw.data)) {
+        normalized = raw.data;
+      } else if (raw && Array.isArray(raw.products)) {
+        normalized = raw.products;
+      }
+
+      if (!normalized) {
+        throw new ApiError(
+          500,
+          'تنسيق استجابة المنتجات غير صالح من الخادم (لم يتم استلام مصفوفة منتجات).',
+          raw
+        );
+      }
+
+      cachedGames = { data: normalized, timestamp: Date.now() };
+      return normalized;
     })
     .catch((err) => {
       inFlightGamesPromise = null;
-      if (cachedGames) {
+      if (cachedGames && Array.isArray(cachedGames.data) && cachedGames.data.length > 0) {
         console.warn('[fetchGames] Returning cached catalog due to API error:', err?.message);
         return cachedGames.data;
       }
@@ -197,7 +224,10 @@ export async function adminValidateOrderPlayer(orderId: string): Promise<PlayerV
 }
 
 export async function fetchMyOrders(): Promise<Order[]> {
-  return api.get('/api/orders/my-orders');
+  const data = await api.get<any>('/api/orders/my-orders');
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray((data as any).orders)) return (data as any).orders;
+  return [];
 }
 
 export async function fetchOrderById(orderId: string): Promise<Order> {

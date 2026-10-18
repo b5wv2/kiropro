@@ -11,12 +11,16 @@ import './styles/animations.css';
 import './styles/admin.css';
 import './styles/partner.css';
 
+import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary';
+
 const rootElement = document.getElementById('root');
 
 if (rootElement) {
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </React.StrictMode>
   );
 }
