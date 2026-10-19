@@ -408,7 +408,7 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
         p.requires_inventory,
         (CASE 
           WHEN p.fulfillment_type = 'KIROPRO_CARD' OR p."productType" = 'VIRTUAL_CARD' THEN 
-            (SELECT COUNT(*)::int FROM kiropro_cards_inventory WHERE status = 'AVAILABLE')
+            (SELECT COUNT(*)::int FROM kiropro_cards_inventory WHERE status = 'AVAILABLE' AND product_id = p.id)
           WHEN p.fulfillment_type = 'DIGITAL_ACCOUNT' OR p."productType" = 'DIGITAL_ACCOUNT' THEN 
             (SELECT COUNT(*)::int FROM digital_product_accounts WHERE product_id = p.id AND status = 'AVAILABLE')
           ELSE NULL 
@@ -578,6 +578,7 @@ router.post('/quick-buy', quickBuyLimiter, requirePartner, async (req: PartnerAu
         const cardResult = await partnerService.issueKiroProCard({
           partnerId: partner.id,
           partnerUserId: req.user?.id || partner.userId,
+          productId: product.id,
           idempotencyKey
         });
 
@@ -871,15 +872,30 @@ router.get('/orders', requirePartner, async (req: PartnerAuthRequest, res: Respo
 
     const query = `
       SELECT 
-        o.id, o.game_id as "gameId", o.package_name as "packageName",
-        o.player_id as "playerId", o.server_id as "serverId",
+        o.id,
+        SUBSTRING(o.id::text, 1, 8) as "orderNumber",
+        o.product_id as "productId",
+        COALESCE(p."arabicName", p."productName", o.package_name) as "productName",
+        o.game_id as "gameId", 
+        o.package_name as "packageName",
+        o.player_id as "playerId", 
+        o.server_id as "serverId",
         o.partner_price_usd as "amountUsd",
+        o.cost_price_usd as "costPriceUsd",
         o.points_awarded as "pointsAwarded",
-        o.status, o.fulfillment_key as "fulfillmentKey",
+        o.status, 
+        o.fulfillment_key as "fulfillmentKey",
         o.failure_reason as "failureReason",
         o.created_at as "createdAt",
-        o.completed_at as "completedAt"
+        o.completed_at as "completedAt",
+        c.id as "cardId",
+        c.card_last4 as "cardLast4",
+        c.exp_date as "cardExpDate",
+        c.balance as "cardBalance",
+        c.currency as "cardCurrency"
       FROM partner_orders o
+      LEFT JOIN "Product" p ON o.product_id = p.id
+      LEFT JOIN kiropro_cards_inventory c ON c.partner_order_id = o.id
       WHERE o.partner_id = $1
       ${statusFilter}
       ORDER BY o.created_at DESC
@@ -901,8 +917,10 @@ router.get('/orders', requirePartner, async (req: PartnerAuthRequest, res: Respo
     ]);
 
     res.json({
+      success: true,
       total: parseInt(countRes.rows[0].count, 10),
-      items: ordersRes.rows
+      items: ordersRes.rows,
+      orders: ordersRes.rows
     });
   } catch (err: any) {
     console.error('[Partner/orders] Error:', err);
@@ -943,7 +961,7 @@ router.get('/exchange-rate', async (_req: Request, res: Response) => {
       rate: Number(rateConfig.rate) || 3500,
       baseCurrency: rateConfig.base_currency || 'USD',
       quoteCurrency: rateConfig.quote_currency || 'SDG',
-      minDepositUsd: Number(rateConfig.min_topup) || 1,
+      minDepositUsd: Number(rateConfig.min_topup) || 0.01,
       maxDepositUsd: Number(rateConfig.max_topup) || 1000
     });
   } catch (err: any) {
@@ -1136,8 +1154,15 @@ router.get('/kiropro-cards/info', requirePartner, async (req: PartnerAuthRequest
   }
 
   try {
-    const info = await partnerService.getPartnerCardInfo(partnerId);
-    res.json(info);
+    const productId = (req.query.productId as string || '').trim() || undefined;
+    const info = await partnerService.getPartnerCardInfo(partnerId, productId);
+    res.json({
+      success: true,
+      card: info.selectedCard,
+      products: info.products,
+      ...info.selectedCard,
+      walletBalance: info.walletBalance
+    });
   } catch (err: any) {
     console.error('[Partner] Error fetching card info:', err.message);
     res.status(500).json({ error: err.message || 'فشل جلب بيانات بطاقة KiroPro Card.' });
@@ -1156,11 +1181,13 @@ router.post('/kiropro-cards/issue', requirePartner, cardIssueLimiter, async (req
   // Idempotency key from header or body
   const headerKey = req.headers['x-idempotency-key'] as string | undefined;
   const idempotencyKey = (headerKey || req.body?.idempotencyKey || '').trim() || undefined;
+  const productId = (req.body?.productId as string || '').trim() || 'b0000000-0000-0000-0000-000000000001';
 
   try {
     const result = await partnerService.issueKiroProCard({
       partnerId,
       partnerUserId,
+      productId,
       idempotencyKey
     });
 
@@ -1168,6 +1195,15 @@ router.post('/kiropro-cards/issue', requirePartner, cardIssueLimiter, async (req
       success: true,
       message: result.message || 'تم إصدار بطاقة KiroPro Card بنجاح.',
       order: result.order,
+      orderNumber: result.order.orderNumber || result.order.id.slice(0, 8).toUpperCase(),
+      card: {
+        id: result.order.cardId,
+        last4: result.order.cardLast4,
+        cardLast4: result.order.cardLast4,
+        expDate: result.order.expDate,
+        balance: result.order.cardBalance,
+        assignedAt: result.order.completedAt
+      },
       isDuplicate: result.isDuplicate || false
     });
   } catch (err: any) {
@@ -1186,7 +1222,11 @@ router.get('/kiropro-cards/my-cards', requirePartner, async (req: PartnerAuthReq
 
   try {
     const cards = await partnerService.getPartnerIssuedCards(partnerId);
-    res.json(cards);
+    res.json({
+      success: true,
+      cards,
+      items: cards
+    });
   } catch (err: any) {
     console.error('[Partner] Error fetching partner cards:', err.message);
     res.status(500).json({ error: 'فشل جلب قائمة البطاقات المصدرة.' });

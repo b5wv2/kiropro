@@ -702,62 +702,129 @@ export class PartnerService {
 
   /**
    * Partner: Retrieves KiroPro Card summary, inventory availability, partner price and wallet check.
+   * Supports selecting a specific card tier/productId, or returns all active Mastercard tiers.
    */
-  public async getPartnerCardInfo(partnerId: string) {
-    const CARD_PRODUCT_ID = 'b0000000-0000-0000-0000-000000000001';
+  public async getPartnerCardInfo(partnerId: string, requestedProductId?: string) {
+    const DEFAULT_CARD_PRODUCT_ID = 'b0000000-0000-0000-0000-000000000001';
 
-    // 1. Available Stock from original kiropro_cards_inventory
-    const stockRes = await pool.query(
-      `SELECT COUNT(*)::int as "availableStock" 
-       FROM kiropro_cards_inventory 
-       WHERE status = 'AVAILABLE' AND product_id = $1`,
-      [CARD_PRODUCT_ID]
-    );
-    const availableStock = stockRes.rows[0]?.availableStock || 0;
-
-    // 2. Partner Pricing ($1.13 default)
-    const priceDetails = await this.getEffectivePartnerPrice(partnerId, CARD_PRODUCT_ID);
-    const partnerPriceUsd = Number(priceDetails.finalPartnerPriceUsd);
-
-    // 3. Partner Wallet Balance
+    // 1. Partner Wallet Balance
     const walletRes = await pool.query(
       `SELECT balance FROM partner_wallets WHERE partner_id = $1`,
       [partnerId]
     );
     const walletBalance = Number(walletRes.rows[0]?.balance || 0);
 
-    return {
-      productId: CARD_PRODUCT_ID,
+    // 2. Fetch all active Virtual Card products
+    const prodsRes = await pool.query(
+      `SELECT 
+        p.id as "productId",
+        p."productName",
+        p."arabicName",
+        p."customerPriceUsd",
+        p."defaultPartnerPriceUsd",
+        p."supplierCostUsd",
+        p.card_network as "cardNetwork",
+        p.card_currency as "cardCurrency",
+        p.face_value as "faceValue",
+        p."isActive",
+        p."inStock",
+        COUNT(c.id) FILTER (WHERE c.status = 'AVAILABLE')::int as "availableStock"
+       FROM "Product" p
+       LEFT JOIN kiropro_cards_inventory c ON c.product_id = p.id
+       WHERE (p."productType" = 'VIRTUAL_CARD' OR p."gameCategoryId" = 'kiropro-card')
+         AND p."isActive" = true
+         AND (p.card_network IS NULL OR p.card_network = 'MASTERCARD')
+       GROUP BY p.id
+       ORDER BY p."displayOrder" ASC, p.face_value ASC`
+    );
+
+    const products = await Promise.all(
+      prodsRes.rows.map(async (p) => {
+        const priceDetails = await this.getEffectivePartnerPrice(partnerId, p.productId);
+        const partnerPriceUsd = Number(priceDetails.finalPartnerPriceUsd);
+        const retailPriceUsd = Number(p.customerPriceUsd || p.faceValue * 1.2);
+        const availableStock = Number(p.availableStock || 0);
+        const faceValue = Number(p.faceValue || 1.00);
+
+        return {
+          productId: p.productId,
+          id: p.productId,
+          name: p.productName,
+          productName: p.productName,
+          arabicName: p.arabicName || p.productName,
+          cardNetwork: p.cardNetwork || 'MASTERCARD',
+          cardCurrency: p.cardCurrency || 'USD',
+          faceValue,
+          cardBalanceUsd: faceValue,
+          retailPriceUsd,
+          customerPriceUsd: retailPriceUsd,
+          partnerPriceUsd,
+          supplierCostUsd: Number(p.supplierCostUsd || faceValue),
+          availableStock,
+          availableCount: availableStock,
+          inStock: availableStock > 0,
+          walletBalance,
+          canAfford: walletBalance >= partnerPriceUsd
+        };
+      })
+    );
+
+    // 3. Resolve selected card
+    const targetProdId = requestedProductId || DEFAULT_CARD_PRODUCT_ID;
+    const selectedCard = products.find((p) => p.productId === targetProdId) || products[0] || {
+      productId: DEFAULT_CARD_PRODUCT_ID,
+      id: DEFAULT_CARD_PRODUCT_ID,
+      name: 'KiroPro Card',
       productName: 'KiroPro Card',
-      cardType: 'Mastercard Virtual Prepaid',
+      arabicName: 'بطاقة ماستركارد الافتراضية',
+      cardNetwork: 'MASTERCARD',
+      cardCurrency: 'USD',
+      faceValue: 1.00,
       cardBalanceUsd: 1.00,
-      customerPriceUsd: 2.00, // Retail price unmodified
-      partnerPriceUsd,
-      availableStock,
-      inStock: availableStock > 0,
+      retailPriceUsd: 2.00,
+      customerPriceUsd: 2.00,
+      partnerPriceUsd: 1.13,
+      supplierCostUsd: 1.00,
+      availableStock: 0,
+      availableCount: 0,
+      inStock: false,
       walletBalance,
-      canAfford: walletBalance >= partnerPriceUsd
+      canAfford: walletBalance >= 1.13
+    };
+
+    return {
+      success: true,
+      products,
+      selectedCard,
+      card: selectedCard,
+      walletBalance
     };
   }
 
   /**
    * Partner: Issues a KiroPro Card atomically from the existing inventory.
+   * - Strictly requires and validates productId for the chosen denomination.
    * - Uses PostgreSQL SELECT ... FOR UPDATE SKIP LOCKED
    * - Locks Partner Wallet FOR UPDATE
-   * - Verifies wallet balance >= partnerPrice ($1.13)
+   * - Verifies wallet balance >= partnerPrice
    * - Inserts Partner Order with idempotency_key
    * - Deducts wallet via partnerLedgerService.debit
    * - Assigns card to partner (assigned_to_user_id)
    * - Commits atomically. If any step fails, rolls back completely.
+   * - ZERO substitution: If requested denomination is out of stock, rejects immediately.
    * - NEVER logs PAN or CVV.
    */
   public async issueKiroProCard(params: {
     partnerId: string;
     partnerUserId: string;
+    productId: string;
     idempotencyKey?: string;
   }) {
-    const { partnerId, partnerUserId, idempotencyKey } = params;
-    const CARD_PRODUCT_ID = 'b0000000-0000-0000-0000-000000000001';
+    const { partnerId, partnerUserId, productId, idempotencyKey } = params;
+
+    if (!productId || typeof productId !== 'string') {
+      throw new Error('يرجى تحديد فئة بطاقة Mastercard المطلوبة.');
+    }
 
     const client = await pool.connect();
     try {
@@ -774,10 +841,14 @@ export class PartnerService {
           [partnerId, cleanKey]
         );
         if (existingOrderRes.rows.length > 0) {
+          const row = existingOrderRes.rows[0];
           return {
             success: true,
             isDuplicate: true,
-            order: existingOrderRes.rows[0],
+            order: {
+              ...row,
+              orderNumber: row.id.slice(0, 8).toUpperCase()
+            },
             message: 'تم تنفيذ هذا الطلب مسبقاً.'
           };
         }
@@ -797,14 +868,37 @@ export class PartnerService {
         throw new Error('حساب الشريك معطل حالياً ولا يمكنه إصدار البطاقات.');
       }
 
-      // 3. Resolve Partner Price ($1.13 default)
-      const priceDetails = await this.getEffectivePartnerPrice(partnerId, CARD_PRODUCT_ID);
-      const partnerPrice = Number(priceDetails.finalPartnerPriceUsd);
-      if (partnerPrice <= 0) {
-        throw new Error('تعذر تحديد سعر الشريك لبطاقة KiroPro Card.');
+      // 3. Authoritative Product Validation
+      const prodRes = await client.query(
+        `SELECT id, "productName", "arabicName", "customerPriceUsd", "defaultPartnerPriceUsd",
+                card_network, card_currency, face_value, "isActive"
+         FROM "Product"
+         WHERE id = $1 FOR SHARE`,
+        [productId]
+      );
+      if (prodRes.rows.length === 0) {
+        throw new Error('فئة بطاقة Mastercard المطلوبة غير موجودة في النظام.');
+      }
+      const product = prodRes.rows[0];
+      if (!product.isActive) {
+        throw new Error(`فئة البطاقة (${product.arabicName || product.productName}) غير مفعّلة للبيع حالياً.`);
+      }
+      if (product.card_network === 'VISA') {
+        throw new Error('بطاقات Visa موقوفة. المنصة تصدر بطاقات Mastercard فقط.');
       }
 
-      // 4. Lock partner wallet row FOR UPDATE
+      const expectedFaceValue = Number(product.face_value || 1.00);
+      const expectedCurrency = (product.card_currency || 'USD').toUpperCase();
+      const expectedNetwork = (product.card_network || 'MASTERCARD').toUpperCase();
+
+      // 4. Resolve Partner Price for this EXACT product
+      const priceDetails = await this.getEffectivePartnerPrice(partnerId, productId);
+      const partnerPrice = Number(priceDetails.finalPartnerPriceUsd);
+      if (partnerPrice <= 0) {
+        throw new Error(`تعذر تحديد سعر الشريك لمنتج (${product.arabicName || product.productName}).`);
+      }
+
+      // 5. Lock partner wallet row FOR UPDATE
       const walletRes = await client.query(
         `SELECT id, balance FROM partner_wallets WHERE partner_id = $1 FOR UPDATE`,
         [partnerId]
@@ -814,28 +908,36 @@ export class PartnerService {
       }
       const walletBalance = Number(walletRes.rows[0].balance);
       if (walletBalance < partnerPrice) {
-        throw new Error(`رصيد محفظتك ($${walletBalance.toFixed(2)} USD) غير كافٍ لإصدار البطاقة ($${partnerPrice.toFixed(2)} USD).`);
+        throw new Error(`رصيد محفظتك ($${walletBalance.toFixed(2)} USD) غير كافٍ لإصدار هذه الفئة ($${partnerPrice.toFixed(2)} USD).`);
       }
 
-      // 5. Lock ONE available Mastercard via SELECT ... FOR UPDATE SKIP LOCKED
+      // 6. Lock ONE available Mastercard matching this EXACT product_id via SELECT ... FOR UPDATE SKIP LOCKED
+      // Strictly filtered by product_id to PREVENT ANY DENOMINATION SUBSTITUTION
       const cardRes = await client.query(
-        `SELECT id, card_last4, exp_date, balance
+        `SELECT id, card_last4, exp_date, balance, currency, card_network, product_id
          FROM kiropro_cards_inventory
          WHERE status = 'AVAILABLE' AND product_id = $1
          ORDER BY created_at ASC
          LIMIT 1
          FOR UPDATE SKIP LOCKED`,
-        [CARD_PRODUCT_ID]
+        [productId]
       );
       if (cardRes.rows.length === 0) {
-        throw new Error('نفد مخزون بطاقات Mastercard المتاحة حالياً في المخزون.');
+        throw new Error(`نفد مخزون فئة ${product.arabicName || product.productName} حالياً من المخزون.`);
       }
 
       const card = cardRes.rows[0];
+      const cardBalance = Number(card.balance);
+
+      // Financial Integrity Guard: Verify delivered card balance and currency strictly match the requested product
+      if (Math.abs(cardBalance - expectedFaceValue) > 0.001) {
+        throw new Error(`خطأ في مطابقة المخزون: رصيد البطاقة ($${cardBalance}) لا يطابق القيمة الاسمية المطلوبة ($${expectedFaceValue}). تم إلغاء العملية لحماية المعاملات.`);
+      }
+
       const cardId = card.id;
       const orderId = uuidv4();
 
-      // 6. Create Partner Order
+      // 7. Create Partner Order linked to exact product and card
       await client.query(
         `INSERT INTO partner_orders (
           id, partner_id, product_id, provider_offer_id, game_id, package_name, player_id, player_name,
@@ -845,19 +947,19 @@ export class PartnerService {
         [
           orderId,
           partnerId,
-          CARD_PRODUCT_ID,
-          'KiroPro Card (Mastercard Virtual)',
+          productId,
+          product.arabicName || product.productName,
           card.card_last4,
-          `Partner Issuance •••• ${card.card_last4}`,
-          1.00,
+          `Mastercard Virtual •••• ${card.card_last4}`,
+          expectedFaceValue,
           partnerPrice,
-          Math.max(0, partnerPrice - 1.00),
+          Math.max(0, partnerPrice - expectedFaceValue),
           card.card_last4,
           idempotencyKey?.trim() || null
         ]
       );
 
-      // 7. Deduct from Partner Wallet atomically (re-using outer client)
+      // 8. Deduct from Partner Wallet atomically (re-using outer client)
       await partnerLedgerService.debit({
         partnerId,
         amount: partnerPrice,
@@ -866,10 +968,10 @@ export class PartnerService {
         referenceType: 'ORDER',
         actorId: partnerUserId,
         actorType: 'PARTNER',
-        description: `إصدار KiroPro Card (Mastercard •••• ${card.card_last4}) بسعر الشريك $${partnerPrice.toFixed(2)} USD`
+        description: `إصدار ${product.arabicName || product.productName} (Mastercard •••• ${card.card_last4}) بسعر $${partnerPrice.toFixed(2)} USD`
       }, client);
 
-      // 8. Assign card to partner and mark CLAIMED
+      // 9. Assign card to partner and mark CLAIMED
       const updateCardRes = await client.query(
         `UPDATE kiropro_cards_inventory
          SET status = 'CLAIMED',
@@ -886,9 +988,19 @@ export class PartnerService {
         throw new Error('فشل تخصيص البطاقة؛ قد تكون خضعت لعملية حجز أخرى متزامنة.');
       }
 
+      // 10. Update Product.inStock if no cards remain for this product
+      const remainingStockRes = await client.query(
+        `SELECT COUNT(*)::int as count FROM kiropro_cards_inventory WHERE product_id = $1 AND status = 'AVAILABLE'`,
+        [productId]
+      );
+      const remainingCount = remainingStockRes.rows[0]?.count || 0;
+      if (remainingCount === 0) {
+        await client.query(`UPDATE "Product" SET "inStock" = false, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1`, [productId]);
+      }
+
       await client.query('COMMIT');
 
-      // 9. Award loyalty points asynchronously
+      // 11. Award loyalty points asynchronously
       this.awardPointsAndCheckPromotion(partnerId, partnerPrice).catch(err => {
         console.error('[PartnerService] Error awarding points for card purchase:', err.message);
       });
@@ -897,10 +1009,14 @@ export class PartnerService {
         success: true,
         order: {
           id: orderId,
+          orderNumber: orderId.slice(0, 8).toUpperCase(),
+          productId,
+          productName: product.arabicName || product.productName,
           cardId,
           cardLast4: card.card_last4,
           expDate: card.exp_date,
-          cardBalance: Number(card.balance),
+          cardBalance,
+          cardCurrency: card.currency || expectedCurrency,
           partnerPriceUsd: partnerPrice,
           status: 'COMPLETED',
           completedAt: new Date().toISOString()
@@ -948,15 +1064,28 @@ export class PartnerService {
   }
 
   /**
-   * Partner: Lists all cards issued to this partner.
+   * Partner: Lists all cards issued to this partner with product metadata.
    */
   public async getPartnerIssuedCards(partnerId: string) {
     const res = await pool.query(
-      `SELECT c.id, c.card_last4 as "cardLast4", c.exp_date as "expDate", c.balance,
-              c.status, c.assigned_at as "assignedAt", o.id as "orderId", o.partner_price_usd as "partnerPriceUsd",
-              o.completed_at as "completedAt"
+      `SELECT 
+         c.id, 
+         c.card_last4 as "cardLast4", 
+         c.exp_date as "expDate", 
+         c.balance,
+         c.currency,
+         c.card_network as "cardNetwork",
+         c.status, 
+         c.assigned_at as "assignedAt", 
+         o.id as "orderId",
+         SUBSTRING(o.id::text, 1, 8) as "orderNumber",
+         o.status as "orderStatus",
+         COALESCE(p."arabicName", p."productName", o.package_name, 'KiroPro Card') as "productName",
+         o.partner_price_usd as "partnerPriceUsd",
+         o.completed_at as "completedAt"
        FROM kiropro_cards_inventory c
        JOIN partner_orders o ON c.partner_order_id = o.id
+       LEFT JOIN "Product" p ON o.product_id = p.id
        WHERE o.partner_id = $1
        ORDER BY o.completed_at DESC`,
       [partnerId]

@@ -321,11 +321,103 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
 
     // Duplicate check using card_hash (deterministic cryptographic fingerprint)
     const dupCheck = await pool.query(
-      `SELECT id FROM kiropro_cards_inventory WHERE card_hash = $1`,
+      `SELECT id, status, card_last4, balance, exp_date, currency, card_network, product_id,
+              order_id, partner_order_id, assigned_at, created_at
+       FROM kiropro_cards_inventory 
+       WHERE card_hash = $1
+       LIMIT 1`,
       [cardHash]
     );
+
     if (dupCheck.rows.length > 0) {
-      return res.status(409).json({ error: 'هذه البطاقة مسجلة مسبقاً في مخزون النظام.' });
+      const existing = dupCheck.rows[0];
+
+      // CASE 1: Card was already CLAIMED / SOLD to a customer or partner
+      // STRICT PROTECTION: NEVER allow re-adding or resetting state of a claimed card!
+      if (['CLAIMED', 'SOLD'].includes(existing.status)) {
+        return res.status(409).json({
+          success: false,
+          code: 'CARD_ALREADY_SOLD',
+          error: `لا يمكن إضافة هذه البطاقة: البطاقة (تنتهي بـ ${existing.card_last4}) تم بيعها وتخصيصها مسبقاً ولا يمكن إعادة إدراجها في المخزون إطلاقاً.`,
+          existingCard: {
+            id: existing.id,
+            last4: existing.card_last4,
+            maskedNumber: maskCardNumber(existing.card_last4),
+            status: existing.status,
+            orderId: existing.partner_order_id || existing.order_id,
+            assignedAt: existing.assigned_at
+          }
+        });
+      }
+
+      // CASE 2: Card already exists in inventory with status AVAILABLE or DISABLED
+      // Check if admin explicitly confirmed updating the existing record
+      const { confirmUpdate, updateReason } = req.body;
+      if (!confirmUpdate) {
+        return res.status(409).json({
+          success: false,
+          code: 'CARD_EXISTS_CONFIRM_REQUIRED',
+          isDuplicate: true,
+          warning: 'هذه البطاقة موجودة في السجلات بالفعل. هل تريد المتابعة لتحديث بياناتها؟',
+          message: 'هذه البطاقة مسجلة مسبقاً في المخزون. لا يمكن إنشاء نسخة مكررة لتفادي بيعها مرتين، ولكن يمكنك تحديث بيانات السجل الحالي بعد تأكيدك.',
+          existingCard: {
+            id: existing.id,
+            last4: existing.card_last4,
+            maskedNumber: maskCardNumber(existing.card_last4),
+            status: existing.status,
+            balance: Number(existing.balance),
+            expDate: existing.exp_date,
+            currency: existing.currency,
+            cardNetwork: existing.card_network,
+            productId: existing.product_id,
+            createdAt: existing.created_at
+          }
+        });
+      }
+
+      // Admin explicitly confirmed updating existing card (NO DUPLICATE ROW CREATED)
+      const sanitizedReason = (updateReason ? String(updateReason).trim() : 'تحديث بيانات بطاقة موجودة مسبقاً في المخزون').slice(0, 255);
+      
+      const updateRes = await pool.query(
+        `UPDATE kiropro_cards_inventory
+         SET balance = $1,
+             exp_date = $2,
+             product_id = $3,
+             updated_at = NOW()
+         WHERE id = $4 AND status IN ('AVAILABLE', 'DISABLED')
+         RETURNING id, card_last4, exp_date, balance, status, card_network, currency, updated_at`,
+        [cardBalance, expDate.trim(), productId, existing.id]
+      );
+
+      if (updateRes.rows.length === 0) {
+        return res.status(409).json({ error: 'تعذر تحديث البطاقة؛ قد تكون خضعت لتغيير حالة أثناء المعالجة.' });
+      }
+
+      const updatedCard = updateRes.rows[0];
+
+      // Audit Log for the override/update action
+      await pool.query(
+        `INSERT INTO "AuditLog" (id, "adminId", action, reason) 
+         VALUES ($1, $2, 'UPDATE_EXISTING_CARD_OVERRIDE', $3)`,
+        [uuidv4(), adminId, `تحديث بطاقة مكررة (تنتهي بـ ${existing.card_last4}) بواسطة المشرف. السبب: ${sanitizedReason}`]
+      );
+
+      return res.status(200).json({
+        success: true,
+        isUpdated: true,
+        message: 'تم تحديث بيانات البطاقة المسجلة مسبقاً بنجاح دون إنشاء تكرار.',
+        card: {
+          id: updatedCard.id,
+          last4: updatedCard.card_last4,
+          maskedNumber: maskCardNumber(updatedCard.card_last4),
+          expDate: updatedCard.exp_date,
+          balance: Number(updatedCard.balance),
+          status: updatedCard.status,
+          cardNetwork: updatedCard.card_network,
+          currency: updatedCard.currency,
+          updatedAt: updatedCard.updated_at
+        }
+      });
     }
 
     // Encrypt card number and CVV with AES-256-GCM
@@ -604,11 +696,22 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
 
       // Duplicate check against database using card_hash
       const existingCheck = await client.query(
-        `SELECT id FROM kiropro_cards_inventory WHERE card_hash = $1 LIMIT 1`,
+        `SELECT id, status, card_last4 FROM kiropro_cards_inventory WHERE card_hash = $1 LIMIT 1`,
         [cardHash]
       );
       if (existingCheck.rows.length > 0) {
-        errors.push({ row: rowNumber, reason: 'البطاقة مسجلة مسبقاً في مخزون النظام' });
+        const existCard = existingCheck.rows[0];
+        if (['CLAIMED', 'SOLD'].includes(existCard.status)) {
+          errors.push({
+            row: rowNumber,
+            reason: `البطاقة (تنتهي بـ ${existCard.card_last4}) بيعت مسبقاً لمستخدم ولا يمكن إعادة إدراجها`
+          });
+        } else {
+          errors.push({
+            row: rowNumber,
+            reason: `البطاقة (تنتهي بـ ${existCard.card_last4}) مسجلة مسبقاً في المخزون (حالة: ${existCard.status})`
+          });
+        }
         continue;
       }
 

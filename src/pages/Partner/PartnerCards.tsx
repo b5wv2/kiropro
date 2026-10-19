@@ -20,8 +20,12 @@ interface CardInfo {
   retailPriceUsd: number;
   partnerPriceUsd: number;
   availableCount: number;
+  availableStock?: number;
   walletBalance: number;
   canAfford: boolean;
+  faceValue?: number;
+  cardNetwork?: string;
+  cardCurrency?: string;
 }
 
 interface IssuedCard {
@@ -47,6 +51,8 @@ export const PartnerCards: React.FC = () => {
   const { wallet, refreshProfile, partnerFetch } = usePartner();
 
   const [cardInfo, setCardInfo] = useState<CardInfo | null>(null);
+  const [availableProducts, setAvailableProducts] = useState<CardInfo[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>('b0000000-0000-0000-0000-000000000001');
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [myCards, setMyCards] = useState<IssuedCard[]>([]);
   const [loadingCards, setLoadingCards] = useState(false);
@@ -71,12 +77,20 @@ export const PartnerCards: React.FC = () => {
   // Prevent double click ref
   const isSubmittingRef = useRef(false);
 
-  const loadCardInfo = async () => {
+  const loadCardInfo = async (targetProdId?: string) => {
     try {
       setLoadingInfo(true);
-      const res = await partnerFetch<{ success: boolean; card: CardInfo }>('/api/partner/kiropro-cards/info');
-      if (res?.card) {
-        setCardInfo(res.card);
+      const pid = targetProdId || selectedProductId;
+      const res = await partnerFetch<any>(`/api/partner/kiropro-cards/info?productId=${pid}`);
+      if (res) {
+        if (Array.isArray(res.products)) {
+          setAvailableProducts(res.products);
+        }
+        if (res.card) {
+          setCardInfo(res.card);
+        } else if (res.productId) {
+          setCardInfo(res);
+        }
       }
     } catch (err: any) {
       console.error('Failed to load card info', err);
@@ -88,12 +102,19 @@ export const PartnerCards: React.FC = () => {
   const loadMyCards = async () => {
     try {
       setLoadingCards(true);
-      const res = await partnerFetch<{ success: boolean; cards: IssuedCard[] }>('/api/partner/kiropro-cards/my-cards');
-      if (res?.cards) {
+      const res = await partnerFetch<any>('/api/partner/kiropro-cards/my-cards');
+      if (res && Array.isArray(res.cards)) {
         setMyCards(res.cards);
+      } else if (res && Array.isArray(res.items)) {
+        setMyCards(res.items);
+      } else if (Array.isArray(res)) {
+        setMyCards(res);
+      } else {
+        setMyCards([]);
       }
     } catch (err: any) {
       console.error('Failed to load issued cards', err);
+      setMyCards([]);
     } finally {
       setLoadingCards(false);
     }
@@ -112,7 +133,7 @@ export const PartnerCards: React.FC = () => {
     const currentBalance = Number(wallet?.balance ?? 0);
 
     if (currentBalance < partnerPrice) {
-      setIssueError(`رصيدك الحالي ($${currentBalance.toFixed(2)}) غير كافٍ. سعر إصدار البطاقة للشريك هو $${partnerPrice.toFixed(2)} USD.`);
+      setIssueError(`رصيدك الحالي ($${currentBalance.toFixed(2)}) غير كافٍ. سعر إصدار الفئة المختارة للشريك هو $${partnerPrice.toFixed(2)} USD.`);
       return;
     }
 
@@ -122,25 +143,37 @@ export const PartnerCards: React.FC = () => {
 
       // Generate client idempotency key to prevent double-billing
       const idempotencyKey = `pkc_${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36)}`;
+      const targetPid = cardInfo?.productId || selectedProductId;
 
-      const res = await partnerFetch<{
-        success: boolean;
-        message: string;
-        orderNumber: string;
-        card: { id: string; last4: string; expDate: string; balance: number; assignedAt: string };
-      }>('/api/partner/kiropro-cards/issue', {
+      const res = await partnerFetch<any>('/api/partner/kiropro-cards/issue', {
         method: 'POST',
-        body: JSON.stringify({ idempotencyKey })
+        body: JSON.stringify({ 
+          productId: targetPid,
+          idempotencyKey 
+        })
       });
 
-      if (res.success && res.card) {
-        setNewlyIssuedCard({
-          orderNumber: res.orderNumber,
-          card: res.card
-        });
+      if (res && res.success) {
+        const orderNum = res.orderNumber || (res.order?.orderNumber) || (res.order?.id ? String(res.order.id).slice(0, 8).toUpperCase() : 'OK');
+        const cardObj = res.card || (res.order ? {
+          id: res.order.cardId,
+          last4: res.order.cardLast4,
+          expDate: res.order.expDate,
+          balance: res.order.cardBalance,
+          assignedAt: res.order.completedAt
+        } : null);
+
+        if (cardObj) {
+          setNewlyIssuedCard({
+            orderNumber: orderNum,
+            card: cardObj
+          });
+        }
         await refreshProfile();
-        await loadCardInfo();
+        await loadCardInfo(targetPid);
         await loadMyCards();
+      } else {
+        setIssueError(res?.error || 'فشل إصدار البطاقة.');
       }
     } catch (err: any) {
       setIssueError(err.message || 'فشل إصدار البطاقة. يرجى المحاولة مرة أخرى.');
@@ -234,6 +267,77 @@ export const PartnerCards: React.FC = () => {
         </button>
       </div>
 
+      {/* Tier Selector */}
+      {availableProducts.length > 0 && (
+        <div className="partner-card" style={{ padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#f1f5f9' }}>
+              اختر فئة بطاقة ماستركارد المراد إصدارها:
+            </span>
+            <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+              المخزون والأسعار مخصصة ومحدثة لحظياً
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+            {availableProducts.map((prod) => {
+              const isSelected = (cardInfo?.productId || selectedProductId) === prod.productId;
+              const isAvailable = (prod.availableCount ?? prod.availableStock ?? 0) > 0;
+              const flag = prod.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸';
+              const currSym = prod.cardCurrency === 'CAD' ? 'C$' : '$';
+              return (
+                <button
+                  key={prod.productId}
+                  type="button"
+                  onClick={() => {
+                    setSelectedProductId(prod.productId);
+                    loadCardInfo(prod.productId);
+                  }}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: 12,
+                    border: isSelected ? '2px solid #F59E0B' : '1px solid rgba(255, 255, 255, 0.08)',
+                    background: isSelected ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.18) 0%, rgba(245, 158, 11, 0.05) 100%)' : 'rgba(255, 255, 255, 0.03)',
+                    color: isSelected ? '#F59E0B' : '#e2e8f0',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    textAlign: 'right',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '1.2rem' }}>{flag}</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>
+                        {currSym}{Number(prod.faceValue || 1).toFixed(2)} {prod.cardCurrency || 'USD'}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: isSelected ? '#FDE68A' : '#94a3b8' }}>
+                        سعر الشريك: ${Number(prod.partnerPriceUsd).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span style={{
+                    fontSize: '0.72rem',
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    fontWeight: 800,
+                    background: isAvailable ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: isAvailable ? '#10B981' : '#EF4444',
+                    border: `1px solid ${isAvailable ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+                  }}>
+                    {isAvailable ? `متوفر: ${prod.availableCount ?? prod.availableStock}` : 'نفد'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Main Issue Card & Stats Section */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
         
@@ -325,7 +429,9 @@ export const PartnerCards: React.FC = () => {
             </div>
             <div>
               <div style={{ fontSize: '0.7rem', color: '#64748B', textTransform: 'uppercase' }}>Balance</div>
-              <div style={{ fontSize: '1rem', color: '#10B981', fontWeight: 900 }}>$1.00 USD</div>
+              <div style={{ fontSize: '1rem', color: '#10B981', fontWeight: 900 }}>
+                {cardInfo?.cardCurrency === 'CAD' ? 'C$' : '$'}{Number(cardInfo?.faceValue || 1).toFixed(2)} {cardInfo?.cardCurrency || 'USD'}
+              </div>
             </div>
           </div>
         </div>
@@ -447,7 +553,7 @@ export const PartnerCards: React.FC = () => {
             ) : (
               <>
                 <Zap size={18} />
-                <span>إصدار بطاقة ماستركارد الآن (${partnerPrice.toFixed(2)} USD)</span>
+                <span>إصدار {cardInfo?.arabicName || 'بطاقة ماستركارد'} (${partnerPrice.toFixed(2)} USD)</span>
               </>
             )}
           </button>

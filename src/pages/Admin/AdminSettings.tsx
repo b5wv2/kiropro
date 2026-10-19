@@ -39,7 +39,7 @@ export const AdminSettings: React.FC = () => {
     rate: 5000,
     base_currency: 'USD',
     quote_currency: 'SDG',
-    min_topup: 1,
+    min_topup: 0.01,
     max_topup: 500,
     updated_at: ''
   });
@@ -111,7 +111,7 @@ export const AdminSettings: React.FC = () => {
             rate: rateData.rate,
             base_currency: rateData.base_currency || 'USD',
             quote_currency: rateData.quote_currency || 'SDG',
-            min_topup: rateData.min_topup || 1,
+            min_topup: rateData.min_topup !== undefined ? Number(rateData.min_topup) : 0.01,
             max_topup: rateData.max_topup || 500,
             updated_at: rateData.updated_at || ''
           });
@@ -647,10 +647,11 @@ export const AdminSettings: React.FC = () => {
               <label className="admin-label">الحد الأدنى للشحن في المرة الواحدة ($):</label>
               <input
                 type="number"
-                min="1"
+                min="0.01"
+                step="0.01"
                 className="admin-input"
                 value={exchangeSettings.min_topup}
-                onChange={(e) => setExchangeSettings({ ...exchangeSettings, min_topup: parseFloat(e.target.value) || 1 })}
+                onChange={(e) => setExchangeSettings({ ...exchangeSettings, min_topup: parseFloat(e.target.value) || 0.01 })}
               />
             </div>
 

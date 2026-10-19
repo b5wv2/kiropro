@@ -109,11 +109,17 @@ router.get('/settings/exchange-rate', async (req: Request, res: Response) => {
         rate: 5000,
         base_currency: 'USD',
         quote_currency: 'SDG',
-        min_topup: 1,
+        min_topup: 0.01,
+        min_topup_sdg: 2,
         max_topup: 500
       });
     }
-    res.json(result.rows[0].value);
+    const val = result.rows[0].value || {};
+    res.json({
+      ...val,
+      min_topup: val.min_topup !== undefined ? Number(val.min_topup) : 0.01,
+      min_topup_sdg: val.min_topup_sdg !== undefined ? Number(val.min_topup_sdg) : 2
+    });
   } catch (err: any) {
     console.error('Error fetching exchange rate:', err);
     res.status(500).json({ error: 'Failed to fetch exchange rate' });
@@ -176,10 +182,9 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
 
       // 2. Fetch Exchange Rate Settings from database
       const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
-      const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000, min_topup: 1, max_topup: 500 };
+      const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000, min_topup: 0.01, max_topup: 500 };
 
       const exchangeRate = Number(rateConfig.rate) || 5000;
-      const minTopupUsd = Number(rateConfig.min_topup) || 1;
       const maxTopupUsd = Number(rateConfig.max_topup) || 500;
 
       let calcAmountUsd = 0;
@@ -191,9 +196,14 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
         if (!Number.isFinite(rawSdg) || rawSdg <= 0) {
           return res.status(400).json({ error: 'يرجى تحديد مبلغ شحن صحيح بالجنيه السوداني.' });
         }
-        calcAmountSdg = Math.round(rawSdg);
+        calcAmountSdg = Math.round(rawSdg * 100) / 100;
         finalRequestedAmount = calcAmountSdg;
         calcAmountUsd = Math.round((calcAmountSdg / exchangeRate) * 100) / 100;
+
+        // Security check: Must be strictly greater than 1 SDG as per business policy
+        if (calcAmountSdg <= 1) {
+          return res.status(400).json({ error: 'الحد الأدنى للشحن يجب أن يكون أكبر من 1 جنيه سوداني.' });
+        }
       } else {
         const rawUsd = Number(requested_amount || amount_usd);
         if (!Number.isFinite(rawUsd) || rawUsd <= 0) {
@@ -201,12 +211,12 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
         }
         calcAmountUsd = Math.round(rawUsd * 100) / 100;
         finalRequestedAmount = calcAmountUsd;
-        calcAmountSdg = Math.round(calcAmountUsd * exchangeRate);
-      }
+        calcAmountSdg = Math.round(calcAmountUsd * exchangeRate * 100) / 100;
 
-      if (calcAmountUsd < minTopupUsd) {
-        const minLabel = targetCurrency === 'SDG' ? `${Math.round(minTopupUsd * exchangeRate).toLocaleString()} ج.س` : `$${minTopupUsd}`;
-        return res.status(400).json({ error: `أقل مبلغ للشحن هو ${minLabel}.` });
+        // Security check: Positive USD and greater than 1 SDG equivalent
+        if (calcAmountUsd < 0.01 || calcAmountSdg <= 1) {
+          return res.status(400).json({ error: 'الحد الأدنى للشحن يجب أن يكون أكبر من 1 جنيه سوداني (0.01 دولار).' });
+        }
       }
 
       if (calcAmountUsd > maxTopupUsd) {
@@ -797,7 +807,8 @@ router.patch('/admin/settings/exchange-rate', requireAdmin, async (req: AuthRequ
       rate: numRate,
       base_currency: base_currency || 'USD',
       quote_currency: quote_currency || 'SDG',
-      min_topup: min_topup !== undefined ? parseFloat(min_topup) : 1,
+      min_topup: min_topup !== undefined ? parseFloat(min_topup) : 0.01,
+      min_topup_sdg: 2,
       max_topup: max_topup !== undefined ? parseFloat(max_topup) : 500
     };
 

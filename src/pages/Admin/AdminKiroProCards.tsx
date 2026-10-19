@@ -238,24 +238,39 @@ export const AdminKiroProCards: React.FC = () => {
     }
   };
 
-  const handleAddSingleCard = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Duplicate Card Confirmation State
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    warning: string;
+    message: string;
+    existingCard: any;
+    pendingData: any;
+  } | null>(null);
+
+  const handleAddSingleCard = async (e?: React.FormEvent, confirmedPayload?: any) => {
+    if (e) e.preventDefault();
     setSingleError(null);
     setSingleSuccess(null);
     setSubmittingSingle(true);
 
+    const payload = confirmedPayload || {
+      cardNumber: singleCardNumber.trim(),
+      expDate: singleExpDate.trim(),
+      cvv: singleCvv.trim(),
+      balance: parseFloat(singleBalance) || 1.00,
+      productId: selectedTargetProduct,
+      notes: singleNotes.trim() || undefined
+    };
+
     try {
-      const res: any = await api.post('/api/admin/kiropro-cards/add', {
-        cardNumber: singleCardNumber.trim(),
-        expDate: singleExpDate.trim(),
-        cvv: singleCvv.trim(),
-        balance: parseFloat(singleBalance) || 1.00,
-        productId: selectedTargetProduct,
-        notes: singleNotes.trim() || undefined
-      });
+      const res: any = await api.post('/api/admin/kiropro-cards/add', payload);
 
       if (res.success) {
-        setSingleSuccess(`تمت إضافة البطاقة بنجاح (تنتهي بـ ${res.card?.last4 || res.card?.card_last4 || '••••'})`);
+        setDuplicateWarning(null);
+        if (res.isUpdated) {
+          setSingleSuccess(`تم تحديث بيانات البطاقة الموجودة مسبقاً بنجاح (تنتهي بـ ${res.card?.last4 || '••••'}) دون تكرار.`);
+        } else {
+          setSingleSuccess(`تمت إضافة البطاقة بنجاح للمخزون (تنتهي بـ ${res.card?.last4 || res.card?.card_last4 || '••••'})`);
+        }
         setSingleCardNumber('');
         setSingleExpDate('');
         setSingleCvv('');
@@ -267,7 +282,21 @@ export const AdminKiroProCards: React.FC = () => {
         setSingleError(res.error || 'تعذر إضافة البطاقة.');
       }
     } catch (err: any) {
-      setSingleError(err?.response?.data?.error || err.message || 'تعذر إضافة البطاقة.');
+      const data = err?.response?.data;
+      if (data?.code === 'CARD_EXISTS_CONFIRM_REQUIRED') {
+        setDuplicateWarning({
+          warning: data.warning,
+          message: data.message,
+          existingCard: data.existingCard,
+          pendingData: {
+            ...payload,
+            confirmUpdate: true,
+            updateReason: 'تأكيد المشرف لتحديث بيانات البطاقة المسجلة مسبقاً'
+          }
+        });
+      } else {
+        setSingleError(data?.error || err.message || 'تعذر إضافة البطاقة.');
+      }
     } finally {
       setSubmittingSingle(false);
     }
@@ -1049,6 +1078,60 @@ export const AdminKiroProCards: React.FC = () => {
           {singleSuccess && (
             <div style={{ marginBottom: 16, padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, color: '#059669', fontSize: '0.85rem', fontWeight: 800 }}>
               {singleSuccess}
+            </div>
+          )}
+
+          {duplicateWarning && (
+            <div style={{
+              marginBottom: 20,
+              padding: 16,
+              background: '#fffbeb',
+              border: '1.5px solid #fde68a',
+              borderRadius: 10,
+              color: '#92400e'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <AlertTriangle size={20} color="#d97706" />
+                <strong style={{ fontSize: '0.95rem' }}>{duplicateWarning.warning}</strong>
+              </div>
+              <p style={{ margin: '0 0 12px', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                {duplicateWarning.message}
+              </p>
+              <div style={{
+                background: 'rgba(255,255,255,0.7)',
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: '1px solid #fef3c7',
+                fontSize: '0.82rem',
+                marginBottom: 14,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                gap: 8
+              }}>
+                <div>البطاقة: <strong>•••• {duplicateWarning.existingCard?.last4}</strong></div>
+                <div>الحالة الحالية: <strong>{duplicateWarning.existingCard?.status === 'AVAILABLE' ? 'متاح للبيع' : 'معطل'}</strong></div>
+                <div>الرصيد المسجل: <strong>${Number(duplicateWarning.existingCard?.balance || 0).toFixed(2)}</strong></div>
+                <div>تاريخ الانتهاء: <strong>{duplicateWarning.existingCard?.expDate}</strong></div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateWarning(null)}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '7px 14px', fontSize: '0.82rem' }}
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={submittingSingle}
+                  onClick={() => handleAddSingleCard(undefined, duplicateWarning.pendingData)}
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#d97706', borderColor: '#b45309', padding: '7px 16px', fontSize: '0.82rem' }}
+                >
+                  {submittingSingle ? 'جاري التحديث...' : 'نعم، حدّث السجل الموجود'}
+                </button>
+              </div>
             </div>
           )}
 

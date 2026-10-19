@@ -32,6 +32,7 @@ interface RateConfig {
   base_currency: string;
   quote_currency: string;
   min_topup: number;
+  min_topup_sdg?: number;
   max_topup: number;
 }
 
@@ -49,7 +50,8 @@ export const DepositModal: React.FC = () => {
     rate: 600,
     base_currency: 'USD',
     quote_currency: 'SDG',
-    min_topup: 1,
+    min_topup: 0.01,
+    min_topup_sdg: 2,
     max_topup: 500
   });
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -81,7 +83,8 @@ export const DepositModal: React.FC = () => {
             rate: 600,
             base_currency: 'USD',
             quote_currency: 'SDG',
-            min_topup: 1,
+            min_topup: 0.01,
+            min_topup_sdg: 2,
             max_topup: 500
           })),
           api.get<PaymentMethod[]>(`/api/payment-methods?currency=${currency}`).catch(() => [])
@@ -141,13 +144,18 @@ export const DepositModal: React.FC = () => {
       setErrorMessage('يرجى تحديد مبلغ شحن صحيح.');
       return;
     }
-    const minVal = isSdg ? (rateConfig.min_topup || 1) * currentRate : (rateConfig.min_topup || 1);
-    const maxVal = isSdg ? (rateConfig.max_topup || 500) * currentRate : (rateConfig.max_topup || 500);
 
-    if (activeAmount < minVal) {
-      setErrorMessage(isSdg ? `الحد الأدنى للشحن هو ${minVal.toLocaleString()} ج.س.` : `الحد الأدنى للشحن هو $${minVal} دولار.`);
+    if (isSdg && activeAmount <= 1) {
+      setErrorMessage('الحد الأدنى للشحن يجب أن يكون أكبر من 1 جنيه سوداني.');
       return;
     }
+
+    if (!isSdg && activeAmount < 0.01) {
+      setErrorMessage('الحد الأدنى للشحن هو $0.01 دولار.');
+      return;
+    }
+
+    const maxVal = isSdg ? (rateConfig.max_topup || 500) * currentRate : (rateConfig.max_topup || 500);
     if (activeAmount > maxVal) {
       setErrorMessage(isSdg ? `الحد الأقصى للشحن هو ${maxVal.toLocaleString()} ج.س.` : `الحد الأقصى للشحن هو $${maxVal} دولار.`);
       return;
@@ -360,12 +368,12 @@ export const DepositModal: React.FC = () => {
             </label>
             <input
               type="number"
-              min={isSdg ? (rateConfig.min_topup || 1) * currentRate : (rateConfig.min_topup || 1)}
+              min={isSdg ? '2' : '0.01'}
               max={isSdg ? (rateConfig.max_topup || 500) * currentRate : (rateConfig.max_topup || 500)}
-              step={isSdg ? '1000' : '1'}
+              step={isSdg ? '1' : '0.01'}
               value={customAmount}
               onChange={handleCustomChange}
-              placeholder={isSdg ? 'مثال: 50000' : 'مثال: 15'}
+              placeholder={isSdg ? 'مثال: 500' : 'مثال: 15'}
               className="admin-input"
               style={{
                 width: '100%',

@@ -118,6 +118,10 @@ export const AdminCustomers: React.FC = () => {
       setErrorMsg(`عملة العملية (${walletCurrency}) تختلف عن عملة محفظة العميل (${targetCustomer.currency}). النظام يمنع العمليات بعملات مختلفة.`);
       return;
     }
+    if (walletModalType === 'CREDIT' && walletCurrency === 'SDG' && Number(amount) <= 1) {
+      setErrorMsg('الحد الأدنى للإيداع يجب أن يكون أكبر من 1 ج.س.');
+      return;
+    }
 
     setSubmitting(true);
     setErrorMsg(null);
@@ -634,8 +638,8 @@ export const AdminCustomers: React.FC = () => {
                       <input
                         type="number"
                         step={walletCurrency === 'SDG' ? '1' : '0.01'}
-                        min={walletCurrency === 'SDG' ? '1' : '0.01'}
-                        placeholder={walletCurrency === 'SDG' ? 'مثال: 25000' : 'مثال: 25.00'}
+                        min={walletCurrency === 'SDG' ? '2' : '0.01'}
+                        placeholder={walletCurrency === 'SDG' ? 'مثال: 500' : 'مثال: 25.00'}
                         className="admin-input"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}

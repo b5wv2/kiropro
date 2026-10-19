@@ -52,6 +52,7 @@ export const PartnerOrders: React.FC = () => {
 
   const [orders, setOrders] = useState<PartnerOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -65,16 +66,21 @@ export const PartnerOrders: React.FC = () => {
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const res = await partnerFetch<{ success: boolean; orders: PartnerOrder[] }>('/api/partner/orders?limit=100');
+      setFetchError(null);
+      const statusParam = statusFilter !== 'ALL' ? `&status=${statusFilter}` : '';
+      const res = await partnerFetch<any>(`/api/partner/orders?limit=100${statusParam}`);
       if (res && Array.isArray(res.orders)) {
         setOrders(res.orders);
+      } else if (res && Array.isArray(res.items)) {
+        setOrders(res.items);
       } else if (Array.isArray(res)) {
         setOrders(res);
       } else {
         setOrders([]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load partner orders', err);
+      setFetchError(err?.message || 'فشل الاتصال بالخادم لتحميل سجل الطلبات.');
       setOrders([]);
     } finally {
       setLoading(false);
@@ -83,7 +89,7 @@ export const PartnerOrders: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, []);
+  }, [statusFilter]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -230,13 +236,44 @@ export const PartnerOrders: React.FC = () => {
           </div>
         </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
-            جاري مزامنة سجل الطلبات...
+        {fetchError ? (
+          <div style={{
+            margin: '20px 0',
+            padding: '16px 20px',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: 10,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: '#ef4444', fontSize: '1.2rem' }}>⚠️</span>
+              <div>
+                <strong style={{ color: '#fca5a5', fontSize: '0.9rem', display: 'block' }}>خطأ في استرجاع سجل الطلبات</strong>
+                <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>{fetchError}</span>
+              </div>
+            </div>
+            <button
+              onClick={fetchOrders}
+              className="btn-partner-secondary"
+              style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+            >
+              إعادة المحاولة
+            </button>
+          </div>
+        ) : loading ? (
+          <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
+            <RefreshCw size={24} className="spin-anim" style={{ margin: '0 auto 12px' }} />
+            <div>جاري مزامنة سجل الطلبات بأمان...</div>
           </div>
         ) : filteredOrders.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: '0.85rem' }}>
-            لم يتم العثور على أي طلبات تطابق معايير البحث.
+          <div style={{ textAlign: 'center', padding: '45px 20px', color: '#94a3b8', fontSize: '0.9rem' }}>
+            <ShoppingBag size={36} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+            <p style={{ margin: 0, fontWeight: 700, color: '#cbd5e1' }}>لا توجد طلبات تطابق معايير البحث الحالية.</p>
+            <span style={{ fontSize: '0.78rem', color: '#64748b' }}>جميع العمليات والشحنات المنجزة ستظهر هنا تلقائياً فور تأكيدها.</span>
           </div>
         ) : (
           <div className="partner-table-container">

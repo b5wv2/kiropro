@@ -149,14 +149,13 @@ router.post('/users/:id/wallet/credit', requireAdmin, async (req: AuthRequest, r
       const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
       const exchangeRate = Number(rateConfig.rate) || 5000;
 
-      const minAmount = Number(rateConfig.min_admin_sdg) || Math.round(0.1 * exchangeRate);
-      const maxAmount = Number(rateConfig.max_admin_sdg) || Math.round(10000 * exchangeRate);
-
-      if (roundedAmount < minAmount) {
+      // Security check: Must be strictly greater than 1 SDG as per business policy
+      if (roundedAmount <= 1) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: `الحد الأدنى للإيداع هو ${minAmount.toLocaleString()} ج.س.` });
+        return res.status(400).json({ error: 'الحد الأدنى للإيداع يجب أن يكون أكبر من 1 ج.س.' });
       }
 
+      const maxAmount = Number(rateConfig.max_admin_sdg) || Math.round(10000 * exchangeRate);
       if (roundedAmount > maxAmount) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: `الحد الأقصى للإيداع في المرة الواحدة هو ${maxAmount.toLocaleString()} ج.س.` });
