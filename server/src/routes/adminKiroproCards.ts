@@ -294,6 +294,10 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'لم يتم العثور على منتج بطاقة صالح.' });
     }
 
+    if (targetProduct.card_network === 'VISA') {
+      return res.status(400).json({ error: 'بطاقات فيزا موقوفة وغير مدعومة للإضافة أو البيع. المنصة تعتمد شبكة ماستركارد فقط.' });
+    }
+
     const productId = targetProduct.id;
     const expectedNetwork = (targetProduct.card_network || 'MASTERCARD').toUpperCase();
     const cardCurrency = (targetProduct.card_currency || 'USD').toUpperCase();
@@ -500,6 +504,15 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
     });
   }
 
+  if (targetProduct.card_network === 'VISA') {
+    return res.status(400).json({
+      success: false,
+      code: 'VISA_DISABLED',
+      message: 'بطاقات فيزا موقوفة وغير مدعومة للاستيراد. المنصة تعتمد شبكة ماستركارد فقط.',
+      errors: []
+    });
+  }
+
   const productId = targetProduct.id;
   const expectedNetwork = (targetProduct.card_network || 'MASTERCARD').toUpperCase();
   const cardCurrency = (targetProduct.card_currency || 'USD').toUpperCase();
@@ -557,6 +570,13 @@ router.post('/bulk-import', requireAdmin, upload.single('file'), async (req: Aut
 
       // Network validation against product
       const detectedNetwork = detectCardNetwork(cleanNum);
+      if (detectedNetwork === 'VISA') {
+        errors.push({
+          row: rowNumber,
+          reason: 'بطاقات فيزا غير مدعومة بالمنصة (يُسمح فقط ببطاقات شبكة ماستركارد)'
+        });
+        continue;
+      }
       if (detectedNetwork !== 'UNKNOWN' && detectedNetwork !== expectedNetwork) {
         errors.push({
           row: rowNumber,

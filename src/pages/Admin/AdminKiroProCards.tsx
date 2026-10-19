@@ -569,7 +569,7 @@ export const AdminKiroProCards: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>
-              💳 فئات البطاقات الافتراضية المتوفرة بالمنصة (Visa Canada & Mastercard USD)
+              💳 فئات البطاقات الافتراضية المتوفرة بالمنصة (KIROPRO Mastercard)
             </span>
             <span style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10, fontWeight: 800, color: '#475569' }}>
               {cardProducts.length} فئات مستقلة
@@ -587,7 +587,8 @@ export const AdminKiroProCards: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
           {cardProducts.map((p) => {
             const isVisa = p.cardNetwork === 'VISA';
-            const flag = isVisa ? '🇨🇦' : '🇺🇸';
+            const isCanada = p.cardCurrency === 'CAD' || (p as any).regionCode === 'CA';
+            const flag = isCanada ? '🇨🇦' : '🇺🇸';
             const sym = p.cardCurrency === 'CAD' ? 'C$' : '$';
             const isSelected = selectedProductFilter === (p.productId || (p as any).id);
             return (
@@ -599,7 +600,7 @@ export const AdminKiroProCards: React.FC = () => {
                 }}
                 style={{
                   background: isVisa ? '#f8fafc' : '#fffbeb',
-                  border: isSelected ? '2px solid #2563eb' : (isVisa ? '1px solid #bfdbfe' : '1px solid #fde68a'),
+                  border: isSelected ? '2px solid #2563eb' : (isVisa ? '1px solid #cbd5e1' : '1px solid #fde68a'),
                   borderRadius: 10,
                   padding: '12px 14px',
                   display: 'flex',
@@ -616,10 +617,10 @@ export const AdminKiroProCards: React.FC = () => {
                     fontWeight: 900,
                     padding: '2px 6px',
                     borderRadius: 4,
-                    background: isVisa ? '#dbeafe' : '#fef3c7',
-                    color: isVisa ? '#1e40af' : '#92400e'
+                    background: isVisa ? '#f1f5f9' : '#fef3c7',
+                    color: isVisa ? '#64748b' : '#92400e'
                   }}>
-                    {flag} {p.cardNetwork} ({p.cardCurrency})
+                    {isVisa ? '🚫 Visa (موقوف للبيع)' : `${flag} Mastercard (${p.cardCurrency})`}
                   </span>
                   <span style={{
                     fontSize: '0.7rem',
@@ -788,7 +789,7 @@ export const AdminKiroProCards: React.FC = () => {
                 <option value="ALL">جميع فئات البطاقات</option>
                 {cardProducts.map((p) => (
                   <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                    {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف - Visa غير مدعومة)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
                   </option>
                 ))}
               </select>
@@ -889,10 +890,10 @@ export const AdminKiroProCards: React.FC = () => {
                               padding: '2px 6px',
                               borderRadius: 4,
                               fontWeight: 800,
-                              background: card.cardNetwork === 'VISA' ? '#dbeafe' : '#fef3c7',
-                              color: card.cardNetwork === 'VISA' ? '#1e40af' : '#92400e'
+                              background: card.cardNetwork === 'VISA' ? '#f1f5f9' : '#fef3c7',
+                              color: card.cardNetwork === 'VISA' ? '#64748b' : '#92400e'
                             }}>
-                              {card.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'}
+                              {card.cardNetwork === 'VISA' ? '🚫 Visa' : (card.currency === 'CAD' ? '🇨🇦 Mastercard' : '🇺🇸 Mastercard')}
                             </span>
                           </div>
                         </td>
@@ -1070,7 +1071,7 @@ export const AdminKiroProCards: React.FC = () => {
               >
                 {cardProducts.map((p) => (
                   <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                    {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - رصيد {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
                   </option>
                 ))}
               </select>
@@ -1240,7 +1241,7 @@ export const AdminKiroProCards: React.FC = () => {
             >
               {cardProducts.map((p) => (
                 <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                  {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - رصيد {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                  {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
                 </option>
               ))}
             </select>
@@ -1647,7 +1648,7 @@ export const AdminKiroProCards: React.FC = () => {
               >
                 {cardProducts.map((p) => (
                   <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                    {p.cardNetwork === 'VISA' ? '🇨🇦 Visa' : '🇺🇸 Mastercard'} - {p.faceValue} {p.cardCurrency} ({p.arabicName || p.productName})
+                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
                   </option>
                 ))}
               </select>

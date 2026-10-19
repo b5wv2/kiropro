@@ -85,7 +85,7 @@ export const KiroProCard3D: React.FC<KiroProCard3DProps> = ({
   const rawCvv = card.cvv || '961';
   const displayCvv = isCvvRevealed ? rawCvv : '•••';
 
-  const network = (card.cardNetwork || (cleanNum.startsWith('4') ? 'VISA' : 'MASTERCARD')).toUpperCase();
+  const network = (card.cardNetwork || 'MASTERCARD').toUpperCase();
   const currencySymbol = card.currency === 'CAD' ? 'C$' : '$';
   const currencyCode = card.currency || 'USD';
 

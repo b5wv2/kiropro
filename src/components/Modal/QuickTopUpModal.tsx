@@ -216,7 +216,6 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     game?.id === 'freefire-vouchers' ||
     game?.id === 'pubg-vouchers';
   const isVoucherPurchasable = !isVoucher || (selectedPackage as any)?.isPurchasable !== false;
-  const cardNetwork = (selectedPackage as any)?.cardNetwork || (selectedPackage?.name?.toLowerCase().includes('visa') ? 'VISA' : 'MASTERCARD');
   const cardCurrency = (selectedPackage as any)?.cardCurrency || (selectedPackage?.name?.toLowerCase().includes('cad') ? 'CAD' : 'USD');
   const cardFaceValue = (selectedPackage as any)?.faceValue || 1.00;
   const cardCurrencySymbol = cardCurrency === 'CAD' ? 'C$' : '$';
@@ -1211,8 +1210,8 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                     <CreditCard size={22} />
                   </div>
                   <div style={{ fontSize: '0.82rem', color: '#e2e8f0', lineHeight: 1.6 }}>
-                    <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: cardNetwork === 'VISA' ? '#60A5FA' : '#facc15' }}>
-                      بطاقة {cardNetwork === 'VISA' ? 'فيزا كندا' : 'ماستركارد'} مسبقة الدفع ({cardCurrencySymbol}{Number(cardFaceValue).toFixed(2)} {cardCurrency}) ⚡
+                    <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: '#facc15' }}>
+                      {(selectedPackage as any)?.arabicName || 'بطاقة KIROPRO Mastercard الافتراضية'} ({cardCurrencySymbol}{Number(cardFaceValue).toFixed(2)} {cardCurrency}) ⚡
                     </strong>
                     لا يتطلب هذا المنتج أي معرّف لاعب أو سيرفر. سيتم فوراً حجز بطاقة مشفرة من الخزنة الآمنة وربطها بحسابك بدون أي تداخل أو ازدواجية.
                     <div style={{ marginTop: 6, color: '#94a3b8', fontSize: '0.78rem' }}>
@@ -1767,21 +1766,21 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                         height: 36,
                         borderRadius: 10,
                         background: '#000000',
-                        border: cardNetwork === 'VISA' ? '1px solid #3B82F6' : '1px solid #FBBF24',
+                        border: '1px solid #FBBF24',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: cardNetwork === 'VISA' ? '#60A5FA' : '#FBBF24',
-                        boxShadow: cardNetwork === 'VISA' ? '0 2px 8px rgba(59, 130, 246, 0.2)' : '0 2px 8px rgba(250, 204, 21, 0.2)'
+                        color: '#FBBF24',
+                        boxShadow: '0 2px 8px rgba(250, 204, 21, 0.2)'
                       }}>
                         <CreditCard size={20} />
                       </div>
                       <div>
                         <h4 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
-                          {(selectedPackage as any)?.arabicName || selectedPackage?.name || `بطاقة ${cardNetwork}`}
+                          {(selectedPackage as any)?.arabicName || selectedPackage?.name || 'بطاقة KIROPRO Mastercard'}
                         </h4>
                         <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
-                          {cardNetwork} Virtual Card • {cardCurrency}
+                          KIROPRO Mastercard • {cardCurrency}
                         </span>
                       </div>
                     </div>

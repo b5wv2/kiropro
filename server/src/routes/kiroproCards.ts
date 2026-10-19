@@ -24,14 +24,16 @@ router.get('/product-info', async (req, res: Response) => {
     const reqProductId = (req.query.productId as string || '').trim();
     let prodQuery = `SELECT id, "productName", "arabicName", "customerPriceUsd", "inStock", "isActive", description, card_network as "cardNetwork", card_currency as "cardCurrency", face_value as "faceValue" 
        FROM "Product" 
-       WHERE "productType" = 'VIRTUAL_CARD' OR id = 'b0000000-0000-0000-0000-000000000001'
+       WHERE ("productType" = 'VIRTUAL_CARD' OR id = 'b0000000-0000-0000-0000-000000000001')
+         AND "isActive" = true
+         AND ("card_network" IS NULL OR "card_network" != 'VISA')
        ORDER BY "displayOrder" ASC LIMIT 1`;
     let prodParams: any[] = [];
 
     if (reqProductId) {
       prodQuery = `SELECT id, "productName", "arabicName", "customerPriceUsd", "inStock", "isActive", description, card_network as "cardNetwork", card_currency as "cardCurrency", face_value as "faceValue" 
        FROM "Product" 
-       WHERE id = $1`;
+       WHERE id = $1 AND "isActive" = true AND ("card_network" IS NULL OR "card_network" != 'VISA')`;
       prodParams = [reqProductId];
     }
 
@@ -39,14 +41,14 @@ router.get('/product-info', async (req, res: Response) => {
 
     const product = prodRes.rows[0];
     if (!product) {
-      return res.status(404).json({ error: 'المنتج غير موجود.' });
+      return res.status(404).json({ error: 'المنتج غير متاح للبيع.' });
     }
 
-    // Check actual stock in kiropro_cards_inventory
+    // Check actual stock in kiropro_cards_inventory (enforce Mastercard)
     const stockRes = await pool.query(
       `SELECT COUNT(*)::int as count 
        FROM kiropro_cards_inventory 
-       WHERE product_id = $1 AND status = 'AVAILABLE'`,
+       WHERE product_id = $1 AND status = 'AVAILABLE' AND card_network = 'MASTERCARD'`,
       [product.id]
     );
 

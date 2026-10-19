@@ -193,7 +193,7 @@ router.get('/', async (req: Request, res: Response) => {
           WHERE status = 'AVAILABLE'
           GROUP BY product_id
         ) kci ON p.id = kci.product_id
-        WHERE p."isActive" = true
+        WHERE p."isActive" = true AND (p.card_network IS NULL OR p.card_network != 'VISA')
         ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
       `);
     } catch {
@@ -231,7 +231,7 @@ router.get('/', async (req: Request, res: Response) => {
           WHERE status = 'AVAILABLE'
           GROUP BY product_id
         ) kci ON p.id = kci.product_id
-        WHERE p."isActive" = true
+        WHERE p."isActive" = true AND (p.card_network IS NULL OR p.card_network != 'VISA')
         ORDER BY COALESCE(c."displayOrder", 999) ASC, p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
       `);
     }
@@ -381,7 +381,7 @@ router.get('/', async (req: Request, res: Response) => {
         itemType = 'شحن جواهر فري فاير مباشر (Free Fire Diamonds)';
         itemCategory = 'games';
       } else if (groupKey === 'kiropro-card' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD') {
-        itemType = 'بطاقات افتراضية مسبقة الدفع (Visa & Mastercard)';
+        itemType = 'بطاقات KIROPRO الافتراضية (Mastercard)';
         itemCategory = 'cards';
       } else if (groupKey === 'google-play-points' || row.productType === 'DIGITAL_ACCOUNT') {
         itemType = 'حساب نقاط تشغيل فوري (Google Account)';
@@ -439,6 +439,11 @@ router.get('/', async (req: Request, res: Response) => {
             g2bulkOrdersEnabled: provOrdersEnabledMap.get('G2BULK') !== false
           }).isAllowed
         : inStockFlag;
+
+      // Strictly block any Visa card from entering packages
+      if (row.card_network === 'VISA' || (row.productType === 'VIRTUAL_CARD' && row.card_network !== 'MASTERCARD')) {
+        continue;
+      }
 
       card.packages.push({
         id: row.id,
@@ -530,7 +535,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             WHERE status = 'AVAILABLE'
             GROUP BY product_id
           ) kci ON p.id = kci.product_id
-          WHERE p."isActive" = true AND p."gameCategoryId" = $1
+          WHERE p."isActive" = true AND p."gameCategoryId" = $1 AND (p.card_network IS NULL OR p.card_network != 'VISA')
           ORDER BY p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
         `, [targetCatId]);
       } catch {
@@ -559,7 +564,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             WHERE status = 'AVAILABLE'
             GROUP BY product_id
           ) kci ON p.id = kci.product_id
-          WHERE p."isActive" = true AND p."gameCategoryId" = $1
+          WHERE p."isActive" = true AND p."gameCategoryId" = $1 AND (p.card_network IS NULL OR p.card_network != 'VISA')
           ORDER BY p."displayOrder" ASC, p."customerPriceUsd" ASC, p."productName" ASC
         `, [targetCatId]);
       }
@@ -572,7 +577,9 @@ router.get('/:id', async (req: Request, res: Response) => {
 
       const categoryImageUrl = resolveImageUrl(category.imageUrl, DEFAULT_PLACEHOLDER);
 
-      const packages = result.rows.map((row, idx) => {
+      const packages = result.rows
+        .filter(r => r.card_network !== 'VISA')
+        .map((row, idx) => {
         const pkgPrice = Number(row.price || 0);
         const pkgPriceSdg = Math.round(pkgPrice * exchangeRate);
         const isInventoryTracked = row.productType === 'DIGITAL_ACCOUNT' || row.productType === 'VIRTUAL_CARD' || row.fulfillment_type === 'KIROPRO_CARD';

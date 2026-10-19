@@ -91,7 +91,7 @@ export const CardDetailsViewModal: React.FC<CardDetailsViewModalProps> = ({
                   </div>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-white">
-                      بطاقة {card ? (card.cardNetwork || (card.cardNumber?.startsWith('4') ? 'Visa' : 'Mastercard')) : 'كيرو برو'} الافتراضية
+                      بطاقة {card ? (card.cardNetwork || 'Mastercard') : 'KIROPRO Mastercard'} الافتراضية
                     </h3>
                     <p className="text-[11px] text-[#FBBF24] font-medium">
                       {card ? `رصيد ${card.currency === 'CAD' ? 'C$' : '$'}${Number(card.balance || 1.00).toFixed(2)} ${card.currency || 'USD'} • تسليم فوري وتخصيص آمن` : 'تسليم فوري وتخصيص آمن'}

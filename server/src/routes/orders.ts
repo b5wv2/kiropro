@@ -66,6 +66,11 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       return res.status(400).json({ error: 'المنتج غير متوفر أو تم إيقافه.' });
     }
 
+    // Absolute Security Guard: Reject any attempt to order Visa products
+    if (localProduct.card_network === 'VISA' || localProduct.productName?.toLowerCase().includes('visa') || localProduct.arabicName?.toLowerCase().includes('فيزا')) {
+      return res.status(400).json({ error: 'عذراً، بطاقات فيزا غير متاحة للبيع في المتجر.' });
+    }
+
     const authoritativeCustomerPriceUsd = Number(localProduct.customerPriceUsd);
     if (!Number.isFinite(authoritativeCustomerPriceUsd) || authoritativeCustomerPriceUsd <= 0) {
       return res.status(400).json({ error: 'تسعير المنتج غير مهيأ حالياً. يرجى مراجعة إدارة المنصة.' });
@@ -251,11 +256,11 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       await client.query('BEGIN');
 
       if (isVirtualCard) {
-        // 1. Verify available stock count before locking
+        // 1. Verify available stock count before locking (enforce Mastercard only)
         const stockCountRes = await client.query(
           `SELECT COUNT(*)::int as count 
            FROM kiropro_cards_inventory 
-           WHERE product_id = $1 AND status = 'AVAILABLE'`,
+           WHERE product_id = $1 AND status = 'AVAILABLE' AND card_network = 'MASTERCARD'`,
           [localProduct.id]
         );
         const availableCount = stockCountRes.rows[0]?.count || 0;
@@ -267,7 +272,7 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
         const cardLockRes = await client.query(
           `SELECT id, card_last4, exp_date, balance 
            FROM kiropro_cards_inventory 
-           WHERE product_id = $1 AND status = 'AVAILABLE' 
+           WHERE product_id = $1 AND status = 'AVAILABLE' AND card_network = 'MASTERCARD'
            ORDER BY created_at ASC 
            LIMIT 1 
            FOR UPDATE SKIP LOCKED`,
