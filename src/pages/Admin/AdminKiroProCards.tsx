@@ -238,13 +238,24 @@ export const AdminKiroProCards: React.FC = () => {
     }
   };
 
-  // Duplicate Card Confirmation State
+  // Duplicate Card Confirmation State (Available / Disabled)
   const [duplicateWarning, setDuplicateWarning] = useState<{
     warning: string;
     message: string;
     existingCard: any;
     pendingData: any;
   } | null>(null);
+
+  // Claimed / Sold Card Re-entry Confirmation State
+  const [claimedReentryWarning, setClaimedReentryWarning] = useState<{
+    warning: string;
+    message: string;
+    existingCard: any;
+    pendingData: any;
+  } | null>(null);
+  const [reentryConfirmedUnused, setReentryConfirmedUnused] = useState(false);
+  const [reentryConfirmedAuthorized, setReentryConfirmedAuthorized] = useState(false);
+  const [reentryReason, setReentryReason] = useState('');
 
   const handleAddSingleCard = async (e?: React.FormEvent, confirmedPayload?: any) => {
     if (e) e.preventDefault();
@@ -266,7 +277,14 @@ export const AdminKiroProCards: React.FC = () => {
 
       if (res.success) {
         setDuplicateWarning(null);
-        if (res.isUpdated) {
+        setClaimedReentryWarning(null);
+        setReentryConfirmedUnused(false);
+        setReentryConfirmedAuthorized(false);
+        setReentryReason('');
+
+        if (res.isReentered) {
+          setSingleSuccess(`تمت إعادة إدخال البطاقة المباعة مسبقاً بنجاح (تنتهي بـ ${res.card?.last4 || '••••'}) إلى المخزون المتاح وتوثيق العملية في سجل التدقيق.`);
+        } else if (res.isUpdated) {
           setSingleSuccess(`تم تحديث بيانات البطاقة الموجودة مسبقاً بنجاح (تنتهي بـ ${res.card?.last4 || '••••'}) دون تكرار.`);
         } else {
           setSingleSuccess(`تمت إضافة البطاقة بنجاح للمخزون (تنتهي بـ ${res.card?.last4 || res.card?.card_last4 || '••••'})`);
@@ -283,7 +301,19 @@ export const AdminKiroProCards: React.FC = () => {
       }
     } catch (err: any) {
       const data = err?.response?.data;
-      if (data?.code === 'CARD_EXISTS_CONFIRM_REQUIRED') {
+      if (data?.code === 'CARD_PREVIOUSLY_CLAIMED_CONFIRM_REQUIRED') {
+        setDuplicateWarning(null);
+        setReentryConfirmedUnused(false);
+        setReentryConfirmedAuthorized(false);
+        setReentryReason('');
+        setClaimedReentryWarning({
+          warning: data.warning,
+          message: data.message,
+          existingCard: data.existingCard,
+          pendingData: payload
+        });
+      } else if (data?.code === 'CARD_EXISTS_CONFIRM_REQUIRED') {
+        setClaimedReentryWarning(null);
         setDuplicateWarning({
           warning: data.warning,
           message: data.message,
@@ -1078,6 +1108,147 @@ export const AdminKiroProCards: React.FC = () => {
           {singleSuccess && (
             <div style={{ marginBottom: 16, padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, color: '#059669', fontSize: '0.85rem', fontWeight: 800 }}>
               {singleSuccess}
+            </div>
+          )}
+
+          {/* CLAIMED / SOLD CARD RE-ENTRY CONFIRMATION MODAL */}
+          {claimedReentryWarning && (
+            <div style={{
+              marginBottom: 24,
+              padding: 20,
+              background: '#FFFBEB',
+              border: '2px solid #F59E0B',
+              borderRadius: 12,
+              color: '#92400E',
+              boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <AlertTriangle size={24} color="#D97706" />
+                <strong style={{ fontSize: '1.05rem', color: '#B45309' }}>
+                  {claimedReentryWarning.warning}
+                </strong>
+              </div>
+
+              <p style={{ margin: '0 0 14px', fontSize: '0.88rem', lineHeight: 1.6, color: '#78350F' }}>
+                {claimedReentryWarning.message}
+              </p>
+
+              {/* Masked Card Details Box */}
+              <div style={{
+                background: '#FFFFFF',
+                padding: '14px 18px',
+                borderRadius: 10,
+                border: '1px solid #FDE68A',
+                fontSize: '0.85rem',
+                marginBottom: 16,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 12
+              }}>
+                <div>البطاقة: <strong style={{ fontFamily: 'monospace', fontSize: '0.95rem', color: '#0F172A' }}>•••• {claimedReentryWarning.existingCard?.last4}</strong></div>
+                <div>الحالة السابقة: <strong style={{ color: '#DC2626' }}>تم بيعها / مستلمة ({claimedReentryWarning.existingCard?.status})</strong></div>
+                <div>القيمة والعملة: <strong>${Number(claimedReentryWarning.existingCard?.balance || 0).toFixed(2)} {claimedReentryWarning.existingCard?.currency || 'USD'}</strong></div>
+                <div>رقم الطلب السابق: <strong style={{ fontFamily: 'monospace' }}>#{claimedReentryWarning.existingCard?.orderId ? String(claimedReentryWarning.existingCard.orderId).slice(0, 8) : 'غير متوفر'}</strong></div>
+                <div>تاريخ التخصيص السابق: <strong>{claimedReentryWarning.existingCard?.assignedAt ? new Date(claimedReentryWarning.existingCard.assignedAt).toLocaleString('ar-EG') : 'غير مسجل'}</strong></div>
+              </div>
+
+              {/* Security Warning Notice */}
+              <div style={{
+                background: '#FEF2F2',
+                border: '1px solid #FECACA',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 16,
+                fontSize: '0.82rem',
+                color: '#991B1B',
+                fontWeight: 700
+              }}>
+                ⚠️ تنبيه أمني وتدقيقي: إعادة إدراج البطاقة في المخزون سيتيح تسليم نفس الكود لعميل آخر. سيتم توثيق هويتك وتاريخ هذا الإجراء والسبب في سجل التدقيق الأمني (AuditLog).
+              </div>
+
+              {/* Mandatory Declarations */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, background: 'rgba(255,255,255,0.7)', padding: 14, borderRadius: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, color: '#1E293B' }}>
+                  <input
+                    type="checkbox"
+                    checked={reentryConfirmedUnused}
+                    onChange={(e) => setReentryConfirmedUnused(e.target.checked)}
+                    style={{ marginTop: 3, cursor: 'pointer', width: 16, height: 16 }}
+                  />
+                  <span>أقر وأؤكد أن هذه البطاقة ملكي ولم تُستخدم فعلياً (Unused)، ورصيدها لم يُستهلك.</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, color: '#1E293B' }}>
+                  <input
+                    type="checkbox"
+                    checked={reentryConfirmedAuthorized}
+                    onChange={(e) => setReentryConfirmedAuthorized(e.target.checked)}
+                    style={{ marginTop: 3, cursor: 'pointer', width: 16, height: 16 }}
+                  />
+                  <span>أقر بأنني مخول بإعادة بيعها، وأن إعادة الإدراج مشروعة ولن تحرم العميل السابق من حقه.</span>
+                </label>
+              </div>
+
+              {/* Mandatory Reason Input */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 800, color: '#78350F', marginBottom: 6 }}>
+                  سبب إعادة الإدخال لسجل التدقيق الإداري (إلزامي):
+                </label>
+                <input
+                  type="text"
+                  value={reentryReason}
+                  onChange={(e) => setReentryReason(e.target.value)}
+                  placeholder="مثال: بطاقة تم شراؤها شخصياً ولم تستخدم ومصرح بإعادة بيعها للعملاء"
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    border: '1.5px solid #F59E0B',
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                    background: '#FFFFFF'
+                  }}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClaimedReentryWarning(null);
+                    setReentryConfirmedUnused(false);
+                    setReentryConfirmedAuthorized(false);
+                    setReentryReason('');
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: '8px 18px', fontSize: '0.85rem' }}
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={submittingSingle || !reentryConfirmedUnused || !reentryConfirmedAuthorized || !reentryReason.trim()}
+                  onClick={() => handleAddSingleCard(undefined, {
+                    ...claimedReentryWarning.pendingData,
+                    confirmReentry: true,
+                    confirmedUnused: true,
+                    confirmedAuthorized: true,
+                    adminConfirmationReason: reentryReason.trim()
+                  })}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    background: (!reentryConfirmedUnused || !reentryConfirmedAuthorized || !reentryReason.trim()) ? '#94A3B8' : '#D97706',
+                    borderColor: (!reentryConfirmedUnused || !reentryConfirmedAuthorized || !reentryReason.trim()) ? '#94A3B8' : '#B45309',
+                    padding: '8px 20px',
+                    fontSize: '0.85rem',
+                    fontWeight: 800,
+                    cursor: (!reentryConfirmedUnused || !reentryConfirmedAuthorized || !reentryReason.trim()) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {submittingSingle ? 'جاري التحقق وإعادة الإدخال...' : 'تأكيد إعادة الإدخال وإتاحة البطاقة للبيع'}
+                </button>
+              </div>
             </div>
           )}
 

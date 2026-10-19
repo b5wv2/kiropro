@@ -449,6 +449,39 @@ router.put('/partners-pricing-settings', requireAdmin, async (req: AuthRequest, 
   }
 });
 
+// ==========================================
+// 7.1 SYNC ALL PARTNER PRICES AND SUPPLIER COSTS
+// ==========================================
+router.post('/partners/sync-all-prices', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const result = await partnerService.syncAllPartnerPricesAndCosts(adminId);
+    res.json({
+      success: true,
+      message: 'تمت مزامنة جميع أسعار وتكاليف منتجات بوابة التجار بنجاح ومطابقة سعر الشريك مع سعر البيع العام.',
+      stats: result.stats
+    });
+  } catch (err: any) {
+    console.error('[AdminPartners] Error syncing partner prices:', err);
+    res.status(500).json({ error: 'فشل تنفيذ المزامنة الشاملة لأسعار الشركاء.' });
+  }
+});
+
+router.get('/partners/pricing-sync-stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const settingRes = await pool.query(
+      `SELECT value, updated_at FROM platform_settings WHERE key = 'partner_pricing_sync_stats'`
+    );
+    res.json({
+      success: true,
+      stats: settingRes.rows[0]?.value || null,
+      updatedAt: settingRes.rows[0]?.updated_at || null
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'فشل جلب إحصائيات آخر مزامنة.' });
+  }
+});
+
 router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: Response) => {
   const id = getParam(req.params.id);
 
@@ -460,13 +493,20 @@ router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: 
         p."productName",
         p."offerName",
         p."arabicName",
-        COALESCE(p."supplierCostUsd", p."gamesDropCostUsd", 0) as "costPriceUsd",
+        p."supplierCostUsd",
+        p."gamesDropCostUsd",
+        p."providerCostUsd",
+        p.face_value as "faceValue",
+        p.card_currency as "cardCurrency",
+        p.fulfillment_type as "fulfillmentType",
+        p."productType",
         p."customerPriceUsd" as "retailPriceUsd",
         p."defaultPartnerPriceUsd" as "defaultPartnerPriceUsd",
         ppp.partner_price_usd as "customPartnerPriceUsd",
         ppp.markup_usd as "customMarkupUsd",
         ppp.is_available as "customIsAvailable",
-        p."isActive"
+        p."isActive",
+        p."inStock"
       FROM "Product" p
       LEFT JOIN partner_product_pricing ppp ON ppp.product_id = p.id AND ppp.partner_id = $1
       WHERE p."isActive" = true
@@ -475,15 +515,43 @@ router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: 
 
     const result = await pool.query(query, [id]);
     const rows = result.rows.map(r => {
-      const cost = Number(r.costPriceUsd || 0);
-      const defaultPartnerPrice = Math.round((cost + settings.defaultMarkupUsd) * 100) / 100;
-      const currentPrice = r.customPartnerPriceUsd ? Number(r.customPartnerPriceUsd) : defaultPartnerPrice;
-      const markup = Math.round((currentPrice - cost) * 10000) / 10000;
+      // 1. Resolve authentic supplier cost (Never default to 0.00 if unknown)
+      let cost: number | null = null;
+      const sCost = Number(r.supplierCostUsd || 0);
+      const gCost = Number(r.gamesDropCostUsd || 0);
+      const pCost = Number(r.providerCostUsd || 0);
+      const isCard = r.fulfillmentType === 'KIROPRO_CARD' || r.productType === 'VIRTUAL_CARD';
+      const faceVal = Number(r.faceValue || 0);
+
+      if (sCost > 0) cost = sCost;
+      else if (gCost > 0) cost = gCost;
+      else if (pCost > 0) cost = pCost;
+      else if (isCard && faceVal > 0) {
+        cost = r.cardCurrency === 'CAD' ? Math.round(faceVal * 0.72 * 100) / 100 : faceVal;
+      }
+
+      // 2. Default Partner Price: Strictly matches current public Customer Retail Price per management mandate
+      const retailPrice = Number(r.retailPriceUsd || 0);
+      const defaultPartnerPrice = (r.defaultPartnerPriceUsd !== null && Number(r.defaultPartnerPriceUsd) > 0)
+        ? Number(r.defaultPartnerPriceUsd)
+        : retailPrice;
+
+      // 3. Current active price for this merchant (custom price if set, otherwise default partner price)
+      const currentPrice = (r.customPartnerPriceUsd !== null && r.customPartnerPriceUsd !== undefined)
+        ? Number(r.customPartnerPriceUsd)
+        : defaultPartnerPrice;
+
+      // 4. Profit / Markup: Only calculate if true cost is known and > 0; NEVER assume $0.00 cost
+      const markup = (cost !== null && cost > 0)
+        ? Math.round((currentPrice - cost) * 10000) / 10000
+        : null;
 
       return {
         ...r,
-        costPriceUsd: cost,
+        costPriceUsd: cost, // Can be null if unknown/unverified (NOT $0.00)
+        retailPriceUsd: retailPrice,
         defaultPartnerPriceUsd: defaultPartnerPrice,
+        customPartnerPriceUsd: r.customPartnerPriceUsd !== null ? Number(r.customPartnerPriceUsd) : null,
         calculatedMarkupUsd: markup,
         defaultMarkupUsd: settings.defaultMarkupUsd
       };
@@ -491,6 +559,7 @@ router.get('/partners/:id/pricing', requireAdmin, async (req: AuthRequest, res: 
 
     res.json(rows);
   } catch (err: any) {
+    console.error('[AdminPartners] Error fetching pricing list:', err);
     res.status(500).json({ error: 'فشل جلب قائمة أسعار الشريك.' });
   }
 });
@@ -503,29 +572,45 @@ router.put('/partners/:id/pricing/:productId', requireAdmin, async (req: AuthReq
 
   try {
     const prodRes = await pool.query(
-      'SELECT COALESCE("supplierCostUsd", "gamesDropCostUsd", 0) as cost FROM "Product" WHERE id = $1',
+      `SELECT "supplierCostUsd", "gamesDropCostUsd", "providerCostUsd", face_value, card_currency, fulfillment_type, "productType", "customerPriceUsd"
+       FROM "Product" WHERE id = $1`,
       [productId]
     );
     if (prodRes.rows.length === 0) {
       return res.status(404).json({ error: 'المنتج غير موجود.' });
     }
 
-    const cost = Number(prodRes.rows[0].cost || 0);
+    const pRow = prodRes.rows[0];
+    let cost: number | null = null;
+    const sCost = Number(pRow.supplierCostUsd || 0);
+    const gCost = Number(pRow.gamesDropCostUsd || 0);
+    const pCost = Number(pRow.providerCostUsd || 0);
+    const isCard = pRow.fulfillment_type === 'KIROPRO_CARD' || pRow.productType === 'VIRTUAL_CARD';
+    const faceVal = Number(pRow.face_value || 0);
+
+    if (sCost > 0) cost = sCost;
+    else if (gCost > 0) cost = gCost;
+    else if (pCost > 0) cost = pCost;
+    else if (isCard && faceVal > 0) {
+      cost = pRow.card_currency === 'CAD' ? Math.round(faceVal * 0.72 * 100) / 100 : faceVal;
+    }
+
     let finalPrice = Number(partnerPriceUsd);
     let finalMarkup = markupUsd !== undefined ? Number(markupUsd) : undefined;
 
     if ((!finalPrice || isNaN(finalPrice)) && finalMarkup !== undefined && !isNaN(finalMarkup)) {
-      finalPrice = Math.round((cost + finalMarkup) * 100) / 100;
+      const baseCost = cost !== null && cost > 0 ? cost : Number(pRow.customerPriceUsd || 0);
+      finalPrice = Math.round((baseCost + finalMarkup) * 100) / 100;
     } else if (finalPrice && (finalMarkup === undefined || isNaN(finalMarkup))) {
-      finalMarkup = Math.round((finalPrice - cost) * 10000) / 10000;
+      finalMarkup = cost !== null && cost > 0 ? Math.round((finalPrice - cost) * 10000) / 10000 : undefined;
     }
 
     if (!finalPrice || isNaN(finalPrice) || finalPrice <= 0) {
       return res.status(400).json({ error: 'سعر الشريك يجب أن يكون رقماً موجباً أكبر من الصفر.' });
     }
 
-    // Protection: Partner Price cannot be less than Supplier Cost
-    if (finalPrice < cost) {
+    // Protection: Partner Price cannot be less than Supplier Cost (if supplier cost is known)
+    if (cost !== null && cost > 0 && finalPrice < cost) {
       return res.status(400).json({ 
         error: `لا يمكن أن يكون سعر الشريك ($${finalPrice}) أقل من تكلفة المورد ($${cost}).` 
       });
@@ -546,7 +631,7 @@ router.put('/partners/:id/pricing/:productId', requireAdmin, async (req: AuthReq
     await pool.query(
       `INSERT INTO "AuditLog" (id, "adminId", action, amount, reason)
        VALUES ($1, $2, 'UPDATE_PARTNER_PRICING', $3, $4)`,
-      [uuidv4(), adminId, finalPrice, `تحديث سعر الشريك للمنتج ${productId} إلى $${finalPrice} (هامش $${finalMarkup})`]
+      [uuidv4(), adminId, finalPrice, `تحديث سعر الشريك للمنتج ${productId} إلى $${finalPrice} (هامش $${finalMarkup ?? 'غير محدد'})`]
     );
 
     res.json({ 

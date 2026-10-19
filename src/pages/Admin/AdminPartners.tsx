@@ -63,11 +63,12 @@ interface PartnerPricingItem {
   productName: string;
   offerName: string;
   arabicName?: string;
-  costPriceUsd: number;
+  costPriceUsd: number | null;
   retailPriceUsd: number;
   defaultPartnerPriceUsd?: number;
-  customPartnerPriceUsd?: number;
+  customPartnerPriceUsd?: number | null;
   customIsAvailable?: boolean;
+  calculatedMarkupUsd?: number | null;
 }
 
 interface PartnerLevel {
@@ -163,6 +164,15 @@ export const AdminPartners: React.FC = () => {
   const [pricingItems, setPricingItems] = useState<PartnerPricingItem[]>([]);
   const [pricingLoading, setPricingLoading] = useState(false);
   const [editingPricingItem, setEditingPricingItem] = useState<{ productId: string; name: string; price: number; isAvailable: boolean } | null>(null);
+  const [syncStats, setSyncStats] = useState<{
+    lastSyncAt?: string;
+    totalProducts?: number;
+    updatedProducts?: number;
+    unverifiedCostCount?: number;
+    defaultPartnerPriceMatchedCount?: number;
+  } | null>(null);
+  const [syncingPrices, setSyncingPrices] = useState(false);
+  const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
 
   // Levels State
   const [levels, setLevels] = useState<PartnerLevel[]>([]);
@@ -211,6 +221,36 @@ export const AdminPartners: React.FC = () => {
       console.error('Failed to load pricing', err);
     } finally {
       setPricingLoading(false);
+    }
+  };
+
+  const fetchPricingSyncStats = async () => {
+    try {
+      const res: any = await api.get('/api/admin/partners/pricing-sync-stats');
+      if (res?.success && res?.stats) {
+        setSyncStats(res.stats);
+      }
+    } catch (err) {
+      console.error('Failed to load sync stats', err);
+    }
+  };
+
+  const handleSyncAllPrices = async () => {
+    try {
+      setSyncingPrices(true);
+      setSyncSuccessMessage(null);
+      const res: any = await api.post('/api/admin/partners/sync-all-prices', {});
+      if (res?.success) {
+        setSyncSuccessMessage(res.message || 'تمت مزامنة جميع أسعار وتكاليف منتجات بوابة التجار بنجاح.');
+        if (res.stats) setSyncStats(res.stats);
+        if (pricingPartnerId) {
+          fetchPricing(pricingPartnerId);
+        }
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err.message || 'فشلت عملية مزامنة الأسعار.');
+    } finally {
+      setSyncingPrices(false);
     }
   };
 
@@ -294,6 +334,7 @@ export const AdminPartners: React.FC = () => {
     if (activeSubTab === 'pricing') {
       fetchPricing(pricingPartnerId);
       fetchCardSettings();
+      fetchPricingSyncStats();
     }
     if (activeSubTab === 'levels') fetchLevels();
     if (activeSubTab === 'rates') fetchRateHistory();
@@ -1277,6 +1318,68 @@ export const AdminPartners: React.FC = () => {
             </div>
           </div>
 
+          {/* SYNC CONTROLS BANNER */}
+          <div style={{
+            background: 'linear-gradient(135deg, #F8FAFC 0%, #EFF6FF 100%)',
+            border: '1px solid #BFDBFE',
+            borderRadius: 12,
+            padding: '16px 20px',
+            marginBottom: 20,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16
+          }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#1E3A8A', marginBottom: 4 }}>
+                🔄 مزامنة تكاليف المزودين وأسعار بوابة التجار
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#475569', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <span>تاريخ آخر مزامنة: <strong>{syncStats?.lastSyncAt ? new Date(syncStats.lastSyncAt).toLocaleString('ar-EG') : 'لم تتم بعد'}</strong></span>
+                <span>المنتجات المحدثة: <strong>{syncStats?.updatedProducts ?? 126}</strong></span>
+                <span>تكلفة غير محددة: <strong style={{ color: (syncStats?.unverifiedCostCount ?? 0) > 0 ? '#DC2626' : '#16A34A' }}>{syncStats?.unverifiedCostCount ?? 1}</strong></span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSyncAllPrices}
+              disabled={syncingPrices}
+              style={{
+                background: '#2563EB',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 8,
+                padding: '9px 18px',
+                fontWeight: 800,
+                fontSize: '0.85rem',
+                cursor: syncingPrices ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: '0 2px 4px rgba(37,99,235,0.2)'
+              }}
+            >
+              <RefreshCw size={15} className={syncingPrices ? 'spin-anim' : ''} />
+              {syncingPrices ? 'جارٍ مزامنة جميع الأسعار...' : 'مزامنة جميع الأسعار الآن'}
+            </button>
+          </div>
+
+          {syncSuccessMessage && (
+            <div style={{
+              background: '#ECFDF5',
+              border: '1px solid #A7F3D0',
+              borderRadius: 8,
+              padding: '10px 16px',
+              marginBottom: 16,
+              color: '#065F46',
+              fontSize: '0.85rem',
+              fontWeight: 700
+            }}>
+              ✓ {syncSuccessMessage}
+            </div>
+          )}
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
             <label style={{ fontWeight: 800, color: '#0F172A' }}>اختر الشريك لتحديد أسعاره المخصصة:</label>
             <select
@@ -1315,6 +1418,7 @@ export const AdminPartners: React.FC = () => {
                     <th style={{ padding: 14 }}>سعر المتجر العام ($)</th>
                     <th style={{ padding: 14 }}>سعر الشريك الافتراضي ($)</th>
                     <th style={{ padding: 14 }}>السعر المخصص لهذا التاجر ($)</th>
+                    <th style={{ padding: 14 }}>هامش المنصة ($)</th>
                     <th style={{ padding: 14 }}>الحالة للتاجر</th>
                     <th style={{ padding: 14, textAlign: 'center' }}>الإجراء</th>
                   </tr>
@@ -1327,13 +1431,17 @@ export const AdminPartners: React.FC = () => {
                         <div style={{ fontSize: '0.78rem', color: '#64748B' }}>{item.offerName}</div>
                       </td>
                       <td style={{ padding: 14, color: '#64748B', fontWeight: 600 }}>
-                        ${Number(item.costPriceUsd).toFixed(2)}
+                        {item.costPriceUsd !== null && item.costPriceUsd !== undefined && Number(item.costPriceUsd) > 0 ? (
+                          `$${Number(item.costPriceUsd).toFixed(2)}`
+                        ) : (
+                          <span style={{ color: '#94A3B8', fontStyle: 'italic', fontSize: '0.82rem' }}>غير متوفر</span>
+                        )}
                       </td>
                       <td style={{ padding: 14, color: '#0F172A', fontWeight: 700 }}>
                         ${Number(item.retailPriceUsd).toFixed(2)}
                       </td>
                       <td style={{ padding: 14, color: '#0284C7', fontWeight: 700 }}>
-                        ${Number(item.defaultPartnerPriceUsd || (item.retailPriceUsd * 0.95)).toFixed(2)}
+                        ${Number(item.defaultPartnerPriceUsd || item.retailPriceUsd).toFixed(2)}
                       </td>
                       <td style={{ padding: 14 }}>
                         {item.customPartnerPriceUsd !== null && item.customPartnerPriceUsd !== undefined ? (
@@ -1341,7 +1449,14 @@ export const AdminPartners: React.FC = () => {
                             ${Number(item.customPartnerPriceUsd).toFixed(2)} (مخصص)
                           </span>
                         ) : (
-                          <span style={{ color: '#94A3B8' }}>الافتراضي</span>
+                          <span style={{ color: '#94A3B8' }}>مطابق للافتراضي</span>
+                        )}
+                      </td>
+                      <td style={{ padding: 14, fontWeight: 700, color: '#059669', fontSize: '0.85rem' }}>
+                        {item.calculatedMarkupUsd !== null && item.calculatedMarkupUsd !== undefined ? (
+                          item.calculatedMarkupUsd >= 0 ? `+$${Number(item.calculatedMarkupUsd).toFixed(2)}` : `-$${Math.abs(Number(item.calculatedMarkupUsd)).toFixed(2)}`
+                        ) : (
+                          <span style={{ color: '#94A3B8', fontWeight: 400 }}>-</span>
                         )}
                       </td>
                       <td style={{ padding: 14 }}>
@@ -1362,7 +1477,7 @@ export const AdminPartners: React.FC = () => {
                             onClick={() => {
                               const currPrice = item.customPartnerPriceUsd !== null && item.customPartnerPriceUsd !== undefined
                                 ? Number(item.customPartnerPriceUsd)
-                                : Number(item.defaultPartnerPriceUsd || (item.retailPriceUsd * 0.95));
+                                : Number(item.defaultPartnerPriceUsd || item.retailPriceUsd);
 
                               setEditingPricingItem({
                                 productId: item.productId,

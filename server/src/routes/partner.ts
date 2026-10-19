@@ -399,8 +399,10 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
         p.id, p."providerOfferId", p."productName", p."offerName", p.category, p."productType",
         p."arabicName", p.description, p."platformCode", p."regionCode",
         p."customerPriceUsd" as "retailPriceUsd",
-        COALESCE(p."supplierCostUsd", p."gamesDropCostUsd", 0) as "supplierCostUsd",
+        COALESCE(p."supplierCostUsd", p."gamesDropCostUsd", p."providerCostUsd", (CASE WHEN (p.fulfillment_type = 'KIROPRO_CARD' OR p."productType" = 'VIRTUAL_CARD') AND p.face_value > 0 THEN (CASE WHEN p.card_currency = 'CAD' THEN ROUND(p.face_value * 0.72, 2) ELSE p.face_value END) ELSE 0 END)) as "supplierCostUsd",
         p."defaultPartnerPriceUsd",
+        p.face_value,
+        p.card_currency,
         p.fulfillment_type,
         p.requires_player_id,
         p.requires_server_id,
@@ -447,26 +449,28 @@ router.get('/products', requirePartner, async (req: PartnerAuthRequest, res: Res
       const supplierCost = Number(row.supplierCostUsd || 0);
       let finalPrice: number;
       let hasCustomPrice = false;
+      const retailPrice = Number(row.retailPriceUsd || 0);
 
       if (row.customPartnerPriceUsd !== null && row.customPartnerPriceUsd !== undefined) {
         finalPrice = Number(row.customPartnerPriceUsd);
         hasCustomPrice = true;
       } else if (row.customMarkupUsd !== null && row.customMarkupUsd !== undefined) {
-        finalPrice = Math.round((supplierCost + Number(row.customMarkupUsd)) * 100) / 100;
+        const baseCost = supplierCost > 0 ? supplierCost : retailPrice;
+        finalPrice = Math.round((baseCost + Number(row.customMarkupUsd)) * 100) / 100;
         hasCustomPrice = true;
-      } else if (row.defaultPartnerPriceUsd !== null && row.defaultPartnerPriceUsd !== undefined) {
+      } else if (row.defaultPartnerPriceUsd !== null && row.defaultPartnerPriceUsd !== undefined && Number(row.defaultPartnerPriceUsd) > 0) {
         finalPrice = Number(row.defaultPartnerPriceUsd);
       } else {
-        finalPrice = Math.round((supplierCost + defaultMarkup) * 100) / 100;
+        // Management mandate: Default Partner Price strictly equals customer public selling price
+        finalPrice = retailPrice > 0 ? retailPrice : Math.round((supplierCost + defaultMarkup) * 100) / 100;
       }
 
-      // Anti-loss guard
-      if (finalPrice < supplierCost + settings.minMarkupUsd) {
+      // Anti-loss guard (only when supplier cost is known and positive)
+      if (supplierCost > 0 && finalPrice < supplierCost + settings.minMarkupUsd) {
         finalPrice = Math.round((supplierCost + settings.minMarkupUsd) * 100) / 100;
       }
       finalPrice = Math.max(0.01, finalPrice);
 
-      const retailPrice = Number(row.retailPriceUsd || 0);
       const savings = retailPrice > finalPrice ? Math.round(((retailPrice - finalPrice) / retailPrice) * 100) : 0;
 
       const fulfillmentType = row.fulfillment_type || (

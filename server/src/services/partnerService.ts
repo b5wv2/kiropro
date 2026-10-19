@@ -487,6 +487,11 @@ export class PartnerService {
         p.id as product_id,
         p."supplierCostUsd",
         p."gamesDropCostUsd",
+        p."providerCostUsd",
+        p.face_value,
+        p.card_currency,
+        p.fulfillment_type,
+        p."productType",
         p."customerPriceUsd",
         p."defaultPartnerPriceUsd",
         p."isActive",
@@ -515,51 +520,207 @@ export class PartnerService {
       throw new Error('هذا المنتج غير مصرح لمتجرك بشرائه.');
     }
 
-    // 1. Supplier / Provider Cost in USD (e.g. GamesDrop cost)
-    const supplierCostUsd = Number(row.supplierCostUsd || row.gamesDropCostUsd || 0);
+    // 1. Supplier / Provider Cost in USD (multi-source resolution)
+    let supplierCostUsd: number | null = null;
+    const sCost = Number(row.supplierCostUsd || 0);
+    const gdCost = Number(row.gamesDropCostUsd || 0);
+    const pCost = Number(row.providerCostUsd || 0);
+    const isCard = row.fulfillment_type === 'KIROPRO_CARD' || row.productType === 'VIRTUAL_CARD';
+    const faceVal = Number(row.face_value || 0);
+
+    if (sCost > 0) supplierCostUsd = sCost;
+    else if (gdCost > 0) supplierCostUsd = gdCost;
+    else if (pCost > 0) supplierCostUsd = pCost;
+    else if (isCard && faceVal > 0) {
+      supplierCostUsd = row.card_currency === 'CAD' ? Math.round(faceVal * 0.72 * 100) / 100 : faceVal;
+    }
 
     // 2. Pricing Settings from Admin
     const settings = await this.getPricingSettings();
     const defaultMarkup = Math.min(settings.maxMarkupUsd, Math.max(settings.minMarkupUsd, settings.defaultMarkupUsd));
+    const customerRetail = Number(row.customerPriceUsd || 0);
 
     let finalPartnerPriceUsd: number;
-    let markupUsd: number;
+    let markupUsd: number | null = null;
     let isCustom = false;
 
     if (row.custom_partner_price !== null && row.custom_partner_price !== undefined) {
       finalPartnerPriceUsd = Number(row.custom_partner_price);
-      markupUsd = Math.round((finalPartnerPriceUsd - supplierCostUsd) * 10000) / 10000;
       isCustom = true;
     } else if (row.custom_markup_usd !== null && row.custom_markup_usd !== undefined) {
-      markupUsd = Number(row.custom_markup_usd);
-      finalPartnerPriceUsd = Math.round((supplierCostUsd + markupUsd) * 100) / 100;
+      const baseCost = supplierCostUsd !== null && supplierCostUsd > 0 ? supplierCostUsd : customerRetail;
+      finalPartnerPriceUsd = Math.round((baseCost + Number(row.custom_markup_usd)) * 100) / 100;
       isCustom = true;
     } else if (row.defaultPartnerPriceUsd !== null && row.defaultPartnerPriceUsd !== undefined && Number(row.defaultPartnerPriceUsd) > 0) {
       finalPartnerPriceUsd = Number(row.defaultPartnerPriceUsd);
-      markupUsd = Math.round((finalPartnerPriceUsd - supplierCostUsd) * 10000) / 10000;
     } else {
-      // Base formula strictly: Supplier Cost + Admin Markup ($0.01 - $0.05, default $0.03)
-      markupUsd = defaultMarkup;
-      finalPartnerPriceUsd = Math.round((supplierCostUsd + markupUsd) * 100) / 100;
+      // Management Rule: Default partner price strictly equals customer public selling price
+      finalPartnerPriceUsd = customerRetail > 0 
+        ? customerRetail 
+        : (supplierCostUsd ? Math.round((supplierCostUsd + defaultMarkup) * 100) / 100 : 0.01);
     }
 
-    // Protection 1: Partner price CANNOT be lower than Supplier Cost + minMarkup ($0.01)
-    if (finalPartnerPriceUsd < supplierCostUsd + settings.minMarkupUsd) {
-      finalPartnerPriceUsd = Math.round((supplierCostUsd + settings.minMarkupUsd) * 100) / 100;
-      markupUsd = settings.minMarkupUsd;
+    // Anti-loss guard (only when supplier cost is verified and greater than 0)
+    if (supplierCostUsd !== null && supplierCostUsd > 0) {
+      if (finalPartnerPriceUsd < supplierCostUsd + settings.minMarkupUsd) {
+        finalPartnerPriceUsd = Math.round((supplierCostUsd + settings.minMarkupUsd) * 100) / 100;
+      }
+      markupUsd = Math.round((finalPartnerPriceUsd - supplierCostUsd) * 10000) / 10000;
     }
 
-    // Protection 2: Minimum absolute price $0.01
+    // Absolute lower bound
     finalPartnerPriceUsd = Math.max(0.01, finalPartnerPriceUsd);
 
     return {
       productId: row.product_id,
-      supplierCostUsd,
-      markupUsd,
-      customerPriceUsd: Number(row.customerPriceUsd || 0),
+      supplierCostUsd: supplierCostUsd || 0,
+      markupUsd: markupUsd || 0,
+      customerPriceUsd: customerRetail,
       finalPartnerPriceUsd,
       isCustomPricing: isCustom
     };
+  }
+
+  /**
+   * Comprehensive partner catalog pricing and supplier cost synchronization.
+   * 1. Resolves and updates actual supplier cost from correct providers:
+   *    - G2BULK Vouchers: matches with g2bulk_voucher_catalog.unit_price
+   *    - Virtual Cards (Mastercard): face_value in USD (CAD converted via 0.72)
+   *    - GamesDrop: gamesDropCostUsd / providerCostUsd
+   * 2. Sets default partner price equal to current customer public selling price (customerPriceUsd)
+   *    across ALL active products linked to the partner portal.
+   * 3. Keeps supplier cost and customer retail price completely separate.
+   * 4. Preserves merchant custom prices in partner_product_pricing without touching them.
+   * 5. Tracks last sync time, updated count, and unverified/unknown costs.
+   */
+  public async syncAllPartnerPricesAndCosts(adminId?: string): Promise<{
+    success: boolean;
+    stats: {
+      lastSyncAt: string;
+      totalProducts: number;
+      updatedProducts: number;
+      unverifiedCostCount: number;
+      defaultPartnerPriceMatchedCount: number;
+    };
+  }> {
+    const nowIso = new Date().toISOString();
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const productsRes = await client.query(`
+        SELECT 
+          p.id, 
+          p."productName", 
+          p."offerName", 
+          p.provider, 
+          p."primaryProvider",
+          p.fulfillment_type, 
+          p."productType", 
+          p."customerPriceUsd",
+          p."supplierCostUsd", 
+          p."gamesDropCostUsd", 
+          p."providerCostUsd",
+          p.face_value, 
+          p.card_currency, 
+          p."defaultPartnerPriceUsd",
+          p."providerOfferId", 
+          g2.unit_price as g2_unit_price
+        FROM "Product" p
+        LEFT JOIN g2bulk_voucher_catalog g2 
+          ON (g2.provider_product_id::text = p."providerOfferId"::text OR g2.title ILIKE p."productName")
+        WHERE p."isActive" = true
+      `);
+
+      let updatedCount = 0;
+      let unverifiedCostCount = 0;
+      let matchedPartnerPrices = 0;
+
+      for (const p of productsRes.rows) {
+        let resolvedCost: number | null = null;
+        const g2Unit = p.g2_unit_price ? Number(p.g2_unit_price) : 0;
+        const pCost = p.providerCostUsd ? Number(p.providerCostUsd) : 0;
+        const sCost = p.supplierCostUsd ? Number(p.supplierCostUsd) : 0;
+        const gdCost = p.gamesDropCostUsd ? Number(p.gamesDropCostUsd) : 0;
+        const isCard = p.fulfillment_type === 'KIROPRO_CARD' || p.productType === 'VIRTUAL_CARD';
+        const isVoucher = p.fulfillment_type === 'G2BULK_VOUCHER' || p.provider === 'G2BULK' || p.primaryProvider === 'G2BULK';
+
+        if (isVoucher) {
+          if (g2Unit > 0) resolvedCost = g2Unit;
+          else if (pCost > 0) resolvedCost = pCost;
+          else if (sCost > 0) resolvedCost = sCost;
+        } else if (isCard) {
+          const faceVal = Number(p.face_value || 0);
+          if (faceVal > 0) {
+            resolvedCost = p.card_currency === 'CAD' ? Math.round(faceVal * 0.72 * 100) / 100 : faceVal;
+          }
+        } else {
+          if (gdCost > 0) resolvedCost = gdCost;
+          else if (sCost > 0) resolvedCost = sCost;
+          else if (pCost > 0) resolvedCost = pCost;
+        }
+
+        if (resolvedCost === null || resolvedCost <= 0) {
+          unverifiedCostCount++;
+        }
+
+        const customerRetail = Number(p.customerPriceUsd || 0);
+        const targetPartnerPrice = customerRetail > 0 ? customerRetail : null;
+        if (targetPartnerPrice !== null) {
+          matchedPartnerPrices++;
+        }
+
+        await client.query(`
+          UPDATE "Product"
+          SET "supplierCostUsd" = $1,
+              "providerCostUsd" = COALESCE($2, "providerCostUsd"),
+              "defaultPartnerPriceUsd" = $3,
+              "updatedAt" = NOW()
+          WHERE id = $4
+        `, [
+          resolvedCost,
+          resolvedCost,
+          targetPartnerPrice,
+          p.id
+        ]);
+
+        updatedCount++;
+      }
+
+      const stats = {
+        lastSyncAt: nowIso,
+        totalProducts: productsRes.rows.length,
+        updatedProducts: updatedCount,
+        unverifiedCostCount,
+        defaultPartnerPriceMatchedCount: matchedPartnerPrices
+      };
+
+      await client.query(`
+        INSERT INTO platform_settings (key, value, updated_at)
+        VALUES ('partner_pricing_sync_stats', $1, NOW())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+      `, [JSON.stringify(stats)]);
+
+      if (adminId) {
+        await client.query(`
+          INSERT INTO "AuditLog" (id, "adminId", action, reason)
+          VALUES ($1, $2, 'SYNC_ALL_PARTNER_PRICES', $3)
+        `, [
+          uuidv4(),
+          adminId,
+          `مزامنة شاملة لأسعار وتكاليف بوابة التجار: تم تحديث ${updatedCount} منتجاً، ومطابقة سعر الشريك الافتراضي مع سعر البيع العام (${matchedPartnerPrices} منتج)، وتكاليف غير محددة: ${unverifiedCostCount}`
+        ]);
+      }
+
+      await client.query('COMMIT');
+      return { success: true, stats };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   /**

@@ -331,28 +331,164 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
 
     if (dupCheck.rows.length > 0) {
       const existing = dupCheck.rows[0];
+      const isClaimedOrSold = ['CLAIMED', 'SOLD'].includes(existing.status);
 
+      const {
+        confirmReentry,
+        confirmUpdate,
+        adminConfirmationReason,
+        confirmedUnused,
+        confirmedAuthorized,
+        updateReason
+      } = req.body;
+
+      // =========================================================================
       // CASE 1: Card was already CLAIMED / SOLD to a customer or partner
-      // STRICT PROTECTION: NEVER allow re-adding or resetting state of a claimed card!
-      if (['CLAIMED', 'SOLD'].includes(existing.status)) {
-        return res.status(409).json({
-          success: false,
-          code: 'CARD_ALREADY_SOLD',
-          error: `لا يمكن إضافة هذه البطاقة: البطاقة (تنتهي بـ ${existing.card_last4}) تم بيعها وتخصيصها مسبقاً ولا يمكن إعادة إدراجها في المخزون إطلاقاً.`,
-          existingCard: {
-            id: existing.id,
-            last4: existing.card_last4,
-            maskedNumber: maskCardNumber(existing.card_last4),
-            status: existing.status,
-            orderId: existing.partner_order_id || existing.order_id,
-            assignedAt: existing.assigned_at
-          }
-        });
+      // =========================================================================
+      if (isClaimedOrSold) {
+        // Step 1.1: If admin has NOT yet confirmed re-entry, show detailed warning modal
+        if (!confirmReentry) {
+          return res.status(409).json({
+            success: false,
+            code: 'CARD_PREVIOUSLY_CLAIMED_CONFIRM_REQUIRED',
+            warning: 'تحذير: هذه البطاقة مسجلة مسبقاً وسبق بيعها / تسليمها لعميل!',
+            message: 'هذه البطاقة مرتبطة بعملية بيع أو تسليم سابقة. إعادة إدراجها في المخزون سيتيح تسليم نفس الكود لعميل آخر. لا يمكن إعادتها إلا بتأكيد صريح بأنها لم تُستخدم فعلياً، وأنك مخول بإعادة بيعها شرعياً وقانونياً دون الإضرار بالعميل السابق.',
+            existingCard: {
+              id: existing.id,
+              last4: existing.card_last4,
+              maskedNumber: maskCardNumber(existing.card_last4),
+              status: existing.status,
+              balance: Number(existing.balance),
+              currency: existing.currency,
+              cardNetwork: existing.card_network,
+              orderId: existing.partner_order_id || existing.order_id,
+              assignedAt: existing.assigned_at,
+              createdAt: existing.created_at
+            }
+          });
+        }
+
+        // Step 1.2: Admin explicitly confirmed re-entry: Verify mandatory declarations
+        if (!confirmedUnused || !confirmedAuthorized) {
+          return res.status(400).json({
+            error: 'يجب الإقرار والتأكيد الصريح بأن البطاقة لم تُستخدم فعلياً، وأنك مخول بإعادة بيعها وأن إعادة البيع لن تحرم العميل السابق من حقه.'
+          });
+        }
+
+        const sanitizedReason = (adminConfirmationReason ? String(adminConfirmationReason).trim() : '').slice(0, 500);
+        if (!sanitizedReason) {
+          return res.status(400).json({
+            error: 'يجب توضيح سبب إعادة إدخال البطاقة بدقة للتوثيق في سجل التدقيق الإداري.'
+          });
+        }
+
+        // Step 1.3: Validate product match (Network, Currency, Face Value)
+        if (targetProduct.card_network && targetProduct.card_network !== existing.card_network) {
+          return res.status(400).json({
+            error: `لا يمكن إعادة إدخال البطاقة في منتج شبكة ${targetProduct.card_network} لأن البطاقة تتبع شبكة ${existing.card_network}.`
+          });
+        }
+        if (targetProduct.card_currency && targetProduct.card_currency !== existing.currency) {
+          return res.status(400).json({
+            error: `لا يمكن إعادة إدخال البطاقة في منتج عملة ${targetProduct.card_currency} لأن عملة البطاقة الأصلية هي ${existing.currency}.`
+          });
+        }
+
+        // Step 1.4: Atomic Re-entry Transaction
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+
+          // Archive historical issuance cycle into kiropro_card_reentry_logs
+          await client.query(
+            `INSERT INTO kiropro_card_reentry_logs (
+               id, card_id, card_last4, card_hash, previous_status, previous_order_id,
+               previous_partner_order_id, previous_user_id, previous_assigned_at,
+               reentered_by_admin_id, reentry_reason, admin_confirmed_unused,
+               admin_confirmed_authorized, reentered_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
+            [
+              uuidv4(),
+              existing.id,
+              existing.card_last4,
+              cardHash,
+              existing.status,
+              existing.order_id || null,
+              existing.partner_order_id || null,
+              existing.assigned_to_user_id || null,
+              existing.assigned_at || null,
+              adminId || null,
+              sanitizedReason,
+              Boolean(confirmedUnused),
+              Boolean(confirmedAuthorized)
+            ]
+          );
+
+          // Reset existing inventory row to AVAILABLE with new verified data
+          const updateRes = await client.query(
+            `UPDATE kiropro_cards_inventory
+             SET status = 'AVAILABLE',
+                 order_id = NULL,
+                 partner_order_id = NULL,
+                 assigned_to_user_id = NULL,
+                 assigned_at = NULL,
+                 balance = $1,
+                 exp_date = $2,
+                 product_id = $3,
+                 updated_at = NOW()
+             WHERE id = $4
+             RETURNING id, card_last4, exp_date, balance, status, card_network, currency, updated_at`,
+            [cardBalance, expDate.trim(), productId, existing.id]
+          );
+
+          // Mark target product inStock
+          await client.query(
+            'UPDATE "Product" SET "inStock" = true, "updatedAt" = NOW() WHERE id = $1',
+            [productId]
+          );
+
+          // Audit log (STRICT: Zero cleartext PAN/CVV logged)
+          await client.query(
+            `INSERT INTO "AuditLog" (id, "adminId", action, reason) 
+             VALUES ($1, $2, 'REENTER_CLAIMED_CARD', $3)`,
+            [
+              uuidv4(),
+              adminId,
+              `إعادة إدخال بطاقة مباعة مسبقاً (${finalNetwork} ${cardCurrency} ${cardBalance} تنتهي بـ ${existing.card_last4}) إلى المخزون المتاح للبيع بواسطة المشرف. السبب: ${sanitizedReason}`
+            ]
+          );
+
+          await client.query('COMMIT');
+
+          const updatedCard = updateRes.rows[0];
+          return res.status(200).json({
+            success: true,
+            isReentered: true,
+            message: 'تمت إعادة إدخال البطاقة إلى المخزون المتاح للبيع بنجاح وتوثيق السجل والطلب السابق في سجل التدقيق.',
+            card: {
+              id: updatedCard.id,
+              last4: updatedCard.card_last4,
+              maskedNumber: maskCardNumber(updatedCard.card_last4),
+              expDate: updatedCard.exp_date,
+              balance: Number(updatedCard.balance),
+              status: updatedCard.status,
+              cardNetwork: updatedCard.card_network,
+              currency: updatedCard.currency,
+              updatedAt: updatedCard.updated_at
+            }
+          });
+        } catch (txErr: any) {
+          await client.query('ROLLBACK');
+          console.error('[AdminKiroProCards] Re-entry transaction failed:', txErr.message);
+          return res.status(500).json({ error: 'فشلت معالجة إعادة إدخال البطاقة داخل المعاملة.' });
+        } finally {
+          client.release();
+        }
       }
 
+      // =========================================================================
       // CASE 2: Card already exists in inventory with status AVAILABLE or DISABLED
-      // Check if admin explicitly confirmed updating the existing record
-      const { confirmUpdate, updateReason } = req.body;
+      // =========================================================================
       if (!confirmUpdate) {
         return res.status(409).json({
           success: false,
@@ -375,7 +511,7 @@ router.post('/add', requireAdmin, async (req: AuthRequest, res: Response) => {
         });
       }
 
-      // Admin explicitly confirmed updating existing card (NO DUPLICATE ROW CREATED)
+      // Admin explicitly confirmed updating existing available/disabled card
       const sanitizedReason = (updateReason ? String(updateReason).trim() : 'تحديث بيانات بطاقة موجودة مسبقاً في المخزون').slice(0, 255);
       
       const updateRes = await pool.query(
