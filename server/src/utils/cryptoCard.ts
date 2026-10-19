@@ -1,17 +1,36 @@
 import crypto from 'crypto';
 
 /**
- * Key Derivation:
- * Uses CARD_ENCRYPTION_KEY if present, falling back to ACCOUNT_ENCRYPTION_KEY or JWT_SECRET.
- * Always hashes with SHA-256 to guarantee 32 bytes (256 bits) for AES-256-GCM.
+ * Primary Key Derivation (SEC-FIN-02):
+ * Uses dedicated CARD_ENCRYPTION_KEY.
+ * NEVER uses JWT_SECRET for new encryptions.
  */
-function getCardEncryptionKey(): Buffer {
-  const rawSecret =
-    process.env.CARD_ENCRYPTION_KEY ||
-    process.env.ACCOUNT_ENCRYPTION_KEY ||
-    process.env.JWT_SECRET ||
-    'kiropro-secure-virtual-cards-key-32b';
+function getCardPrimaryEncryptionKey(): Buffer {
+  const rawSecret = process.env.CARD_ENCRYPTION_KEY;
+  if (!rawSecret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL SECURITY ERROR: CARD_ENCRYPTION_KEY must be configured in production environment.');
+    }
+    // Dedicated dev card fallback (NOT JWT_SECRET)
+    return crypto.createHash('sha256').update('kiropro-card-encryption-dev-key-32b').digest();
+  }
   return crypto.createHash('sha256').update(rawSecret).digest();
+}
+
+/**
+ * Legacy decryption candidates list for backwards compatibility during key rotation.
+ * Validates against GCM authTag to safely decrypt legacy rows without data loss.
+ */
+function getCardDecryptionKeyCandidates(): Buffer[] {
+  const candidates: string[] = [];
+  if (process.env.CARD_ENCRYPTION_KEY) candidates.push(process.env.CARD_ENCRYPTION_KEY);
+  if (process.env.CARD_ENCRYPTION_KEY_OLD) candidates.push(process.env.CARD_ENCRYPTION_KEY_OLD);
+  if (process.env.NODE_ENV !== 'production') candidates.push('kiropro-card-encryption-dev-key-32b');
+  if (process.env.ACCOUNT_ENCRYPTION_KEY) candidates.push(process.env.ACCOUNT_ENCRYPTION_KEY);
+  if (process.env.JWT_SECRET) candidates.push(process.env.JWT_SECRET);
+  candidates.push('kiropro-secure-virtual-cards-key-32b');
+
+  return candidates.map(secret => crypto.createHash('sha256').update(secret).digest());
 }
 
 /**
@@ -23,7 +42,7 @@ export function encryptCardData(plaintext: string): string {
     throw new Error('Data to encrypt must be a non-empty string');
   }
 
-  const key = getCardEncryptionKey();
+  const key = getCardPrimaryEncryptionKey();
   const iv = crypto.randomBytes(12); // 96-bit IV standard for GCM
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 
@@ -40,6 +59,7 @@ export function encryptCardData(plaintext: string): string {
 /**
  * Decrypts data encrypted with AES-256-GCM.
  * Validates cryptographic tag to prevent tampering or corruption.
+ * Supports legacy candidate keys to guarantee zero data loss during key rotation.
  */
 export function decryptCardData(encryptedPayload: string): string {
   if (!encryptedPayload || typeof encryptedPayload !== 'string') {
@@ -56,20 +76,27 @@ export function decryptCardData(encryptedPayload: string): string {
     throw new Error('Encrypted payload parts are incomplete');
   }
 
-  const key = getCardEncryptionKey();
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const data = Buffer.from(dataHex, 'hex');
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
+  const candidateKeys = getCardDecryptionKeyCandidates();
+  for (const key of candidateKeys) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      const decrypted = Buffer.concat([
+        decipher.update(data),
+        decipher.final(),
+      ]);
+      return decrypted.toString('utf8');
+    } catch {
+      // GCM tag verification failed with this key, try next candidate
+      continue;
+    }
+  }
 
-  const decrypted = Buffer.concat([
-    decipher.update(data),
-    decipher.final(),
-  ]);
-
-  return decrypted.toString('utf8');
+  throw new Error('Failed to decrypt card data: authentication tag mismatch across all candidate keys.');
 }
 
 /**
@@ -170,7 +197,7 @@ export function isValidLuhn(cleanNum: string): boolean {
 export function hashCardNumber(cleanNum: string): string {
   const sanitized = cleanCardNumber(cleanNum);
   if (!sanitized) return '';
-  const key = getCardEncryptionKey();
+  const key = getCardPrimaryEncryptionKey();
   return crypto.createHmac('sha256', key).update(sanitized).digest('hex');
 }
 

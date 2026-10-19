@@ -1,13 +1,37 @@
 import crypto from 'crypto';
 
 /**
- * Key derivation:
- * Uses ACCOUNT_ENCRYPTION_KEY if set, otherwise JWT_SECRET.
- * Always hashes with SHA-256 to produce exactly 32 bytes (256 bits) for AES-256.
+ * Primary Key Derivation (SEC-FIN-02):
+ * Uses dedicated VOUCHERS_ENCRYPTION_KEY or VOUCHER_ENCRYPTION_KEY.
+ * NEVER uses JWT_SECRET for new encryptions.
  */
-function getEncryptionKey(): Buffer {
-  const secret = process.env.ACCOUNT_ENCRYPTION_KEY || process.env.JWT_SECRET || 'kiropro-vouchers-secret-key-32b';
+function getVoucherPrimaryEncryptionKey(): Buffer {
+  const secret = process.env.VOUCHERS_ENCRYPTION_KEY || process.env.VOUCHER_ENCRYPTION_KEY;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL SECURITY ERROR: VOUCHERS_ENCRYPTION_KEY must be configured in production environment.');
+    }
+    return crypto.createHash('sha256').update('kiropro-voucher-encryption-dev-key-32b').digest();
+  }
   return crypto.createHash('sha256').update(secret).digest();
+}
+
+/**
+ * Legacy decryption candidates list for backwards compatibility during key rotation.
+ * Validates against GCM authTag to safely decrypt legacy voucher codes without data loss.
+ */
+function getVoucherDecryptionKeyCandidates(): Buffer[] {
+  const candidates: string[] = [];
+  const primarySecret = process.env.VOUCHERS_ENCRYPTION_KEY || process.env.VOUCHER_ENCRYPTION_KEY;
+  if (primarySecret) candidates.push(primarySecret);
+  const oldSecret = process.env.VOUCHERS_ENCRYPTION_KEY_OLD || process.env.VOUCHER_ENCRYPTION_KEY_OLD;
+  if (oldSecret) candidates.push(oldSecret);
+  if (process.env.NODE_ENV !== 'production') candidates.push('kiropro-voucher-encryption-dev-key-32b');
+  if (process.env.ACCOUNT_ENCRYPTION_KEY) candidates.push(process.env.ACCOUNT_ENCRYPTION_KEY);
+  if (process.env.JWT_SECRET) candidates.push(process.env.JWT_SECRET);
+  candidates.push('kiropro-vouchers-secret-key-32b');
+
+  return candidates.map(s => crypto.createHash('sha256').update(s).digest());
 }
 
 /**
@@ -19,7 +43,7 @@ export function encryptVoucherCode(plainCode: string): string {
     throw new Error('Voucher code must be a non-empty string');
   }
 
-  const key = getEncryptionKey();
+  const key = getVoucherPrimaryEncryptionKey();
   const iv = crypto.randomBytes(12); // Standard 96-bit IV for GCM
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 
@@ -36,6 +60,7 @@ export function encryptVoucherCode(plainCode: string): string {
 /**
  * Decrypts an AES-256-GCM encrypted voucher code.
  * Validates the authentication tag to guarantee integrity and authenticity.
+ * Supports legacy candidate keys to guarantee zero data loss during key rotation.
  */
 export function decryptVoucherCode(encryptedPayload: string): string {
   if (!encryptedPayload || typeof encryptedPayload !== 'string') {
@@ -52,20 +77,27 @@ export function decryptVoucherCode(encryptedPayload: string): string {
     throw new Error('Incomplete encrypted voucher payload');
   }
 
-  const key = getEncryptionKey();
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const data = Buffer.from(dataHex, 'hex');
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
+  const candidateKeys = getVoucherDecryptionKeyCandidates();
+  for (const key of candidateKeys) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      const decrypted = Buffer.concat([
+        decipher.update(data),
+        decipher.final()
+      ]);
+      return decrypted.toString('utf8');
+    } catch {
+      // GCM authentication failed for this candidate key, try next
+      continue;
+    }
+  }
 
-  const decrypted = Buffer.concat([
-    decipher.update(data),
-    decipher.final()
-  ]);
-
-  return decrypted.toString('utf8');
+  throw new Error('Failed to decrypt voucher code: authentication tag mismatch across all candidate keys.');
 }
 
 /**

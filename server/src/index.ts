@@ -325,7 +325,10 @@ const generalApiLimiter = rateLimit({
   message: { error: 'تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة لاحقاً.' },
   skip: (req) => {
     // Skip public GET product catalog browsing (governed by productsReadLimiter)
-    return req.method === 'GET' && (req.path === '/products' || req.path.startsWith('/products/'));
+    if (req.method === 'GET' && (req.path === '/products' || req.path.startsWith('/products/'))) return true;
+    // Skip webhooks from rate limiting to prevent dropping upstream partner events
+    if (req.path.includes('/webhook')) return true;
+    return false;
   }
 });
 
@@ -360,10 +363,32 @@ app.use('/api/vouchers', vouchersRoutes);
 app.use('/api/admin/vouchers', adminVouchersRoutes);
 
 // G2Bulk Webhook endpoints (Public HTTPS, Direct Delivery, Strictly No Redirects)
-app.post('/webhook/prvidr', handleG2BulkWebhook);
-app.post('/webhook/providr', handleG2BulkWebhook);
-app.use('/api/webhook/prvidr', webhooksRoutes);
-app.use('/api/webhook/providr', webhooksRoutes);
+const g2bulkWebhookPaths = [
+  '/webhook/provider',
+  '/webhook/prvidr',
+  '/webhook/providr',
+  '/api/webhook/provider',
+  '/api/webhook/prvidr',
+  '/api/webhook/providr',
+  '/webhooks/g2bulk',
+  '/api/webhooks/g2bulk'
+];
+
+for (const p of g2bulkWebhookPaths) {
+  app.post(p, handleG2BulkWebhook);
+}
+
+// Public GET / HEAD probe for webhook endpoints (supports uptime checkers & direct verification)
+app.get(g2bulkWebhookPaths, (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'active',
+    service: 'kiropro-g2bulk-webhook-receiver',
+    method: 'POST_REQUIRED',
+    signatureStandard: 'Standard Webhooks (HMAC-SHA256)',
+    canonicalUrl: 'https://api.kiropro.store/webhook/provider',
+    acceptedPaths: g2bulkWebhookPaths
+  });
+});
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {

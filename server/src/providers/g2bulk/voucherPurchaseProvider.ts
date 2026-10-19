@@ -145,8 +145,8 @@ export class G2BulkVoucherPurchaseProvider {
       };
     }
 
-    // 5. Safe Mock Mode (VOUCHERS_MOCK_MODE=true or isSimulation or test environment)
-    const isMock = process.env.VOUCHERS_MOCK_MODE === 'true' || options?.isSimulation === true || process.env.NODE_ENV === 'test';
+    // 5. Safe Mock Mode: Strictly controlled by server environment (VOUCHERS_MOCK_MODE=true or NODE_ENV=test)
+    const isMock = process.env.VOUCHERS_MOCK_MODE === 'true' || (process.env.NODE_ENV === 'test' && options?.isSimulation === true);
     if (isMock) {
       if (!options?.suppressLog) this.logReasonThrottled('READY', 'MOCK_MODE');
       return {
@@ -229,7 +229,8 @@ export class G2BulkVoucherPurchaseProvider {
       throw new Error('Invalid X-Idempotency-Key format. Must be a 36-character UUID.');
     }
 
-    const isMock = process.env.VOUCHERS_MOCK_MODE === 'true' || Boolean(isSimulation) || process.env.NODE_ENV === 'test';
+    // 1. Safe Mock Mode check: strictly restricted to server environment
+    const isMock = process.env.VOUCHERS_MOCK_MODE === 'true' || (process.env.NODE_ENV === 'test' && Boolean(isSimulation));
     const allowRealPurchase = process.env.ALLOW_REAL_G2BULK_PURCHASE === 'true';
 
     // 1. LIVE EXECUTION VIA G2BULK OFFICIAL API (Strictly requires ALLOW_REAL_G2BULK_PURCHASE === 'true' AND NOT in Mock Mode)
@@ -272,9 +273,13 @@ export class G2BulkVoucherPurchaseProvider {
   }): Promise<VoucherPurchaseResult> {
     const { providerProductId, quantity, idempotencyKey } = params;
 
+    const trustedWebhookUrl = (process.env.G2BULK_WEBHOOK_URL || 'https://api.kiropro.store/webhook/provider').trim();
     const res = await g2BulkClient.purchaseProduct(
       providerProductId,
-      { quantity },
+      { 
+        quantity,
+        callback_url: trustedWebhookUrl
+      },
       idempotencyKey
     );
 

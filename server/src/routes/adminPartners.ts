@@ -629,7 +629,7 @@ router.post('/partner-deposits/:id/approve', requireAdmin, async (req: AuthReque
 
     // 1. Lock deposit row for update
     const depositRes = await client.query(
-      `SELECT d.*, u.email, u.name 
+      `SELECT d.*, u.email, u.name, p.user_id as partner_user_id 
        FROM partner_deposits d
        JOIN partner_profiles p ON d.partner_id = p.id
        JOIN "User" u ON p.user_id = u.id
@@ -643,6 +643,19 @@ router.post('/partner-deposits/:id/approve', requireAdmin, async (req: AuthReque
     }
 
     const deposit = depositRes.rows[0];
+
+    // SECURITY ENFORCEMENT (SEC-FIN-07):
+    // Separation of Duties: Admins cannot approve their own partner deposit requests!
+    const isOwner = deposit.partner_user_id === adminId;
+    const isEmailMatch = deposit.email && req.user?.email && deposit.email.toLowerCase() === req.user.email.toLowerCase();
+
+    if (isOwner || isEmailMatch) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'SELF_APPROVAL_FORBIDDEN: لا يمكنك اعتماد طلب إيداع لحساب شريك مرتبط بك. يتطلب الاعتماد مراجعة من مدير آخر.',
+        code: 'SELF_APPROVAL_FORBIDDEN'
+      });
+    }
 
     // Idempotency guard: only PENDING can be approved
     if (deposit.status !== 'PENDING') {

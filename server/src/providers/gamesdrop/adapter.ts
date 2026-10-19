@@ -8,7 +8,8 @@ import {
   CreateTopupOrderResult,
   GetOrderStatusResult,
   ProviderCatalogItem,
-  ProviderCanonicalStatus
+  ProviderCanonicalStatus,
+  isAmbiguousNetworkError
 } from '../types';
 import { gamesDropProvider, GamesDropProvider } from './index';
 import { mapGamesDropStatus } from './mapper';
@@ -150,12 +151,11 @@ export class GamesDropAdapter implements ProviderAdapter {
         rawResponse: res
       };
     } catch (err: any) {
-      const isTimeout = err.code === 'TIMEOUT' || err.status === 504;
-      const isNetwork = err.code === 'NETWORK_ERROR' || err.status === 502;
+      const isAmbiguous = isAmbiguousNetworkError(err);
 
       // In ambiguous state (timeout/network drop after submit):
       // Mark isAmbiguous = true to trigger PROVIDER_UNKNOWN and strictly prevent duplicate fulfillment!
-      if (isTimeout || isNetwork) {
+      if (isAmbiguous) {
         return {
           success: false,
           provider: this.name,

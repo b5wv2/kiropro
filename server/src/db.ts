@@ -1,9 +1,12 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, types } from 'pg';
 import dotenv from 'dotenv';
 import dns from 'node:dns';
 import fs from 'node:fs';
 import path from 'node:path';
 dotenv.config();
+
+// Ensure PostgreSQL NUMERIC (OID 1700) is parsed as float number to prevent string concatenation bugs
+types.setTypeParser(1700, (val: string) => (val === null ? null : parseFloat(val)));
 
 // Ensure IPv4 first on Node.js to prevent connection stalls with Neon AWS Postgres
 dns.setDefaultResultOrder('ipv4first');

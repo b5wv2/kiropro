@@ -8,7 +8,8 @@ import {
   CreateTopupOrderResult,
   GetOrderStatusResult,
   ProviderCatalogItem,
-  ProviderCanonicalStatus
+  ProviderCanonicalStatus,
+  isAmbiguousNetworkError
 } from '../types';
 import { g2BulkClient, G2BulkClient } from './client';
 import { G2BulkCheckPlayerParams, G2BulkCreateOrderParams } from './types';
@@ -125,9 +126,7 @@ export class G2BulkAdapter implements ProviderAdapter {
         denom_id: catalogueName,
         player_id: params.playerUserId.trim(),
         remark: params.remark || `KIROPRO-${params.koaraOrderId}`,
-        callback_url: params.callbackUrl && params.callbackUrl.trim()
-          ? params.callbackUrl.trim()
-          : 'https://api.kiropro.store/webhook/prvidr'
+        callback_url: (process.env.G2BULK_WEBHOOK_URL || 'https://api.kiropro.store/webhook/provider').trim()
       };
       if (params.serverZoneId && params.serverZoneId.trim()) {
         orderPayload.server_id = params.serverZoneId.trim();
@@ -162,13 +161,12 @@ export class G2BulkAdapter implements ProviderAdapter {
         rawResponse: res
       };
     } catch (err: any) {
-      const status = err.status || 500;
-      const isTimeout = err.isTimeout || status === 504;
+      const isAmbiguous = isAmbiguousNetworkError(err);
 
       // Crucial Security Rule: If network timeout or ambiguous failure occurred,
       // mark isAmbiguous = true so ProviderRouter/Order transitions to PROVIDER_UNKNOWN
       // and strictly PREVENTS duplicate fulfillment.
-      if (isTimeout || status === 502) {
+      if (isAmbiguous) {
         return {
           success: false,
           provider: this.name,

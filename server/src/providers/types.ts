@@ -103,3 +103,46 @@ export interface ProviderAdapter {
   getOrderStatus(providerOrderId: string | number): Promise<GetOrderStatusResult>;
   syncCatalog?(gameCode?: string): Promise<ProviderCatalogItem[]>;
 }
+
+/**
+ * Classifies network drops, socket timeouts, and ambiguous gateway responses (SEC-FIN-05)
+ * Prevents double fulfillment caused by treating unknown provider states as definitive failures.
+ */
+export function isAmbiguousNetworkError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err.code || err.cause?.code || '').toUpperCase();
+  const msg = String(err.message || '').toUpperCase();
+  const status = Number(err.status || err.response?.status || 0);
+
+  // Timeout indicators
+  if (
+    code === 'ECONNABORTED' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ESOCKETTIMEDOUT' ||
+    code === 'TIMEOUT' ||
+    msg.includes('TIMEOUT') ||
+    msg.includes('ETIMEDOUT')
+  ) {
+    return true;
+  }
+
+  // Network connection drops after send
+  if (
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    code === 'EHOSTUNREACH' ||
+    code === 'ENETUNREACH' ||
+    msg.includes('ECONNRESET') ||
+    msg.includes('SOCKET HANG UP')
+  ) {
+    return true;
+  }
+
+  // Server error codes where upstream may have accepted request
+  if (status === 502 || status === 504 || status === 503) {
+    return true;
+  }
+
+  return false;
+}
+

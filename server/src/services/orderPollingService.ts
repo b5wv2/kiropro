@@ -211,9 +211,11 @@ class OrderPollingService {
             return;
           }
 
+          let unrecoveredCashback = 0;
           // Revert any awarded cashback first
           try {
-            await reverseOrderCashback(order.id, client);
+            const rcRes = await reverseOrderCashback(order.id, client);
+            unrecoveredCashback = rcRes?.unrecoveredAmount || 0;
           } catch (rcErr) {
             console.error(`[OrderPollingService] Cashback reverse error for order ${order.id}:`, rcErr);
           }
@@ -226,7 +228,21 @@ class OrderPollingService {
           const wallet = walletRes.rows[0];
 
           if (wallet) {
-            const refundAmount = Number(order.chargedAmount || order.amount || 0);
+            // Check against duplicate refund in ledger
+            const existingRefund = await client.query(`
+              SELECT id FROM "WalletTransaction"
+              WHERE "walletId" = $1 AND "referenceType" = 'ORDER' AND "referenceId" = $2 AND "type" = 'REFUND'
+              LIMIT 1
+            `, [wallet.id, order.id]);
+
+            if (existingRefund.rows.length > 0) {
+              console.log(`[OrderPollingService] Refund already recorded in ledger for order ${order.id}. Skipping.`);
+              await client.query('ROLLBACK');
+              return;
+            }
+
+            const grossRefundAmount = Number(order.chargedAmount || order.amount || 0);
+            const refundAmount = Math.max(0, grossRefundAmount - unrecoveredCashback);
             const userCurrency = wallet.currency || 'SDG';
             const balanceBefore = Number(wallet.balance);
             const newBalance = Math.round((balanceBefore + refundAmount) * 100) / 100;
@@ -235,6 +251,10 @@ class OrderPollingService {
               'UPDATE "Wallet" SET balance = $1, "updatedAt" = NOW() WHERE id = $2',
               [newBalance, wallet.id]
             );
+
+            const refundDescription = unrecoveredCashback > 0
+              ? `استرجاع رصيد لطلب ملغي/فاشل: ${order.packageName} (مخصوم منه ${unrecoveredCashback} كاش باك تم استهلاكه)`
+              : `استرجاع رصيد لطلب ملغي/فاشل: ${order.packageName}`;
 
             await client.query(
               `INSERT INTO "WalletTransaction" 
@@ -245,7 +265,7 @@ class OrderPollingService {
                 wallet.id, 
                 refundAmount, 
                 'REFUND', 
-                `استرجاع رصيد لطلب ملغي/فاشل: ${order.packageName}`,
+                refundDescription,
                 userCurrency,
                 balanceBefore,
                 newBalance,
@@ -264,15 +284,22 @@ class OrderPollingService {
             await client.query('UPDATE promo_codes SET usage_count = GREATEST(0, usage_count - 1), updated_at = NOW() WHERE id = $1', [r.promo_code_id]);
           }
 
-          await client.query(`
+          const updateOrder = await client.query(`
             UPDATE "Order"
             SET 
               status = 'FAILED',
               "providerStatus" = $1,
               "failureReason" = $2,
               "updatedAt" = NOW()
-            WHERE id = $3
+            WHERE id = $3 AND status = 'PROCESSING'
+            RETURNING id
           `, [rawStatus, statusRes.message || 'تم إلغاء الطلب من قبل مزود الخدمة', order.id]);
+
+          if (updateOrder.rows.length === 0) {
+            console.log(`[OrderPollingService] Order ${order.id} was already finalized concurrently. Rolling back.`);
+            await client.query('ROLLBACK');
+            return;
+          }
 
           await client.query('COMMIT');
         } catch (err) {

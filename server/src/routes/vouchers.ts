@@ -169,10 +169,13 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
     productId,
     voucherId,
     quantity: reqQty = 1,
-    idempotencyKey: reqIdempKey,
-    isSimulation = false,
-    simulateMode = 'COMPLETED'
+    idempotencyKey: reqIdempKey
   } = req.body;
+
+  // SECURITY ENFORCEMENT (SEC-FIN-08):
+  // Clients cannot activate simulation/mock mode from HTTP request parameters.
+  // Simulation is strictly controlled by server environment variables.
+  const isServerSimulation = process.env.VOUCHERS_MOCK_MODE === 'true';
 
   try {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
@@ -286,7 +289,7 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
       isActive: voucher.is_active,
       inStock: voucher.is_in_stock,
       stock: voucher.stock,
-      isSimulation: Boolean(isSimulation),
+      isSimulation: isServerSimulation,
       g2bulkOrdersEnabled
     });
 
@@ -342,7 +345,7 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
       await client.query('BEGIN');
 
       // Accidental rapid double-click protection within 5 seconds for in-flight or completed orders
-      if (!req.body.bypassRapidCheck && !isSimulation) {
+      if (!req.body.bypassRapidCheck && !isServerSimulation) {
         const dupCheck = await client.query(
           `SELECT id FROM "Order" 
            WHERE "userId" = $1 AND "packageId" = $2 
@@ -459,8 +462,7 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
         idempotencyKey,
         productTitle: voucher.title,
         gameKey: voucher.game_key,
-        isSimulation: Boolean(isSimulation),
-        simulateMode: simulateMode as any
+        ...(isServerSimulation ? { isSimulation: true, simulateMode: 'COMPLETED' } : {})
       });
     } catch (provErr: any) {
       console.error('[Vouchers API] Provider purchase error (Internal Diagnostic):', {

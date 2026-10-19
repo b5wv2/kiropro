@@ -4,7 +4,8 @@ import {
   CreateTopupOrderParams,
   CreateTopupOrderResult,
   GetOrderStatusResult,
-  ProviderBalance
+  ProviderBalance,
+  isAmbiguousNetworkError
 } from './types';
 import { gamesDropAdapter } from './gamesdrop/adapter';
 import { gamesDropClient } from './gamesdrop/client';
@@ -36,6 +37,8 @@ export interface ProductProviderResolution {
   fallbackEnabled: boolean;
   hasAnyOrderableProvider: boolean;
 }
+
+export { isAmbiguousNetworkError } from './types';
 
 export class ProviderRouter {
   private adapters: Map<string, ProviderAdapter> = new Map();
@@ -281,14 +284,15 @@ export class ProviderRouter {
       primaryResult = await routing.primaryAdapter.createTopupOrder(primaryParams);
     } catch (primErr: any) {
       console.error(`[ProviderRouter] Unhandled adapter error for primary ${routing.primaryProviderName}:`, primErr.message);
+      const isAmbiguous = isAmbiguousNetworkError(primErr);
       primaryResult = {
         success: false,
         provider: routing.primaryProviderName,
         providerOrderId: 0,
-        providerStatus: 'CONNECTION_FAILED',
-        canonicalStatus: 'FAILED',
-        isAmbiguous: false,
-        failureReason: 'NETWORK_ERROR',
+        providerStatus: isAmbiguous ? 'UNKNOWN' : 'CONNECTION_FAILED',
+        canonicalStatus: isAmbiguous ? 'UNKNOWN' : 'FAILED',
+        isAmbiguous,
+        failureReason: isAmbiguous ? 'NETWORK_TIMEOUT_AMBIGUOUS' : 'NETWORK_ERROR',
         message: primErr.message || 'فشل الاتصال بالمزود الأساسي'
       };
     }
@@ -301,14 +305,42 @@ export class ProviderRouter {
       };
     }
 
-    // 2. Ambiguity Guard:
-    // If Primary timed out or network dropped after submit -> DO NOT fallback!
-    // Halting with isAmbiguous = true causes caller to mark Order as PROVIDER_UNKNOWN
-    if (primaryResult.isAmbiguous) {
-      console.warn(`[ProviderRouter] Primary provider ${routing.primaryProviderName} returned ambiguous/timeout state for order ${baseParams.koaraOrderId}. Fallback BLOCKED to prevent duplicate fulfillment.`);
+    // 2. Ambiguity Guard (SEC-FIN-05):
+    // If Primary timed out, socket dropped, or network was ambiguous -> DO NOT fallback!
+    // If providerOrderId is available, attempt a status recovery check before giving up:
+    if (primaryResult.isAmbiguous && primaryResult.providerOrderId) {
+      try {
+        console.log(`[ProviderRouter] Attempting order status reconciliation check for primary ${routing.primaryProviderName} (Order: ${primaryResult.providerOrderId})...`);
+        const recoveryCheck = await routing.primaryAdapter.getOrderStatus(primaryResult.providerOrderId);
+        if (recoveryCheck.canonicalStatus === 'COMPLETED') {
+          return {
+            success: true,
+            provider: routing.primaryProviderName,
+            providerOrderId: primaryResult.providerOrderId,
+            providerStatus: recoveryCheck.providerStatus,
+            canonicalStatus: 'COMPLETED',
+            fulfillmentKey: recoveryCheck.fulfillmentKey || null,
+            isAmbiguous: false,
+            fallbackUsed: false,
+            message: 'تم تسليم الطلب لدى المزود الأساسي بنجاح بعد التحقق من الحالة'
+          };
+        } else if (recoveryCheck.canonicalStatus === 'FAILED') {
+          // Primary confirmed failed - can safely clear ambiguous flag
+          primaryResult.isAmbiguous = false;
+          primaryResult.canonicalStatus = 'FAILED';
+        }
+      } catch (recErr: any) {
+        console.warn(`[ProviderRouter] Reconciliation check failed for ${routing.primaryProviderName}:`, recErr.message);
+      }
+    }
+
+    // Strictly halt if outcome remains ambiguous:
+    if (primaryResult.isAmbiguous || primaryResult.canonicalStatus === 'UNKNOWN') {
+      console.warn(`[ProviderRouter] Primary provider ${routing.primaryProviderName} returned ambiguous/timeout state for order ${baseParams.koaraOrderId}. Fallback STRICTLY BLOCKED to prevent duplicate fulfillment.`);
       return {
         ...primaryResult,
         canonicalStatus: 'UNKNOWN',
+        isAmbiguous: true,
         fallbackUsed: false
       };
     }
@@ -341,14 +373,15 @@ export class ProviderRouter {
         fallbackResult = await routing.fallbackAdapter.createTopupOrder(fallbackParams);
       } catch (fbErr: any) {
         console.error(`[ProviderRouter] Unhandled adapter error for fallback ${routing.fallbackProviderName}:`, fbErr.message);
+        const isAmbiguous = isAmbiguousNetworkError(fbErr);
         fallbackResult = {
           success: false,
           provider: routing.fallbackProviderName || 'UNKNOWN',
           providerOrderId: 0,
-          providerStatus: 'CONNECTION_FAILED',
-          canonicalStatus: 'FAILED',
-          isAmbiguous: false,
-          failureReason: 'NETWORK_ERROR',
+          providerStatus: isAmbiguous ? 'UNKNOWN' : 'CONNECTION_FAILED',
+          canonicalStatus: isAmbiguous ? 'UNKNOWN' : 'FAILED',
+          isAmbiguous,
+          failureReason: isAmbiguous ? 'NETWORK_TIMEOUT_AMBIGUOUS' : 'NETWORK_ERROR',
           message: fbErr.message || 'فشل الاتصال بالمزود الاحتياطي'
         };
       }

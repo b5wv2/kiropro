@@ -274,10 +274,18 @@ export async function awardOrderCashback(orderId: string, externalClient?: PoolC
   }
 }
 
+export interface CashbackReversalResult {
+  reversed: boolean;
+  awardedAmount: number;
+  recoveredFromWallet: number;
+  unrecoveredAmount: number;
+}
+
 /**
  * Reverses cashback in case an order is refunded/cancelled after completion.
+ * Correctly accounts for spent cashback so it can be deducted from the refund payout (SEC-FIN-10).
  */
-export async function reverseOrderCashback(orderId: string, externalClient?: PoolClient): Promise<boolean> {
+export async function reverseOrderCashback(orderId: string, externalClient?: PoolClient): Promise<CashbackReversalResult> {
   const isInternalTx = !externalClient;
   const client = externalClient || await pool.connect();
 
@@ -291,8 +299,17 @@ export async function reverseOrderCashback(orderId: string, externalClient?: Poo
     const redemption = redRes.rows[0];
     if (!redemption) {
       if (isInternalTx) await client.query('COMMIT');
-      return false; // No cashback was awarded
+      return {
+        reversed: false,
+        awardedAmount: 0,
+        recoveredFromWallet: 0,
+        unrecoveredAmount: 0
+      };
     }
+
+    const creditedAmount = Number(redemption.credited_amount || 0);
+    let recoveredFromWallet = 0;
+    let unrecoveredAmount = creditedAmount;
 
     // Debit user wallet
     const walletRes = await client.query(
@@ -303,34 +320,38 @@ export async function reverseOrderCashback(orderId: string, externalClient?: Poo
 
     if (wallet) {
       const balanceBefore = Number(wallet.balance);
-      const balanceAfter = Math.max(0, balanceBefore - Number(redemption.credited_amount));
+      recoveredFromWallet = Math.min(balanceBefore, creditedAmount);
+      unrecoveredAmount = Math.max(0, creditedAmount - recoveredFromWallet);
+      const balanceAfter = Math.round((balanceBefore - recoveredFromWallet) * 100) / 100;
 
-      await client.query(
-        'UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2',
-        [balanceAfter, wallet.id]
-      );
+      if (recoveredFromWallet > 0) {
+        await client.query(
+          'UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2',
+          [balanceAfter, wallet.id]
+        );
 
-      // Record debit transaction
-      await client.query(`
-        INSERT INTO "WalletTransaction" 
-          (id, "walletId", amount, type, description, "referenceType", "referenceId", "balanceBefore", "balanceAfter", "createdBy", currency, source_amount_usd, exchange_rate, "created_by_type")
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      `, [
-        uuidv4(),
-        wallet.id,
-        redemption.credited_amount,
-        'ADMIN_DEBIT',
-        `عكس كاش باك لطلب ملغي/مسترجع #${orderId.slice(0, 8)}`,
-        'ORDER',
-        orderId,
-        balanceBefore,
-        balanceAfter,
-        null,
-        redemption.credited_currency,
-        redemption.base_cashback_usd,
-        redemption.exchange_rate,
-        'SYSTEM'
-      ]);
+        // Record debit transaction for the recovered portion
+        await client.query(`
+          INSERT INTO "WalletTransaction" 
+            (id, "walletId", amount, type, description, "referenceType", "referenceId", "balanceBefore", "balanceAfter", "createdBy", currency, source_amount_usd, exchange_rate, "created_by_type")
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `, [
+          uuidv4(),
+          wallet.id,
+          recoveredFromWallet,
+          'ADMIN_DEBIT',
+          `عكس كاش باك لطلب ملغي/مسترجع #${orderId.slice(0, 8)}`,
+          'ORDER',
+          orderId,
+          balanceBefore,
+          balanceAfter,
+          null,
+          redemption.credited_currency,
+          redemption.base_cashback_usd,
+          redemption.exchange_rate,
+          'SYSTEM'
+        ]);
+      }
     }
 
     // Delete redemption record
@@ -338,8 +359,14 @@ export async function reverseOrderCashback(orderId: string, externalClient?: Poo
     await client.query('UPDATE "Order" SET "cashbackAmount" = 0, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1', [orderId]);
 
     if (isInternalTx) await client.query('COMMIT');
-    console.log(`[CashbackService] Reverted cashback for order ${orderId}`);
-    return true;
+    console.log(`[CashbackService] Reverted cashback for order ${orderId} (Awarded: ${creditedAmount}, Recovered from wallet: ${recoveredFromWallet}, Unrecovered to deduct from refund: ${unrecoveredAmount})`);
+    
+    return {
+      reversed: true,
+      awardedAmount: creditedAmount,
+      recoveredFromWallet,
+      unrecoveredAmount
+    };
   } catch (err: any) {
     if (isInternalTx) await client.query('ROLLBACK');
     console.error(`[CashbackService] Error reversing cashback for order ${orderId}:`, err);

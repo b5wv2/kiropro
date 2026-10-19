@@ -508,39 +508,59 @@ router.put('/orders/:id/status', requireAdmin, async (req: AuthRequest, res: Res
       }
 
       if (status === 'FAILED' || status === 'REFUNDED') {
+        let unrecoveredCashback = 0;
         try {
-          await reverseOrderCashback(orderId, client);
+          const rcRes = await reverseOrderCashback(orderId, client);
+          unrecoveredCashback = rcRes?.unrecoveredAmount || 0;
         } catch (rcErr) {
           console.error('[Admin] Manual refund cashback reversal error:', rcErr);
         }
 
-        const refundAmount = Number(order.chargedAmount || order.amount);
-        if (Number.isFinite(refundAmount) && refundAmount > 0) {
-          const walletRes = await client.query('SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [order.userId]);
-          const wallet = walletRes.rows[0];
-          if (wallet) {
-            const balanceBefore = Number(wallet.balance);
-            const newBalance = Math.round((balanceBefore + refundAmount) * 100) / 100;
-            await client.query('UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2', [newBalance, wallet.id]);
-            await client.query(
-              `INSERT INTO "WalletTransaction" 
-                (id, "walletId", amount, type, description, currency, "balanceBefore", "balanceAfter", "referenceType", "referenceId", "createdBy", "created_by_type") 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-              [
-                uuidv4(), 
-                wallet.id, 
-                refundAmount, 
-                'REFUND', 
-                `استرجاع يدوي من الإدارة للطلب: ${order.packageName}`,
-                wallet.currency || 'USD',
-                balanceBefore,
-                newBalance,
-                'ORDER',
-                order.id,
-                adminId || null,
-                'ADMIN'
-              ]
-            );
+        const walletRes = await client.query('SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [order.userId]);
+        const wallet = walletRes.rows[0];
+        if (wallet) {
+          // Check against duplicate refund in ledger
+          const existingRefund = await client.query(`
+            SELECT id FROM "WalletTransaction"
+            WHERE "walletId" = $1 AND "referenceType" = 'ORDER' AND "referenceId" = $2 AND "type" = 'REFUND'
+            LIMIT 1
+          `, [wallet.id, order.id]);
+
+          if (existingRefund.rows.length === 0) {
+            const grossRefundAmount = Number(order.chargedAmount || order.amount || 0);
+            const refundAmount = Math.max(0, grossRefundAmount - unrecoveredCashback);
+
+            if (Number.isFinite(refundAmount) && refundAmount > 0) {
+              const balanceBefore = Number(wallet.balance);
+              const newBalance = Math.round((balanceBefore + refundAmount) * 100) / 100;
+              await client.query('UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2', [newBalance, wallet.id]);
+              
+              const refundDescription = unrecoveredCashback > 0
+                ? `استرجاع يدوي من الإدارة للطلب: ${order.packageName || order.id} (مخصوم منه ${unrecoveredCashback} كاش باك تم استهلاكه)`
+                : `استرجاع يدوي من الإدارة للطلب: ${order.packageName || order.id}`;
+
+              await client.query(
+                `INSERT INTO "WalletTransaction" 
+                  (id, "walletId", amount, type, description, currency, "balanceBefore", "balanceAfter", "referenceType", "referenceId", "createdBy", "created_by_type") 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                [
+                  uuidv4(), 
+                  wallet.id, 
+                  refundAmount, 
+                  'REFUND', 
+                  refundDescription,
+                  wallet.currency || 'SDG',
+                  balanceBefore,
+                  newBalance,
+                  'ORDER',
+                  order.id,
+                  adminId || null,
+                  'ADMIN'
+                ]
+              );
+            }
+          } else {
+            console.log(`[Admin] Refund already recorded in ledger for order ${order.id}. Skipping.`);
           }
         }
 
