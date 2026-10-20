@@ -301,7 +301,7 @@ export const AdminOrders: React.FC = () => {
                 {filteredOrders.map((order) => {
                   const saleUsd = Number(order.customerPriceUsd || order.amount || 0);
                   const chargedAmt = Number(order.chargedAmount || order.amount || 0);
-                  const chargedCurr = order.chargedCurrency || 'USD';
+                  const chargedCurr = order.chargedCurrency || 'SDG';
                   const rate = Number(order.exchangeRateUsed || 0);
                   const cashbackAmt = Number(order.cashbackAmount || 0);
                   const costUsd = Number(order.cost || 0);
@@ -461,7 +461,7 @@ export const AdminOrders: React.FC = () => {
                     <div>
                       <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block' }}>المبلغ المخصوم من العميل</span>
                       <strong style={{ fontSize: '1.05rem', color: '#0284c7' }}>
-                        {formatCurrency(selectedOrder.chargedAmount ?? selectedOrder.amount, (selectedOrder.chargedCurrency as any) || 'USD')}
+                        {formatCurrency(selectedOrder.chargedAmount ?? selectedOrder.amount, (selectedOrder.chargedCurrency as any) || 'SDG')}
                       </strong>
                     </div>
 

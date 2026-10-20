@@ -54,18 +54,18 @@ export const AdminWallet: React.FC = () => {
     return true;
   });
 
-  const creditsUsd = transactions
-    .filter(t => t.amount > 0 && (!t.currency || t.currency === 'USD'))
-    .reduce((acc, t) => acc + Number(t.amount), 0);
   const creditsSdg = transactions
-    .filter(t => t.amount > 0 && t.currency === 'SDG')
+    .filter(t => t.amount > 0 && (!t.currency || t.currency === 'SDG'))
+    .reduce((acc, t) => acc + Number(t.amount), 0);
+  const creditsUsd = transactions
+    .filter(t => t.amount > 0 && t.currency === 'USD')
     .reduce((acc, t) => acc + Number(t.amount), 0);
 
-  const debitsUsd = transactions
-    .filter(t => t.amount < 0 && (!t.currency || t.currency === 'USD'))
-    .reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
   const debitsSdg = transactions
-    .filter(t => t.amount < 0 && t.currency === 'SDG')
+    .filter(t => t.amount < 0 && (!t.currency || t.currency === 'SDG'))
+    .reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
+  const debitsUsd = transactions
+    .filter(t => t.amount < 0 && t.currency === 'USD')
     .reduce((acc, t) => acc + Math.abs(Number(t.amount)), 0);
 
   return (
@@ -200,11 +200,11 @@ export const AdminWallet: React.FC = () => {
                           color: tx.amount > 0 ? '#10b981' : '#dc2626' 
                         }}>
                           {tx.amount > 0 
-                            ? `+${formatCurrency(tx.amount, tx.currency || 'USD')}` 
-                            : formatCurrency(tx.amount, tx.currency || 'USD')}
+                            ? `+${formatCurrency(tx.amount, tx.currency || 'SDG')}` 
+                            : formatCurrency(tx.amount, tx.currency || 'SDG')}
                         </span>
                         <span className="admin-badge admin-badge-neutral" style={{ fontSize: '0.7rem', padding: '1px 5px' }}>
-                          {tx.currency || 'USD'}
+                          {tx.currency || 'SDG'}
                         </span>
                       </div>
                     </td>

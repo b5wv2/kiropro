@@ -38,26 +38,26 @@ interface RateConfig {
 
 export const DepositModal: React.FC = () => {
   const { activeOverlay, closeOverlay } = useOverlay();
-  const { submitTopupRequest, currency } = useWallet();
+  const { submitTopupRequest } = useWallet();
   const isOpen = activeOverlay === 'wallet';
-  const isSdg = currency === 'SDG';
+  const isSdg = true;
 
   // Wizard Steps: 1: Amount, 2: Select Method, 3: Bank Details & Upload, 4: Success/Pending
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Data states
   const [rateConfig, setRateConfig] = useState<RateConfig>({
-    rate: 600,
+    rate: 5000,
     base_currency: 'USD',
     quote_currency: 'SDG',
     min_topup: 0.01,
     min_topup_sdg: 2,
-    max_topup: 500
+    max_topup: 50000000
   });
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
 
   // Form State
-  const defaultAmount = isSdg ? 50000 : 10;
+  const defaultAmount = 50000;
   const [selectedAmount, setSelectedAmount] = useState<number>(defaultAmount);
   const [customAmount, setCustomAmount] = useState<string>(String(defaultAmount));
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
@@ -80,14 +80,14 @@ export const DepositModal: React.FC = () => {
       try {
         const [rateRes, methodsRes] = await Promise.all([
           api.get<RateConfig>('/api/settings/exchange-rate').catch(() => ({
-            rate: 600,
+            rate: 5000,
             base_currency: 'USD',
             quote_currency: 'SDG',
             min_topup: 0.01,
             min_topup_sdg: 2,
-            max_topup: 500
+            max_topup: 50000000
           })),
-          api.get<PaymentMethod[]>(`/api/payment-methods?currency=${currency}`).catch(() => [])
+          api.get<PaymentMethod[]>('/api/payment-methods?currency=SDG').catch(() => [])
         ]);
 
         if (rateRes && rateRes.rate) {
@@ -104,7 +104,7 @@ export const DepositModal: React.FC = () => {
 
     loadData();
     // Reset state on open
-    const resetAmt = isSdg ? 50000 : 10;
+    const resetAmt = 50000;
     setStep(1);
     setSelectedAmount(resetAmt);
     setCustomAmount(String(resetAmt));
@@ -112,16 +112,16 @@ export const DepositModal: React.FC = () => {
     setReceiptPreview(null);
     setUserNote('');
     setErrorMessage(null);
-  }, [isOpen, currency]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const currentRate = rateConfig.rate || 600;
-  const activeAmount = parseFloat(customAmount) || selectedAmount || (isSdg ? 50000 : 10);
-  const calculatedLocalAmount = isSdg ? activeAmount : Math.round(activeAmount * currentRate);
-  const equivalentUsd = isSdg ? activeAmount / currentRate : activeAmount;
+  const currentRate = rateConfig.rate || 5000;
+  const activeAmount = parseFloat(customAmount) || selectedAmount || 50000;
+  const calculatedLocalAmount = activeAmount;
+  const equivalentUsd = activeAmount / currentRate;
 
-  const presets = isSdg ? [25000, 50000, 100000, 250000, 500000] : [5, 10, 20, 50, 100];
+  const presets = [25000, 50000, 100000, 250000, 500000];
 
   const handlePresetSelect = (amt: number) => {
     setSelectedAmount(amt);
@@ -221,9 +221,10 @@ export const DepositModal: React.FC = () => {
     setErrorMessage(null);
 
     const formData = new FormData();
-    formData.append('requested_currency', currency);
+    formData.append('requested_currency', 'SDG');
     formData.append('requested_amount', String(activeAmount));
-    formData.append('amount_usd', String(isSdg ? (activeAmount / currentRate).toFixed(2) : activeAmount));
+    formData.append('amount_sdg', String(activeAmount));
+    formData.append('amount_usd', String((activeAmount / currentRate).toFixed(2)));
     if (selectedMethod?.id) {
       formData.append('payment_method_id', selectedMethod.id);
     }

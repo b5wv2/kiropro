@@ -78,7 +78,7 @@ router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
       SELECT 
         u.id, u.email, u.name, u."createdAt",
         COALESCE(w.balance, 0) as balance,
-        COALESCE(w.currency, u.preferred_currency, 'SDG') as currency,
+        COALESCE(w.currency, 'SDG') as currency,
         (SELECT COUNT(*) FROM "Order" o WHERE o."userId" = u.id) as "ordersCount",
         EXISTS(SELECT 1 FROM "user_bans" b WHERE b.user_id = u.id AND b.status = 'ACTIVE') as "isBanned",
         (SELECT COUNT(*) FROM "user_sessions" s WHERE s.user_id = u.id AND s.status = 'ACTIVE' AND s.expires_at > CURRENT_TIMESTAMP)::int as "activeSessionsCount"
@@ -616,7 +616,7 @@ router.get('/customers/:id', requireAdmin, async (req: AuthRequest, res: Respons
     }
 
     const walletRes = await pool.query('SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1', [id]);
-    const wallet = walletRes.rows[0] || { balance: 0, currency: customer.preferred_currency || 'USD' };
+    const wallet = walletRes.rows[0] || { balance: 0, currency: 'SDG' };
 
     const ordersRes = await pool.query(
       'SELECT * FROM "Order" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 20',
@@ -636,7 +636,7 @@ router.get('/customers/:id', requireAdmin, async (req: AuthRequest, res: Respons
       customer: {
         ...customer,
         balance: wallet.balance,
-        currency: wallet.currency || customer.preferred_currency || 'USD'
+        currency: wallet.currency || 'SDG'
       },
       orders: ordersRes.rows,
       transactions
@@ -654,8 +654,8 @@ router.patch('/customers/:id/currency', requireAdmin, async (req: AuthRequest, r
   const adminId = req.user?.id;
 
   const cleanCur = String(currency || '').trim().toUpperCase();
-  if (cleanCur !== 'USD' && cleanCur !== 'SDG') {
-    return res.status(400).json({ error: 'العملة المحددة غير صحيحة. العملات المدعومة هي USD أو SDG فقط.' });
+  if (cleanCur !== 'SDG') {
+    return res.status(400).json({ error: 'العملة الموحدة لجميع محافظ العملاء هي SDG (الجنيه السوداني) فقط.' });
   }
 
   const client = await pool.connect();

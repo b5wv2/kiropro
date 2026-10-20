@@ -82,17 +82,10 @@ function isValidFileSignature(buffer: Buffer, ext: string): boolean {
 // ==========================================
 
 // GET /api/payment-methods - Get enabled payment methods for customers
-router.get('/payment-methods', async (req: Request, res: Response) => {
+router.get('/payment-methods', async (_req: Request, res: Response) => {
   try {
-    const currency = req.query.currency ? String(req.query.currency).trim().toUpperCase() : null;
-    let query = 'SELECT id, name, type, currency, account_name, account_number, bank_name, instructions, display_order FROM "payment_methods" WHERE enabled = true';
-    const params: any[] = [];
-    if (currency && (currency === 'USD' || currency === 'SDG')) {
-      query += ' AND currency = $1';
-      params.push(currency);
-    }
-    query += ' ORDER BY display_order ASC, created_at ASC';
-    const result = await pool.query(query, params);
+    const query = 'SELECT id, name, type, currency, account_name, account_number, bank_name, instructions, display_order FROM "payment_methods" WHERE enabled = true AND currency = \'SDG\' ORDER BY display_order ASC, created_at ASC';
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (err: any) {
     console.error('Error fetching payment methods:', err);
@@ -171,57 +164,37 @@ router.post('/topups', topupCreateLimiter, requireAuth, (req: Request, res: Resp
     const { amount_usd, requested_amount, requested_currency, payment_method_id, user_note } = req.body;
 
     try {
-      // 1. Fetch user preferred currency
-      const userRes = await pool.query('SELECT preferred_currency FROM "User" WHERE id = $1', [authReq.user.id]);
-      const userDefaultCurrency = userRes.rows[0]?.preferred_currency || 'USD';
-
-      let targetCurrency = requested_currency ? String(requested_currency).trim().toUpperCase() : userDefaultCurrency;
-      if (targetCurrency !== 'USD' && targetCurrency !== 'SDG') {
-        targetCurrency = userDefaultCurrency;
+      // 1. Strict Currency Policy: Store customer wallet top-ups are strictly SDG
+      const reqCurrency = requested_currency ? String(requested_currency).trim().toUpperCase() : 'SDG';
+      if (reqCurrency !== 'SDG') {
+        return res.status(400).json({ error: 'العملة المعتمدة لشحن محفظة المتجر هي الجنيه السوداني (SDG) فقط.' });
       }
+
+      const targetCurrency = 'SDG';
 
       // 2. Fetch Exchange Rate Settings from database
       const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
-      const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000, min_topup: 0.01, max_topup: 500 };
+      const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000, min_topup_sdg: 2, max_topup: 500 };
 
       const exchangeRate = Number(rateConfig.rate) || 5000;
       const maxTopupUsd = Number(rateConfig.max_topup) || 500;
+      const maxTopupSdg = Math.round(maxTopupUsd * exchangeRate);
 
-      let calcAmountUsd = 0;
-      let calcAmountSdg = 0;
-      let finalRequestedAmount = 0;
+      const rawSdg = Number(requested_amount || (Number(amount_usd) * exchangeRate));
+      if (!Number.isFinite(rawSdg) || rawSdg <= 0) {
+        return res.status(400).json({ error: 'يرجى تحديد مبلغ شحن صحيح بالجنيه السوداني.' });
+      }
+      const calcAmountSdg = Math.round(rawSdg * 100) / 100;
+      const finalRequestedAmount = calcAmountSdg;
+      const calcAmountUsd = Math.round((calcAmountSdg / exchangeRate) * 100) / 100;
 
-      if (targetCurrency === 'SDG') {
-        const rawSdg = Number(requested_amount || (Number(amount_usd) * exchangeRate));
-        if (!Number.isFinite(rawSdg) || rawSdg <= 0) {
-          return res.status(400).json({ error: 'يرجى تحديد مبلغ شحن صحيح بالجنيه السوداني.' });
-        }
-        calcAmountSdg = Math.round(rawSdg * 100) / 100;
-        finalRequestedAmount = calcAmountSdg;
-        calcAmountUsd = Math.round((calcAmountSdg / exchangeRate) * 100) / 100;
-
-        // Security check: Must be strictly greater than 1 SDG as per business policy
-        if (calcAmountSdg <= 1) {
-          return res.status(400).json({ error: 'الحد الأدنى للشحن يجب أن يكون أكبر من 1 جنيه سوداني.' });
-        }
-      } else {
-        const rawUsd = Number(requested_amount || amount_usd);
-        if (!Number.isFinite(rawUsd) || rawUsd <= 0) {
-          return res.status(400).json({ error: 'يرجى تحديد مبلغ شحن صحيح بالدولار.' });
-        }
-        calcAmountUsd = Math.round(rawUsd * 100) / 100;
-        finalRequestedAmount = calcAmountUsd;
-        calcAmountSdg = Math.round(calcAmountUsd * exchangeRate * 100) / 100;
-
-        // Security check: Positive USD and greater than 1 SDG equivalent
-        if (calcAmountUsd < 0.01 || calcAmountSdg <= 1) {
-          return res.status(400).json({ error: 'الحد الأدنى للشحن يجب أن يكون أكبر من 1 جنيه سوداني (0.01 دولار).' });
-        }
+      // Security check: Must be strictly greater than 1 SDG as per business policy
+      if (calcAmountSdg <= 1) {
+        return res.status(400).json({ error: 'الحد الأدنى للشحن يجب أن يكون أكبر من 1 جنيه سوداني.' });
       }
 
-      if (calcAmountUsd > maxTopupUsd) {
-        const maxLabel = targetCurrency === 'SDG' ? `${Math.round(maxTopupUsd * exchangeRate).toLocaleString()} ج.س` : `$${maxTopupUsd}`;
-        return res.status(400).json({ error: `أقصى مبلغ للشحن في المرة الواحدة هو ${maxLabel}.` });
+      if (calcAmountSdg > maxTopupSdg) {
+        return res.status(400).json({ error: `أقصى مبلغ للشحن في المرة الواحدة هو ${maxTopupSdg.toLocaleString()} ج.س.` });
       }
 
       const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'].includes(fileExt) ? fileExt : '.jpg';
@@ -587,12 +560,10 @@ router.post('/admin/topups/:id/approve', requireAdmin, async (req: AuthRequest, 
     let walletRes = await client.query('SELECT id, balance, currency FROM "Wallet" WHERE "userId" = $1 FOR UPDATE', [topup.user_id]);
     let wallet = walletRes.rows[0];
     let walletId = wallet?.id;
-    let walletCurrency = (wallet?.currency || topup.requested_currency || 'USD').toUpperCase();
+    const walletCurrency = 'SDG';
     
-    // Credit amount according to user's wallet currency
-    const creditAmount = walletCurrency === 'SDG' 
-      ? Number(topup.amount_sdg || Math.round(Number(topup.amount_usd) * Number(topup.exchange_rate)))
-      : Number(topup.amount_usd);
+    // Credit amount strictly in SDG
+    const creditAmount = Number(topup.amount_sdg || Math.round(Number(topup.amount_usd) * Number(topup.exchange_rate)));
 
     let balanceBefore = 0;
     let balanceAfter = creditAmount;
@@ -607,17 +578,14 @@ router.post('/admin/topups/:id/approve', requireAdmin, async (req: AuthRequest, 
       balanceBefore = Number(wallet.balance);
       balanceAfter = Math.round((balanceBefore + creditAmount) * 100) / 100;
       await client.query(
-        'UPDATE "Wallet" SET balance = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2',
+        'UPDATE "Wallet" SET balance = $1, currency = \'SDG\', "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2',
         [balanceAfter, walletId]
       );
     }
 
     // 5. Create Wallet Transaction with reference to Top-up request and locked rate
     const txId = uuidv4();
-    const currencyLabel = walletCurrency === 'SDG' ? 'ج.س' : '$';
-    const txDescription = walletCurrency === 'SDG'
-      ? `شحن محفظة بنكي معتمد (${creditAmount.toLocaleString()} ج.س - ما يعادل $${topup.amount_usd} USD بسعر صرف ${topup.exchange_rate})`
-      : `شحن محفظة معتمد ($${topup.amount_usd} USD)`;
+    const txDescription = `شحن محفظة بنكي معتمد (${creditAmount.toLocaleString()} ج.س)`;
 
     await client.query(
       `INSERT INTO "WalletTransaction" 

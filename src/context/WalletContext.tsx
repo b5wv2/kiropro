@@ -29,8 +29,9 @@ const WalletContext = createContext<WalletContextType | undefined>(undefined);
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, navigateTo } = useAuth();
   const { openOverlay, closeOverlay } = useOverlay();
+  const isPartner = user?.role === 'PARTNER';
   const [balance, setBalance] = useState<number>(user ? user.balance : 0);
-  const [currency, setCurrency] = useState<string>(user?.currency || user?.preferred_currency || 'SDG');
+  const [currency, setCurrency] = useState<string>(isPartner ? (user?.currency || 'USD') : 'SDG');
   const [exchangeRate, setExchangeRate] = useState<number>(7600);
   const [pendingBalance, setPendingBalance] = useState<number>(0);
   const [topupRequests, setTopupRequests] = useState<any[]>([]);
@@ -76,7 +77,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Synchronize balance with logged in user and fetch pending topups
   useEffect(() => {
     if (user) {
-      const curr = user.currency || user.preferred_currency || 'SDG';
+      const isPartnerUser = user.role === 'PARTNER';
+      const curr = isPartnerUser ? (user.currency || 'USD') : 'SDG';
       setBalance(user.balance);
       setCurrency(curr);
       fetchTopups(curr);
@@ -157,7 +159,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!isAuthenticated) return;
     try {
       const data = await api.get('/api/auth/me');
-      const curr = data.user.currency || data.user.preferred_currency || 'USD';
+      const isPartnerUser = data?.user?.role === 'PARTNER';
+      const curr = isPartnerUser ? (data.user.currency || 'USD') : 'SDG';
       setBalance(data.user.balance);
       setCurrency(curr);
       if (user) {

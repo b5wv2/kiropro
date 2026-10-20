@@ -61,7 +61,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
   const [activeSubCategory, setActiveSubCategory] = useState<string>('ALL');
 
   const getPackagePrice = (pkg: GamePackage): number => {
-    return pkg.priceSdg || (currency === 'SDG' ? Math.round(pkg.price * (exchangeRate || 7600)) : pkg.price);
+    return pkg.priceSdg || Math.round(pkg.price * (exchangeRate || 5000));
   };
 
   useEffect(() => {

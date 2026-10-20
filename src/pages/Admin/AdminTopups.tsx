@@ -84,7 +84,7 @@ export const AdminTopups: React.FC = () => {
   const handleApprove = async () => {
     if (!selectedTopup || isApproving) return;
     
-    if (!window.confirm(`هل أنت متأكد من اعتماد طلب الشحن وإيداع ${formatCurrency(selectedTopup.amount_usd)} في محفظة العميل (${selectedTopup.user_name})؟`)) {
+    if (!window.confirm(`هل أنت متأكد من اعتماد طلب الشحن وإيداع ${Number(selectedTopup.amount_sdg || 0).toLocaleString()} ج.س في محفظة العميل (${selectedTopup.user_name})؟`)) {
       return;
     }
 
@@ -302,8 +302,8 @@ export const AdminTopups: React.FC = () => {
                 <tr>
                   <th style={{ width: '100px' }}>رقم الطلب</th>
                   <th>العميل</th>
-                  <th>مبلغ الشحن ($)</th>
-                  <th>المبلغ المحول (SDG)</th>
+                  <th>المبلغ المودع (SDG)</th>
+                  <th>المكافئ بالدولار ($)</th>
                   <th>طريقة الدفع</th>
                   <th>الإيصال</th>
                   <th>الحالة</th>
@@ -325,12 +325,12 @@ export const AdminTopups: React.FC = () => {
                     </td>
                     <td>
                       <span style={{ fontWeight: 800, color: '#10b981', fontSize: '0.95rem' }}>
-                        {formatCurrency(t.amount_usd)}
+                        {Number(t.amount_sdg).toLocaleString()} ج.س
                       </span>
                     </td>
                     <td>
-                      <span style={{ fontWeight: 700, color: '#0f172a' }}>
-                        {Number(t.amount_sdg).toLocaleString()} ج.س
+                      <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                        ${Number(t.amount_usd || 0).toFixed(2)}
                       </span>
                       <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
                         سعر الصرف: 1$ = {Number(t.exchange_rate).toLocaleString()}
@@ -456,8 +456,11 @@ export const AdminTopups: React.FC = () => {
 
                 <div style={{ textAlign: 'left' }}>
                   <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#10b981' }}>
-                    {formatCurrency(selectedTopup.amount_usd)}
+                    {Number(selectedTopup.amount_sdg).toLocaleString()} ج.س
                   </span>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    (~${Number(selectedTopup.amount_usd || 0).toFixed(2)})
+                  </div>
                 </div>
               </div>
 

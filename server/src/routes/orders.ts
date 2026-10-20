@@ -134,21 +134,15 @@ router.post('/', orderCreateLimiter, requireAuth, async (req: AuthRequest, res: 
       }
     }
 
-    // Section 3: User Preferred Currency & Central Exchange Rate
-    const userRowRes = await pool.query('SELECT "preferred_currency" FROM "User" WHERE id = $1', [user.id]);
-    const userCurrency = (userRowRes.rows[0]?.preferred_currency || 'SDG').toUpperCase();
+    // Section 3: Customer Currency & Central Exchange Rate (Enforce SDG for all customer store orders)
+    const userCurrency = 'SDG';
 
     const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
     const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
     const exchangeRate = Number(rateConfig.rate) || 5000;
 
-    // Unit price in user's currency
-    let unitPriceInUserCurrency = authoritativeCustomerPriceUsd;
-    if (userCurrency === 'SDG') {
-      unitPriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * exchangeRate);
-    } else {
-      unitPriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * 100) / 100;
-    }
+    // Unit price in user's currency (strictly SDG)
+    const unitPriceInUserCurrency = Math.round(authoritativeCustomerPriceUsd * exchangeRate);
 
     // Base price for entire quantity in user's currency
     let basePriceInUserCurrency = unitPriceInUserCurrency * quantity;

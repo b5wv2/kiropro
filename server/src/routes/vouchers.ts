@@ -327,12 +327,10 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
       console.warn('[Vouchers API] Warning on single-product price check:', checkErr.message);
     }
 
-    // 4. User Wallet & Currency Calculation
+    // 4. User Wallet & Currency Calculation (Enforce SDG for customer vouchers)
     const exchangeRate = await getExchangeRate();
-    const userCurrency = ((user as any).currency || 'SDG').toUpperCase();
-    const unitPriceInUserCurrency = userCurrency === 'SDG'
-      ? Math.round(customerPriceUsd * exchangeRate)
-      : Math.round(customerPriceUsd * 100) / 100;
+    const userCurrency = 'SDG';
+    const unitPriceInUserCurrency = Math.round(customerPriceUsd * exchangeRate);
 
     const totalChargeAmount = unitPriceInUserCurrency * quantity;
 

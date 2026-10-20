@@ -275,8 +275,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateTab })
                         color: tx.amount > 0 ? '#10b981' : '#dc2626' 
                       }}>
                         {tx.amount > 0 
-                          ? `+${formatCurrency(tx.amount, tx.currency || 'USD')}` 
-                          : formatCurrency(tx.amount, tx.currency || 'USD')}
+                          ? `+${formatCurrency(tx.amount, tx.currency || 'SDG')}` 
+                          : formatCurrency(tx.amount, tx.currency || 'SDG')}
                       </td>
                       <td style={{ fontSize: '0.8rem', color: '#64748b' }}>
                         {tx.description || '-'}

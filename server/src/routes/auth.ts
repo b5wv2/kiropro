@@ -375,7 +375,7 @@ router.post('/verify-email', otpVerifyLimiter, async (req: Request, res: Respons
     // Fetch user wallet
     const walletRes = await client.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
+    const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
 
     await client.query('COMMIT');
 
@@ -386,7 +386,7 @@ router.post('/verify-email', otpVerifyLimiter, async (req: Request, res: Respons
     res.json({
       success: true,
       message: 'تم تأكيد بريدك الإلكتروني بنجاح!',
-      user: { ...user, balance, currency, preferred_currency: user.preferred_currency || currency },
+      user: { ...user, balance, currency, preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG' },
       token
     });
   } catch (err: any) {
@@ -629,7 +629,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
+    const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
 
     // 3. Create server-side session
     const sessionId = await createSession({
@@ -665,7 +665,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       role: user.role, 
       balance,
       currency,
-      preferred_currency: user.preferred_currency || currency,
+      preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG',
       emailVerified: !!user.emailVerified,
       is_super_admin: Boolean(user.is_super_admin),
       permissions: Array.isArray(user.permissions) ? user.permissions : []
@@ -840,7 +840,7 @@ router.post('/quick-login', quickLoginLimiter, async (req: Request, res: Respons
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
+    const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
 
     // Issue refreshed session & token
     const sessionId = await createSession({
@@ -874,7 +874,7 @@ router.post('/quick-login', quickLoginLimiter, async (req: Request, res: Respons
       role: user.role,
       balance,
       currency,
-      preferred_currency: user.preferred_currency || currency,
+      preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG',
       emailVerified: !!user.emailVerified,
       is_super_admin: Boolean(user.is_super_admin),
       permissions: Array.isArray(user.permissions) ? user.permissions : []
@@ -924,7 +924,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
     const balance = walletRes.rows[0]?.balance || 0;
-    const currency = walletRes.rows[0]?.currency || user.preferred_currency || 'SDG';
+    const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
     
     res.json({ 
       user: { 
@@ -933,7 +933,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
         permissions: Array.isArray(user.permissions) ? user.permissions : [],
         balance, 
         currency, 
-        preferred_currency: user.preferred_currency || currency 
+        preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG' 
       } 
     });
   } catch (err) {

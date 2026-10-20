@@ -279,7 +279,7 @@ const handleRedemption = async (req: AuthRequest, res: Response) => {
           "chargedCurrency", "exchangeRateUsed", "cashbackAmount", "completedAt",
           quantity, "unitPrice", "unitPriceUsd"
         ) 
-        VALUES ($1, $2, 'kiropro-card', $3, 'بطاقة كيرو برو الافتراضية ($1.00)', $4, 0.0, 2.00, 2.00, $5, 'COMPLETED', 'INTERNAL', 'VIRTUAL_CARD', 2.00, 0.0, 2.00, 0.0, 'USD', 1.0, 0.0, CURRENT_TIMESTAMP, 1, 2.00, 2.00)`,
+        VALUES ($1, $2, 'kiropro-card', $3, 'بطاقة كيرو برو الافتراضية ($1.00)', $4, 0.0, 2.00, 2.00, $5, 'COMPLETED', 'INTERNAL', 'VIRTUAL_CARD', 2.00, 0.0, 2.00, 0.0, 'SDG', 1.0, 0.0, CURRENT_TIMESTAMP, 1, 2.00, 2.00)`,
         [
           orderId,
           user.id,

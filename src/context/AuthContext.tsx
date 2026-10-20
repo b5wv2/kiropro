@@ -39,10 +39,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CACHED_USER_KEY = 'kiro_cached_user';
 const CACHED_MAINT_KEY = 'kiro_maintenance_mode';
 
+const sanitizeUser = (rawUser: any): User | null => {
+  if (!rawUser) return null;
+  if (rawUser.role !== 'PARTNER') {
+    return {
+      ...rawUser,
+      currency: 'SDG',
+      preferred_currency: 'SDG'
+    };
+  }
+  return rawUser;
+};
+
 const getInitialCachedUser = (): User | null => {
   try {
     const raw = localStorage.getItem(CACHED_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const sanitized = sanitizeUser(parsed);
+    if (sanitized && (parsed.currency !== 'SDG' || parsed.preferred_currency !== 'SDG')) {
+      localStorage.setItem(CACHED_USER_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch {
     return null;
   }
@@ -59,6 +77,18 @@ const getInitialMaintenanceMode = (): boolean => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Synchronously initialize from cache so page renders immediately with 0ms delay on refresh
   const [user, setUser] = useState<User | null>(getInitialCachedUser);
+
+  const setPersistedUser = (newUser: User | null) => {
+    const sanitized = sanitizeUser(newUser);
+    setUser(sanitized);
+    try {
+      if (sanitized) {
+        localStorage.setItem(CACHED_USER_KEY, JSON.stringify(sanitized));
+      } else {
+        localStorage.removeItem(CACHED_USER_KEY);
+      }
+    } catch {}
+  };
   const [isLoading, setIsLoading] = useState(false); // Only true during active form operations (login/register)
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(getInitialMaintenanceMode);
   const [contactChannels, setContactChannels] = useState<ContactChannel[]>([]);
@@ -151,10 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (authData?.user) {
-          setUser(authData.user);
-          try {
-            localStorage.setItem(CACHED_USER_KEY, JSON.stringify(authData.user));
-          } catch {}
+          setPersistedUser(authData.user);
 
           if (authData.user?.role === 'ADMIN' && window.location.pathname.includes('admin')) {
             setCurrentView('admin');
@@ -182,17 +209,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentView('marketplace');
           }
         } else {
-          setUser(null);
-          try {
-            localStorage.removeItem(CACHED_USER_KEY);
-          } catch {}
+          setPersistedUser(null);
         }
       } catch {
         clearToken();
-        setUser(null);
-        try {
-          localStorage.removeItem(CACHED_USER_KEY);
-        } catch {}
+        setPersistedUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -265,10 +286,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         try {
           const meData = await api.get('/api/auth/me');
-          setUser(meData.user);
-          try {
-            localStorage.setItem(CACHED_USER_KEY, JSON.stringify(meData.user));
-          } catch {}
+          setPersistedUser(meData.user);
 
           if (meData.user?.role === 'ADMIN') {
             setCurrentView('admin');
@@ -276,10 +294,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentView('home');
           }
         } catch {
-          setUser(data.user);
-          try {
-            localStorage.setItem(CACHED_USER_KEY, JSON.stringify(data.user));
-          } catch {}
+          setPersistedUser(data.user);
           if (data.user?.role === 'ADMIN') {
             setCurrentView('admin');
           } else {
@@ -366,10 +381,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const resData = await api.post('/api/auth/verify-email', { email, otp });
       setToken();
-      setUser(resData.user);
-      try {
-        localStorage.setItem(CACHED_USER_KEY, JSON.stringify(resData.user));
-      } catch {}
+      setPersistedUser(resData.user);
       navigateTo('home');
       return {
         success: true,
@@ -422,10 +434,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken();
 
       if (data.user) {
-        setUser(data.user);
-        try {
-          localStorage.setItem(CACHED_USER_KEY, JSON.stringify(data.user));
-        } catch {}
+        setPersistedUser(data.user);
         if (data.user.role === 'ADMIN') {
           setCurrentView('admin');
         } else {
@@ -468,10 +477,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     clearToken();
-    try {
-      localStorage.removeItem(CACHED_USER_KEY);
-    } catch {}
-    setUser(null);
+    setPersistedUser(null);
     setIsAccountMenuOpen(false);
     setCurrentView('home');
     window.scrollTo({ top: 0, behavior: 'smooth' });

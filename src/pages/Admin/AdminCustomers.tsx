@@ -253,10 +253,10 @@ export const AdminCustomers: React.FC = () => {
                           fontWeight: 800, 
                           color: Number(c.balance) > 0 ? '#10b981' : '#64748b' 
                         }}>
-                          {formatCurrency(Number(c.balance), c.currency || 'USD')}
+                          {formatCurrency(Number(c.balance), c.currency || 'SDG')}
                         </span>
                         <span className="admin-badge admin-badge-neutral" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
-                          {c.currency || 'USD'}
+                          {c.currency || 'SDG'}
                         </span>
                       </div>
                     </td>
@@ -401,11 +401,11 @@ export const AdminCustomers: React.FC = () => {
                       <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
                         <span>الرصيد الحالي</span>
                         <span className="admin-badge admin-badge-primary" style={{ fontSize: '0.7rem' }}>
-                          {customerDetails.customer.currency || 'USD'}
+                          {customerDetails.customer.currency || 'SDG'}
                         </span>
                       </div>
                       <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#f59e0b' }}>
-                        {formatCurrency(customerDetails.customer.balance, customerDetails.customer.currency || 'USD')}
+                        {formatCurrency(customerDetails.customer.balance, customerDetails.customer.currency || 'SDG')}
                       </div>
                       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                         <button
@@ -462,7 +462,7 @@ export const AdminCustomers: React.FC = () => {
                                 <td>{o.packageName}</td>
                                 <td>{o.playerId}</td>
                                 <td style={{ fontWeight: 700 }}>
-                                  {formatCurrency(o.amount, o.currency || customerDetails.customer.currency || 'USD')}
+                                  {formatCurrency(o.amount, o.currency || customerDetails.customer.currency || 'SDG')}
                                 </td>
                                 <td><StatusBadge status={o.status} /></td>
                                 <td style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -505,8 +505,8 @@ export const AdminCustomers: React.FC = () => {
                                   color: t.amount > 0 ? '#10b981' : '#dc2626' 
                                 }}>
                                   {t.amount > 0 
-                                    ? `+${formatCurrency(t.amount, t.currency || customerDetails.customer.currency || 'USD')}` 
-                                    : formatCurrency(t.amount, t.currency || customerDetails.customer.currency || 'USD')}
+                                    ? `+${formatCurrency(t.amount, t.currency || customerDetails.customer.currency || 'SDG')}` 
+                                    : formatCurrency(t.amount, t.currency || customerDetails.customer.currency || 'SDG')}
                                 </td>
                                 <td style={{ fontSize: '0.825rem', color: '#64748b' }}>{t.description || '-'}</td>
                                 <td style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -761,7 +761,7 @@ export const AdminCustomers: React.FC = () => {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f1f5f9' }}>
                       <span style={{ color: '#64748b' }}>الرصيد الحالي:</span>
-                      <strong>{formatCurrency(targetCustomer?.balance || 0, targetCustomer?.currency || 'USD')}</strong>
+                      <strong>{formatCurrency(targetCustomer?.balance || 0, targetCustomer?.currency || 'SDG')}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
                       <span style={{ fontWeight: 700, color: '#0f172a' }}>
@@ -779,7 +779,7 @@ export const AdminCustomers: React.FC = () => {
                       <strong style={{ fontSize: '1.15rem', color: '#0284c7' }}>
                         {formatCurrency(
                           (targetCustomer?.balance || 0) + (walletModalType === 'CREDIT' ? Number(amount) : -Number(amount)),
-                          targetCustomer?.currency || 'USD'
+                          targetCustomer?.currency || 'SDG'
                         )}
                       </strong>
                     </div>

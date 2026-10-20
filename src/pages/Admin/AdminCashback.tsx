@@ -409,7 +409,7 @@ export const AdminCashback: React.FC = () => {
                       </td>
 
                       <td style={{ fontWeight: 900, color: '#15803d', fontFamily: 'var(--font-latin)', direction: 'ltr' }}>
-                        +{formatCurrency(Number(red.amount_credited), red.currency || 'USD')}
+                        +{formatCurrency(Number(red.amount_credited), red.currency || 'SDG')}
                       </td>
 
                       <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#64748b' }}>
