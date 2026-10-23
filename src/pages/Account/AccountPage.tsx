@@ -40,7 +40,8 @@ export const AccountPage: React.FC = () => {
     pendingBalance, 
     formattedPendingBalance, 
     openDepositModal, 
-    topupRequests 
+    topupRequests,
+    fetchTopups 
   } = useWallet();
 
   const [activeAccountTab, setActiveAccountTab] = useState<'orders' | 'virtual-numbers' | 'topups' | 'transactions' | 'cashback' | 'reviews'>('orders');
@@ -255,6 +256,7 @@ export const AccountPage: React.FC = () => {
     loadCashbackSummary();
     loadUserReviews();
     loadVirtualOrders();
+    fetchTopups();
   }, []);
 
   useEffect(() => {
@@ -268,6 +270,8 @@ export const AccountPage: React.FC = () => {
       stopPolling();
       if (activeAccountTab === 'virtual-numbers') {
         loadVirtualOrders();
+      } else if (activeAccountTab === 'topups') {
+        fetchTopups();
       } else if (activeAccountTab === 'transactions') {
         loadTransactions();
       } else if (activeAccountTab === 'cashback') {
@@ -276,7 +280,7 @@ export const AccountPage: React.FC = () => {
         loadUserReviews();
       }
     }
-  }, [activeAccountTab, pollOrders, stopPolling]);
+  }, [activeAccountTab, pollOrders, stopPolling, fetchTopups]);
 
   const handleCopyKey = (orderId: string, keyText: string) => {
     navigator.clipboard.writeText(keyText);

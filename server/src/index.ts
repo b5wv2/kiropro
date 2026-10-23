@@ -392,6 +392,7 @@ app.get(g2bulkWebhookPaths, (_req: Request, res: Response) => {
 
 // Public platform settings & maintenance check endpoints
 app.get('/api/settings/public', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
   try {
     const [settings, contactChannels] = await Promise.all([
       getGeneralSettings(),
@@ -419,6 +420,7 @@ app.get('/api/settings/public', async (_req: Request, res: Response) => {
 });
 
 app.get('/api/contact-channels', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
   try {
     const all = await getContactChannels();
     const enabled = all.filter(c => c.enabled);

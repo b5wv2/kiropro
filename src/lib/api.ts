@@ -6,6 +6,22 @@ export const BASE_URL = (
 
 export const TOKEN_STORAGE_KEY = 'token';
 
+// In-flight GET promise deduplicator & lightweight memory cache
+const inFlightGetRequests = new Map<string, Promise<any>>();
+const apiMemoryCache = new Map<string, { data: any; expiry: number }>();
+
+export function invalidateApiCache(pattern?: string): void {
+  if (!pattern) {
+    apiMemoryCache.clear();
+    return;
+  }
+  for (const key of apiMemoryCache.keys()) {
+    if (key.includes(pattern)) {
+      apiMemoryCache.delete(key);
+    }
+  }
+}
+
 /**
  * Access tokens are managed exclusively via HttpOnly Secure Cookies.
  * Tokens are never persisted to localStorage or sessionStorage.
@@ -20,6 +36,7 @@ export function setToken(_token?: string): void {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   } catch {}
+  invalidateApiCache('/api/auth/me');
 }
 
 export function clearToken(): void {
@@ -27,12 +44,25 @@ export function clearToken(): void {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   } catch {}
+  invalidateApiCache('/api/auth/me');
 }
 
 export interface ApiRequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
   _retryCount?: number;
+  cacheTtlMs?: number;
+  skipCache?: boolean;
 }
+
+const AUTO_CACHE_GET_ENDPOINTS: Record<string, number> = {
+  '/api/settings/public': 30000,
+  '/api/wallet/rate': 30000,
+  '/api/auth/me': 15000,
+  '/api/crypto/usdt/config': 60000,
+  '/api/referral/config': 60000,
+  '/api/reviews/featured': 60000,
+  '/api/contact-channels': 30000,
+};
 
 export class ApiError extends Error {
   status: number;
@@ -47,7 +77,8 @@ export class ApiError extends Error {
 }
 
 async function request<T = any>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
-  const { params, headers = {}, _retryCount = 0, ...customConfig } = options;
+  const { params, headers = {}, _retryCount = 0, cacheTtlMs, skipCache, ...customConfig } = options;
+  const isGet = !customConfig.method || customConfig.method.toUpperCase() === 'GET';
 
   let url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
@@ -64,40 +95,54 @@ async function request<T = any>(endpoint: string, options: ApiRequestOptions = {
     }
   }
 
-  const token = getToken();
-  const reqHeaders: Record<string, string> = {
-    ...(headers as Record<string, string>),
-  };
-
-  if (!(customConfig.body instanceof FormData)) {
-    reqHeaders['Content-Type'] = 'application/json';
-  }
-
-  if (token) {
-    reqHeaders['Authorization'] = `Bearer ${token}`;
-  }
-
-  try {
-    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-      reqHeaders['x-client-timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // 1. Check in-memory cache for GET requests
+  if (isGet && !skipCache) {
+    const cached = apiMemoryCache.get(url);
+    if (cached && Date.now() < cached.expiry) {
+      return cached.data as T;
     }
-    if (typeof navigator !== 'undefined' && navigator.language) {
-      reqHeaders['x-client-language'] = navigator.language;
+
+    // 2. Deduplicate concurrent in-flight GET requests
+    if (inFlightGetRequests.has(url)) {
+      return inFlightGetRequests.get(url) as Promise<T>;
     }
-  } catch {}
-
-  const config: RequestInit = {
-    ...customConfig,
-    headers: reqHeaders,
-    credentials: 'include',
-  };
-
-  let response: Response;
-  try {
-    response = await fetch(url, config);
-  } catch (networkError: any) {
-    throw new ApiError(0, networkError?.message || 'Network connection error');
   }
+
+  const executeRequest = async (): Promise<T> => {
+    const token = getToken();
+    const reqHeaders: Record<string, string> = {
+      ...(headers as Record<string, string>),
+    };
+
+    if (!(customConfig.body instanceof FormData)) {
+      reqHeaders['Content-Type'] = 'application/json';
+    }
+
+    if (token) {
+      reqHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
+    try {
+      if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+        reqHeaders['x-client-timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      }
+      if (typeof navigator !== 'undefined' && navigator.language) {
+        reqHeaders['x-client-language'] = navigator.language;
+      }
+    } catch {}
+
+    const config: RequestInit = {
+      ...customConfig,
+      headers: reqHeaders,
+      credentials: 'include',
+    };
+
+    let response: Response;
+    try {
+      response = await fetch(url, config);
+    } catch (networkError: any) {
+      throw new ApiError(0, networkError?.message || 'Network connection error');
+    }
 
   let data: any = null;
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
@@ -162,6 +207,28 @@ async function request<T = any>(endpoint: string, options: ApiRequestOptions = {
   }
 
   return data as T;
+};
+
+  const defaultTtl = Object.entries(AUTO_CACHE_GET_ENDPOINTS).find(([pattern]) => endpoint.includes(pattern))?.[1] || 0;
+  const effectiveTtl = cacheTtlMs !== undefined ? cacheTtlMs : defaultTtl;
+
+  if (isGet) {
+    const promise = executeRequest()
+      .then((result) => {
+        if (!skipCache && effectiveTtl > 0) {
+          apiMemoryCache.set(url, { data: result, expiry: Date.now() + effectiveTtl });
+        }
+        return result;
+      })
+      .finally(() => {
+        inFlightGetRequests.delete(url);
+      });
+
+    inFlightGetRequests.set(url, promise);
+    return promise;
+  }
+
+  return executeRequest();
 }
 
 export const api = {

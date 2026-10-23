@@ -74,14 +74,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Synchronize balance with logged in user and fetch pending topups
+  // Synchronize balance with logged in user
   useEffect(() => {
     if (user) {
       const isPartnerUser = user.role === 'PARTNER';
       const curr = isPartnerUser ? (user.currency || 'USD') : 'SDG';
       setBalance(user.balance);
       setCurrency(curr);
-      fetchTopups(curr);
     } else {
       setBalance(0);
       setCurrency('SDG');

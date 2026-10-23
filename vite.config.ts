@@ -34,6 +34,19 @@ export default defineConfig({
       }
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-icons': ['lucide-react'],
+          'vendor-ethers': ['ethers'],
+          'vendor-motion': ['framer-motion']
+        }
+      }
+    },
+    chunkSizeWarningLimit: 800
+  },
   preview: {
     port: process.env.PORT ? parseInt(process.env.PORT, 10) : 5173,
     host: '0.0.0.0',

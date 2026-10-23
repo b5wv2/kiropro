@@ -111,11 +111,19 @@ export function formatBanResponse(
   };
 }
 
+let lastExpireSweepTime = 0;
+
 /**
  * Auto-expire temporary bans that have exceeded expires_at.
- * Runs inline before checking to ensure 100% precision.
+ * Throttled to at most once per 60 seconds to avoid repeated DB write transactions.
  */
 export async function expireOverdueBans(): Promise<number> {
+  const now = Date.now();
+  if (now - lastExpireSweepTime < 60000) {
+    return 0;
+  }
+  lastExpireSweepTime = now;
+
   try {
     const res = await pool.query(`
       UPDATE "user_bans"

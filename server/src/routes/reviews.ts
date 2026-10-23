@@ -334,12 +334,23 @@ router.get('/product/:id', async (req: Request, res: Response) => {
   }
 });
 
+// In-memory cache for featured reviews (60 seconds TTL)
+let cachedFeaturedReviews: { data: any; expiry: number } | null = null;
+
+export function invalidateFeaturedReviewsCache(): void {
+  cachedFeaturedReviews = null;
+}
+
 // =========================================================================
 // 5. GET /api/reviews/featured - Top Approved Reviews for Store Homepage
 // =========================================================================
 router.get('/featured', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 6), 12);
+
+    if (cachedFeaturedReviews && Date.now() < cachedFeaturedReviews.expiry && cachedFeaturedReviews.data.limit === limit) {
+      return res.json(cachedFeaturedReviews.data.payload);
+    }
 
     const summaryRes = await pool.query(
       `SELECT 
@@ -368,11 +379,18 @@ router.get('/featured', async (req: Request, res: Response) => {
     const total = parseInt(summaryRes.rows[0]?.total_reviews || '0', 10);
     const avg = parseFloat(summaryRes.rows[0]?.avg_rating || '5.0');
 
-    res.json({
+    const payload = {
       total,
       averageRating: total > 0 ? avg : 5.0,
       reviews: reviewsRes.rows
-    });
+    };
+
+    cachedFeaturedReviews = {
+      data: { limit, payload },
+      expiry: Date.now() + 60000
+    };
+
+    res.json(payload);
   } catch (err: any) {
     console.error('Error fetching featured reviews:', err);
     res.status(500).json({ error: 'تعذر جلب التقييمات المميزة.' });

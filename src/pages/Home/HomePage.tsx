@@ -1,427 +1,217 @@
-import React, { useState, useEffect } from 'react';
-import { Hero } from '../../components/Hero/Hero';
-import { GameCard } from '../../components/GameCard/GameCard';
-import { UsdtCard, UsdtCardConfig } from '../../components/GameCard/UsdtCard';
-import { VirtualNumberCard } from '../../components/GameCard/VirtualNumberCard';
-import { DealsBanner } from '../../components/Deals/DealsBanner';
-import { WheelPromoBanner } from '../../components/Deals/WheelPromoBanner';
-import { ReferralPromoBanner } from '../../components/Referral/ReferralPromoBanner';
+import React from 'react';
+import styles from './HomePage.module.css';
+import { useAuth } from '../../context/AuthContext';
+import { ChevronLeft } from 'lucide-react';
+import {
+  VouchersIllustration,
+  GameTopUpIllustration,
+  PaymentCardsIllustration,
+  SocialMediaIllustration,
+  VirtualNumbersIllustration,
+  SubscriptionsIllustration
+} from '../../components/Categories/CategoryIllustrations';
 import { HowItWorks } from '../../components/HowItWorks/HowItWorks';
 import { WhyUs } from '../../components/Features/WhyUs';
 import { HomeReviewsSection } from '../../components/Reviews/HomeReviewsSection';
-import { QuickTopUpModal } from '../../components/Modal/QuickTopUpModal';
-import { Game } from '../../types';
-import { fetchGames } from '../../services/api';
-import { api } from '../../lib/api';
-import { useAuth } from '../../context/AuthContext';
 
-const CATEGORIES = [
-  { id: 'all', name: 'الكل ✨' },
-  { id: 'cards', name: '💳 البطاقات وقسائم الهدايا' },
-  { id: 'games', name: '🎮 الألعاب الإلكترونية' },
-  { id: 'apps', name: '📱 تطبيقات البث والدردشة' },
-  { id: 'numbers', name: '📱 الأرقام الافتراضية' },
-  { id: 'digital', name: '⭐ نجوم تيليجرام' },
-  { id: 'subscriptions', name: '👑 الاشتراكات الرقمية' },
-  { id: 'transfers', name: '⚡ تحويلات USDT' }
+export interface CategoryCardItem {
+  id: string;
+  name: string;
+  path: string;
+  illustration: React.ReactNode;
+}
+
+const CATEGORY_ITEMS: CategoryCardItem[] = [
+  {
+    id: 'vouchers',
+    name: 'قسائم الشحن',
+    path: '/category/vouchers',
+    illustration: <VouchersIllustration />
+  },
+  {
+    id: 'game-topup',
+    name: 'شحن الألعاب عبر ID',
+    path: '/category/game-topup',
+    illustration: <GameTopUpIllustration />
+  },
+  {
+    id: 'social-media',
+    name: 'منصات التواصل الاجتماعي',
+    path: '/category/social-media',
+    illustration: <SocialMediaIllustration />
+  },
+  {
+    id: 'payment-cards',
+    name: 'بطاقات الدفع',
+    path: '/category/payment-cards',
+    illustration: <PaymentCardsIllustration />
+  },
+  {
+    id: 'virtual-numbers',
+    name: 'الأرقام الافتراضية',
+    path: '/virtual-numbers',
+    illustration: <VirtualNumbersIllustration />
+  },
+  {
+    id: 'subscriptions',
+    name: 'الاشتراكات الرقمية',
+    path: '/category/subscriptions',
+    illustration: <SubscriptionsIllustration />
+  }
 ];
 
 export const HomePage: React.FC = () => {
   const { navigateTo } = useAuth();
-  const [games, setGames] = useState<Game[]>([]);
-  const [usdtConfig, setUsdtConfig] = useState<UsdtCardConfig | null>(null);
-  const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedGameForModal, setSelectedGameForModal] = useState<Game | null>(null);
 
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    
-    // Fetch games catalog
-    fetchGames()
-      .then(data => {
-        if (isMounted) {
-          if (Array.isArray(data)) {
-            setGames(data);
-            setError(null);
-          } else {
-            setGames([]);
-            setError('تنسيق استجابة غير صالح من الخادم.');
-          }
-          setLoading(false);
-        }
-      })
-      .catch(err => {
-        if (isMounted) {
-          console.error('[HomePage] Failed to fetch games:', err);
-          setGames([]);
-          setError(err?.message || 'تعذر تحميل المنتجات');
-          setLoading(false);
-        }
-      });
-
-    // Fetch USDT public config (for card appearance, image, and dynamic starting price)
-    api.get('/api/crypto/usdt/config')
-      .then((cfg: UsdtCardConfig) => {
-        if (isMounted && cfg) {
-          setUsdtConfig(cfg);
-        }
-      })
-      .catch((err) => {
-        console.warn('[HomePage] Failed to fetch USDT config for card:', err);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const safeGames = Array.isArray(games) ? games : [];
-  const featuredGame = safeGames[0] || null;
-
-  // Filter games based on activeCategory and search
-  const filteredGames = safeGames.filter(game => {
-    let matchesCat = activeCategory === 'all';
-    if (activeCategory === 'transfers' || activeCategory === 'numbers') {
-      matchesCat = false;
-    } else if (activeCategory === 'cards') {
-      matchesCat = game.category === 'cards' || game.id === 'kiropro-card' || game.id.includes('card') || game.id.includes('voucher');
-    } else if (activeCategory === 'games') {
-      // Strictly real gaming products! Exclude Likee, Telegram, and cards/vouchers
-      matchesCat = (game.category === 'games' || game.category === 'mobile') &&
-        !game.id.includes('likee') &&
-        !game.id.includes('telegram') &&
-        !game.id.includes('card') &&
-        !game.id.includes('voucher');
-    } else if (activeCategory === 'apps') {
-      matchesCat = game.category === 'apps' || game.id.includes('likee');
-    } else if (activeCategory === 'digital') {
-      matchesCat = game.category === 'digital' || game.id.includes('stars');
-    } else if (activeCategory === 'subscriptions') {
-      matchesCat = game.category === 'subscriptions' || game.id.includes('premium');
-    } else {
-      matchesCat = game.category === activeCategory;
+  const handleNavigate = (path: string) => {
+    if (path === '/virtual-numbers') {
+      navigateTo('virtual-numbers');
+    } else if (path === '/usdt') {
+      navigateTo('usdt');
+    } else if (path === '/wheel') {
+      navigateTo('wheel');
     }
 
-    const matchesSearch = searchQuery === '' ||
-      game.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      game.type.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
-  // Separate games vs digital/apps for the 'all' view
-  const onlyGamesList = safeGames.filter(g => 
-    (g.category === 'games' || g.category === 'mobile') &&
-    !g.id.includes('likee') &&
-    !g.id.includes('telegram') &&
-    !g.id.includes('card') &&
-    !g.id.includes('voucher')
-  );
-
-  const onlyDigitalAndAppsList = safeGames.filter(g => 
-    g.category === 'apps' || 
-    g.category === 'digital' || 
-    g.category === 'subscriptions' ||
-    g.category === 'cards' ||
-    g.id === 'kiropro-card' ||
-    g.id.includes('likee') ||
-    g.id.includes('telegram') ||
-    g.id.includes('card') ||
-    g.id.includes('voucher')
-  );
-
-  // Determine whether USDT card should be displayed based on filters
-  const matchesUsdtCategory = activeCategory === 'all' || activeCategory === 'transfers';
-  const matchesUsdtSearch = searchQuery === '' ||
-    'usdt'.includes(searchQuery.toLowerCase()) ||
-    'تحويل'.includes(searchQuery) ||
-    'كريبتو'.includes(searchQuery) ||
-    'دولار'.includes(searchQuery) ||
-    'polygon'.includes(searchQuery.toLowerCase());
-
-  const showUsdtCard = matchesUsdtCategory && matchesUsdtSearch;
-
-  // Determine whether Virtual Numbers card should be displayed based on filters
-  const matchesNumbersCategory = activeCategory === 'all' || activeCategory === 'numbers' || activeCategory === 'apps';
-  const matchesNumbersSearch = searchQuery === '' ||
-    'أرقام'.includes(searchQuery) ||
-    'رقم'.includes(searchQuery) ||
-    'افتراضية'.includes(searchQuery) ||
-    'virtual'.includes(searchQuery.toLowerCase()) ||
-    'whatsapp'.includes(searchQuery.toLowerCase()) ||
-    'واتساب'.includes(searchQuery) ||
-    'otp'.includes(searchQuery.toLowerCase());
-
-  const showNumbersCard = matchesNumbersCategory && matchesNumbersSearch;
-  const isDefaultOverview = activeCategory === 'all' && searchQuery.trim() === '';
+  const handleKeyDown = (e: React.KeyboardEvent, path: string) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleNavigate(path);
+    }
+  };
 
   return (
-    <>
-      {/* Hero Section */}
-      {featuredGame && (
-        <Hero
-          featuredGame={featuredGame}
-          onQuickTopUp={(game) => setSelectedGameForModal(game)}
-        />
-      )}
+    <div className={styles.homePage}>
+      {/* 1. Compact, Confident Hero Section */}
+      <section className={styles.heroSection}>
+        <div className={styles.heroContent}>
+          <div className={styles.titleWrapper}>
+            {/* Left Sparkle Accent */}
+            <svg
+              className={styles.sparkleLeft}
+              width="28"
+              height="28"
+              viewBox="0 0 28 28"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M5 14L1 10M9 7L5 1M14 6L14 1" stroke="#FFE600" strokeWidth="3" strokeLinecap="round" />
+            </svg>
 
-      {/* Popular Games Section */}
-      <section className="section" id="games" style={{ background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div className="container">
-          <div className="section-header-row">
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 8, flexWrap: 'wrap' }}>
-                <span className="badge-tag badge-brand">🎮 الألعاب والخدمات الرقمية</span>
-                <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.12)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '3px 10px', borderRadius: '12px', fontWeight: 800 }}>
-                  ⚡ تسليم فوري وتلقائي
-                </span>
-                <span style={{ fontSize: '0.75rem', background: 'rgba(59, 130, 246, 0.12)', color: '#2563eb', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '3px 10px', borderRadius: '12px', fontWeight: 800 }}>
-                  🔒 أسعار آمنة بالجنيه (SDG)
-                </span>
-              </div>
-              <h2 className="heading-section">المنتجات الأكثر طلباً</h2>
-              <p className="subheading">حدد لعبتك أو خدمتك المفضلة، واشحن حسابك فوراً برصيد محفظتك مع تنفيذ تلقائي بدون انتظار.</p>
-            </div>
+            <h1 className={styles.heroTitle}>
+              <span>كل خدماتك الرقمية</span>
+              <span className={styles.heroHighlight}>في مكان واحد</span>
+            </h1>
 
-            {/* Live Search & Filter Tabs */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 440 }}>
-              <div className="search-input-wrapper" style={{ width: '100%' }}>
-                <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
-                <input
-                  type="text"
-                  className="search-input"
-                  placeholder="ابحث عن لعبة أو خدمة..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-
-              <div className="filter-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {CATEGORIES.map(cat => (
-                  <button
-                    key={cat.id}
-                    className={`tab-btn ${activeCategory === cat.id ? 'active' : ''}`}
-                    onClick={() => setActiveCategory(cat.id)}
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Right Sparkle Accent */}
+            <svg
+              className={styles.sparkleRight}
+              width="28"
+              height="28"
+              viewBox="0 0 28 28"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M23 14L27 10M19 7L23 1M14 6L14 1" stroke="#FFE600" strokeWidth="3" strokeLinecap="round" />
+            </svg>
           </div>
 
-          {/* Loading and Error States */}
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '60px 16px', color: 'var(--text-secondary)' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
-                <span>جاري تحميل الألعاب والمنتجات...</span>
-              </div>
-            </div>
-          ) : error ? (
-            <div style={{ textAlign: 'center', padding: '48px 16px', background: 'var(--bg-primary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
-              <p style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ef4444', marginBottom: 10 }}>{error}</p>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  setLoading(true);
-                  setError(null);
-                  fetchGames(true)
-                    .then(data => {
-                      if (Array.isArray(data)) {
-                        setGames(data);
-                        setError(null);
-                      } else {
-                        setGames([]);
-                        setError('تنسيق استجابة غير صالح من الخادم.');
-                      }
-                      setLoading(false);
-                    })
-                    .catch(err => {
-                      setGames([]);
-                      setError(err?.message || 'تعذر تحميل المنتجات');
-                      setLoading(false);
-                    });
-                }}
-              >
-                إعادة المحاولة
-              </button>
-            </div>
-          ) : isDefaultOverview ? (
-            /* PROFESSIONAL DUAL-SECTION OVERVIEW (When "All" is active without search) */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
-              {/* SECTION 1: Video & Mobile Games */}
-              {onlyGamesList.length > 0 && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '10px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '1.25rem' }}>🎮</span>
-                        <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                          الألعاب الإلكترونية الأكثر طلباً
-                        </h3>
-                        <span style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
-                          تسليم فوري بالـ ID
-                        </span>
-                      </div>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-                        شحن فوري ومباشر لشدات ببجي، جواهر فري فاير، وذهب بلود سترايك
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="games-grid">
-                    {onlyGamesList.map(game => (
-                      <GameCard
-                        key={game.id}
-                        game={game}
-                        onSelect={(g) => setSelectedGameForModal(g)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* SECTION 2: Digital Apps & Subscriptions */}
-              {(onlyDigitalAndAppsList.length > 0 || showUsdtCard || showNumbersCard) && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '10px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '1.25rem' }}>📱</span>
-                        <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
-                          التطبيقات والخدمات الرقمية والاشتراكات
-                        </h3>
-                        <span style={{ fontSize: '0.72rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
-                          تفعيل رسمي معتمد
-                        </span>
-                      </div>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-                        شحن ماسات Likee، نجوم تيليجرام Telegram Stars، واشتراكات بريميوم والأرقام الافتراضية
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="games-grid">
-                    {/* USDT Instant Transfer Card */}
-                    {showUsdtCard && (
-                      <UsdtCard
-                        config={usdtConfig}
-                        onSelect={() => navigateTo('usdt')}
-                      />
-                    )}
-
-                    {/* Virtual Numbers Instant OTP Card */}
-                    {showNumbersCard && (
-                      <VirtualNumberCard
-                        onSelect={() => navigateTo('virtual-numbers')}
-                      />
-                    )}
-
-                    {onlyDigitalAndAppsList.map(game => (
-                      <GameCard
-                        key={game.id}
-                        game={game}
-                        onSelect={(g) => setSelectedGameForModal(g)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (filteredGames.length > 0 || showUsdtCard || showNumbersCard) ? (
-            /* FILTERED / SEARCH VIEW */
-            <div className="games-grid">
-              {/* USDT Instant Transfer Card */}
-              {showUsdtCard && (
-                <UsdtCard
-                  config={usdtConfig}
-                  onSelect={() => navigateTo('usdt')}
-                />
-              )}
-
-              {/* Virtual Numbers Instant OTP Card */}
-              {showNumbersCard && (
-                <VirtualNumberCard
-                  onSelect={() => navigateTo('virtual-numbers')}
-                />
-              )}
-
-              {/* Standard Game and Product Cards */}
-              {filteredGames.map(game => (
-                <GameCard
-                  key={game.id}
-                  game={game}
-                  onSelect={(g) => setSelectedGameForModal(g)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '48px 16px', background: 'var(--bg-primary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
-              <p style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>لم نجد نتائج مطابقة لبحثك</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>جرب البحث عن لعبة أو خدمة أخرى أو اختر قسماً آخر من القائمة أعلاه.</p>
-            </div>
-          )}
+          <p className={styles.heroSubtitle}>اختار الفئة المناسبة ليك</p>
         </div>
       </section>
 
-      {/* How It Works Section */}
-      <HowItWorks />
+      {/* 2. Main Categories Grid Section */}
+      <section id="categories" className={styles.categoriesSection}>
+        <div className={styles.gridContainer}>
+          <div className={styles.categoriesGrid}>
+            {CATEGORY_ITEMS.map((cat) => (
+              <div
+                key={cat.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleNavigate(cat.path)}
+                onKeyDown={(e) => handleKeyDown(e, cat.path)}
+                className={styles.categoryCard}
+                aria-label={`تصفح قسم ${cat.name}`}
+              >
+                {/* 3D Visual Artwork */}
+                <div className={styles.illustrationBox}>
+                  {cat.illustration}
+                </div>
 
-      {/* Featured Deals Section */}
-      <DealsBanner />
+                {/* Bottom Title & Circle Arrow Indicator */}
+                <div className={styles.cardFooter}>
+                  <h2 className={styles.categoryName}>{cat.name}</h2>
+                  <div className={styles.arrowCircle} aria-hidden="true">
+                    <ChevronLeft size={16} strokeWidth={2.5} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
 
-      {/* Lucky Wheel Daily Free Spin Promo Banner */}
-      <WheelPromoBanner />
+          {/* 3. Full-Width Deals Promo Banner */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => handleNavigate('/category/vouchers')}
+            onKeyDown={(e) => handleKeyDown(e, '/category/vouchers')}
+            className={styles.dealsBanner}
+            aria-label="عروض KiroPro - اكتشف أحدث العروض والخصومات على جميع الخدمات"
+          >
+            <div className={styles.dealsContent}>
+              <div className={styles.dealsGiftBox} aria-hidden="true">
+                {/* 3D Gift Box SVG with ribbon and gold sparkle */}
+                <svg viewBox="0 0 54 54" fill="none" style={{ width: '100%', height: '100%' }}>
+                  <rect x="7" y="20" width="40" height="28" rx="6" fill="#F59E0B" />
+                  <rect x="5" y="14" width="44" height="10" rx="3" fill="#D97706" />
+                  {/* Vertical Ribbon */}
+                  <rect x="23" y="14" width="8" height="34" fill="#FFE600" />
+                  {/* Horizontal Ribbon */}
+                  <rect x="7" y="30" width="40" height="7" fill="#FFE600" opacity="0.9" />
+                  {/* Bow */}
+                  <path d="M22 14C17 7 10 9 14 14C18 16 23 15 27 15" stroke="#FFE600" strokeWidth="3" strokeLinecap="round" />
+                  <path d="M32 14C37 7 44 9 40 14C36 16 31 15 27 15" stroke="#FFE600" strokeWidth="3" strokeLinecap="round" />
+                  {/* % Discount badge */}
+                  <circle cx="42" cy="38" r="9" fill="#0B0F19" stroke="#FFE600" strokeWidth="1.5" />
+                  <text x="38" y="42" fill="#FFE600" fontSize="10" fontWeight="900" fontFamily="sans-serif">%</text>
+                </svg>
+              </div>
 
-      {/* Referral & Invite Friends Dynamic Promo Banner */}
-      <ReferralPromoBanner />
+              <div className={styles.dealsText}>
+                <h3 className={styles.dealsTitle}>
+                  <span>عروض</span>
+                  <span className={styles.dealsTitleHighlight}>KiroPro</span>
+                </h3>
+                <p className={styles.dealsSubtitle}>
+                  اكتشف أحدث العروض والخصومات على جميع الخدمات
+                </p>
+              </div>
+            </div>
 
-      {/* Why KIROPRO Section */}
+            <div className={styles.dealsArrow} aria-hidden="true">
+              <ChevronLeft size={20} strokeWidth={2.8} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. Features & Why Us */}
       <WhyUs />
 
-      {/* Verified Customer Reviews Section */}
+      {/* 5. How it works */}
+      <HowItWorks />
+
+      {/* 6. Customer Reviews */}
       <HomeReviewsSection />
-
-      {/* Final Call to Action */}
-      <section className="section" style={{ paddingTop: 0 }}>
-        <div className="container">
-          <div className="cta-banner-card">
-            <div className="cta-content">
-              <span className="badge-tag" style={{ background: 'rgba(255, 230, 0, 0.2)', color: 'var(--accent-yellow)', border: '1px solid var(--accent-yellow)' }}>
-                ابدأ تجربتك الرقمية
-              </span>
-              <h2 style={{ fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 900, lineHeight: 1.2, color: '#FFFFFF' }}>
-                جاهز لتجربة شحن أسرع وأبسط؟
-              </h2>
-              <p style={{ color: '#CBD5E1', fontSize: '1.1rem', lineHeight: 1.7, maxWidth: 580 }}>
-                استخدم رصيد محفظة KIROPRO واشحن ألعابك بضغطة زر واحدة مع تنفيذ مؤتمت عبر مزودي الخدمة.
-              </p>
-              <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-                <a href="#games" className="btn btn-primary">
-                  <span>تصفح جميع الألعاب والبطاقات</span>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick Top-Up Modal */}
-      <QuickTopUpModal
-        game={selectedGameForModal}
-        isOpen={Boolean(selectedGameForModal)}
-        onClose={() => setSelectedGameForModal(null)}
-      />
-    </>
+    </div>
   );
 };
+
+export default HomePage;

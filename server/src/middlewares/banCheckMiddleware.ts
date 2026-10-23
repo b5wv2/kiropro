@@ -10,6 +10,12 @@ import { logSecurityEvent } from '../services/securityEventService';
  */
 export async function banCheckMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // Skip public read-only informational endpoints
+    const publicGetSuffixes = ['/rate', '/settings/public', '/reviews/featured', '/contact-channels'];
+    if (req.method === 'GET' && publicGetSuffixes.some(s => req.path === s || req.path.endsWith(s))) {
+      return next();
+    }
+
     const clientInfo = extractClientInfo(req, res);
     const userId = req.user?.id || null;
 

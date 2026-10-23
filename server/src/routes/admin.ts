@@ -17,6 +17,7 @@ import { maskDeviceId, extractClientIp } from '../services/clientInfoService';
 import { getUserSessions, revokeSession, revokeAllUserSessions } from '../services/sessionService';
 import { createBan, revokeBan, getUserBans, isAccountBanned, expireOverdueBans } from '../services/banService';
 import { querySecurityEvents, logSecurityEvent } from '../services/securityEventService';
+import { invalidateFeaturedReviewsCache } from './reviews';
 
 const router = Router();
 
@@ -1322,12 +1323,23 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralPlatformSettings = {
   autoFulfillOrders: false
 };
 
+let cachedGeneralSettings: { data: GeneralPlatformSettings; expiry: number } | null = null;
+let cachedContactChannels: { data: ContactChannel[]; expiry: number } | null = null;
+
+export function invalidateSettingsCache(): void {
+  cachedGeneralSettings = null;
+  cachedContactChannels = null;
+}
+
 export async function getGeneralSettings(): Promise<GeneralPlatformSettings> {
+  if (cachedGeneralSettings && Date.now() < cachedGeneralSettings.expiry) {
+    return cachedGeneralSettings.data;
+  }
   try {
     const res = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['general_settings']);
     if (res.rows.length > 0 && res.rows[0].value) {
       const val = res.rows[0].value;
-      return {
+      const settings: GeneralPlatformSettings = {
         storeName: val.storeName || DEFAULT_GENERAL_SETTINGS.storeName,
         supportEmail: val.supportEmail || DEFAULT_GENERAL_SETTINGS.supportEmail,
         supportPhone: val.supportPhone || DEFAULT_GENERAL_SETTINGS.supportPhone,
@@ -1336,6 +1348,8 @@ export async function getGeneralSettings(): Promise<GeneralPlatformSettings> {
         maintenanceMode: val.maintenanceMode !== undefined ? Boolean(val.maintenanceMode) : true,
         autoFulfillOrders: Boolean(val.autoFulfillOrders)
       };
+      cachedGeneralSettings = { data: settings, expiry: Date.now() + 30000 };
+      return settings;
     }
   } catch (err: any) {
     console.error('[getGeneralSettings] DB error:', err.message);
@@ -1344,6 +1358,7 @@ export async function getGeneralSettings(): Promise<GeneralPlatformSettings> {
 }
 
 export async function saveGeneralSettings(settings: GeneralPlatformSettings, updatedBy?: string): Promise<void> {
+  invalidateSettingsCache();
   await pool.query(
     `INSERT INTO "platform_settings" (key, value, updated_at, updated_by)
      VALUES ($1, $2, NOW(), $3)
@@ -1428,11 +1443,14 @@ export function sanitizeContactUrl(url: string): string {
 }
 
 export async function getContactChannels(): Promise<ContactChannel[]> {
+  if (cachedContactChannels && Date.now() < cachedContactChannels.expiry) {
+    return cachedContactChannels.data;
+  }
   try {
     const res = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['contact_channels']);
     if (res.rows.length > 0 && Array.isArray(res.rows[0].value)) {
       const stored = res.rows[0].value as ContactChannel[];
-      return DEFAULT_CONTACT_CHANNELS.map(def => {
+      const channels = DEFAULT_CONTACT_CHANNELS.map(def => {
         const found = stored.find(s => s.id === def.id);
         if (found) {
           return {
@@ -1445,6 +1463,8 @@ export async function getContactChannels(): Promise<ContactChannel[]> {
         }
         return def;
       }).sort((a, b) => a.order - b.order);
+      cachedContactChannels = { data: channels, expiry: Date.now() + 30000 };
+      return channels;
     }
   } catch (err: any) {
     console.error('[getContactChannels] DB error:', err.message);
@@ -1453,6 +1473,7 @@ export async function getContactChannels(): Promise<ContactChannel[]> {
 }
 
 export async function saveContactChannels(channels: ContactChannel[], updatedBy?: string): Promise<void> {
+  invalidateSettingsCache();
   await pool.query(
     `INSERT INTO "platform_settings" (key, value, updated_at, updated_by)
      VALUES ($1, $2, NOW(), $3)
@@ -1732,6 +1753,8 @@ router.post('/reviews/:id/approve', requireAdmin, async (req: AuthRequest, res: 
       [uuidv4(), adminId, 'REVIEW_APPROVE', `Approved review ${id}`]
     );
 
+    invalidateFeaturedReviewsCache();
+
     res.json({ message: 'تم اعتماد المراجعة بنجاح وستظهر للعامة.', review: updateRes.rows[0] });
   } catch (err: any) {
     console.error('Error approving review:', err);
@@ -1763,6 +1786,8 @@ router.post('/reviews/:id/reject', requireAdmin, async (req: AuthRequest, res: R
       'INSERT INTO "AuditLog" (id, "adminId", action, reason) VALUES ($1, $2, $3, $4)',
       [uuidv4(), adminId, 'REVIEW_REJECT', `Rejected review ${id}. Reason: ${note}`]
     );
+
+    invalidateFeaturedReviewsCache();
 
     res.json({ message: 'تم رفض المراجعة.', review: updateRes.rows[0] });
   } catch (err: any) {

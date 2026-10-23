@@ -1,27 +1,48 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WalletProvider } from './context/WalletContext';
 import { OverlayProvider } from './context/OverlayContext';
 import { MainLayout } from './layouts/MainLayout';
 import { HomePage } from './pages/Home/HomePage';
-import { LoginPage } from './pages/Auth/LoginPage';
-import { RegisterPage } from './pages/Auth/RegisterPage';
-import { ForgotPasswordPage } from './pages/Auth/ForgotPasswordPage';
-import { AccountPage } from './pages/Account/AccountPage';
-import { ReviewPage } from './pages/Review/ReviewPage';
-import { AllReviewsPage } from './pages/Review/AllReviewsPage';
-import { UsdtTransferPage } from './pages/Crypto/UsdtTransferPage';
-import { LeaderboardPage } from './pages/Leaderboard/LeaderboardPage';
-import { VirtualNumbersPage } from './pages/VirtualNumbers/VirtualNumbersPage';
-import { WheelPage } from './pages/Wheel/WheelPage';
-import { MarketplaceHomePage } from './pages/Marketplace/MarketplaceHomePage';
-import { ListingDetailPage } from './pages/Marketplace/ListingDetailPage';
-import { CreateListingPage } from './pages/Marketplace/CreateListingPage';
-import { MyListingsPage } from './pages/Marketplace/MyListingsPage';
-import { AdminLayout } from './layouts/AdminLayout';
-import { MaintenancePage } from './pages/Maintenance/MaintenancePage';
-import { PartnerApp } from './pages/Partner/PartnerApp';
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary';
+
+const LoginPage = lazy(() => import('./pages/Auth/LoginPage').then(m => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import('./pages/Auth/RegisterPage').then(m => ({ default: m.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/Auth/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
+const AccountPage = lazy(() => import('./pages/Account/AccountPage').then(m => ({ default: m.AccountPage })));
+const ReviewPage = lazy(() => import('./pages/Review/ReviewPage').then(m => ({ default: m.ReviewPage })));
+const AllReviewsPage = lazy(() => import('./pages/Review/AllReviewsPage').then(m => ({ default: m.AllReviewsPage })));
+const UsdtTransferPage = lazy(() => import('./pages/Crypto/UsdtTransferPage').then(m => ({ default: m.UsdtTransferPage })));
+const LeaderboardPage = lazy(() => import('./pages/Leaderboard/LeaderboardPage').then(m => ({ default: m.LeaderboardPage })));
+const VirtualNumbersPage = lazy(() => import('./pages/VirtualNumbers/VirtualNumbersPage').then(m => ({ default: m.VirtualNumbersPage })));
+const WheelPage = lazy(() => import('./pages/Wheel/WheelPage').then(m => ({ default: m.WheelPage })));
+const MarketplaceHomePage = lazy(() => import('./pages/Marketplace/MarketplaceHomePage').then(m => ({ default: m.MarketplaceHomePage })));
+const ListingDetailPage = lazy(() => import('./pages/Marketplace/ListingDetailPage').then(m => ({ default: m.ListingDetailPage })));
+const CreateListingPage = lazy(() => import('./pages/Marketplace/CreateListingPage').then(m => ({ default: m.CreateListingPage })));
+const MyListingsPage = lazy(() => import('./pages/Marketplace/MyListingsPage').then(m => ({ default: m.MyListingsPage })));
+const AdminLayout = lazy(() => import('./layouts/AdminLayout').then(m => ({ default: m.AdminLayout })));
+const CategoryPage = lazy(() => import('./pages/Category/CategoryPage').then(m => ({ default: m.CategoryPage })));
+const MaintenancePage = lazy(() => import('./pages/Maintenance/MaintenancePage').then(m => ({ default: m.MaintenancePage })));
+const PartnerApp = lazy(() => import('./pages/Partner/PartnerApp').then(m => ({ default: m.PartnerApp })));
+
+const RouteFallback: React.FC = () => (
+  <div style={{
+    minHeight: '60vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '40px'
+  }}>
+    <div style={{
+      width: 36,
+      height: 36,
+      borderRadius: '50%',
+      border: '3px solid rgba(245, 158, 11, 0.2)',
+      borderTopColor: '#F59E0B',
+      animation: 'spin 0.8s linear infinite'
+    }} />
+  </div>
+);
 
 const AppContent: React.FC = () => {
   const { currentView, user, maintenanceMode, checkMaintenanceStatus, navigateTo } = useAuth();
@@ -56,6 +77,20 @@ const AppContent: React.FC = () => {
 
   if (maintenanceMode && !isAdmin) {
     return <MaintenancePage onCheckStatus={checkMaintenanceStatus} />;
+  }
+
+  const isCategoryPath = currentPath.startsWith('/category/') || currentPath === '/category';
+  if (isCategoryPath) {
+    const rawCategory = currentPath.replace('/category/', '').replace('/category', '').replace(/\/+$/, '');
+    const categoryId = rawCategory || 'game-topup';
+    return (
+      <MainLayout>
+        <CategoryPage
+          categoryId={categoryId}
+          onNavigateHome={() => navigateToPath('/', 'home')}
+        />
+      </MainLayout>
+    );
   }
 
   const isLeaderboardPath = currentPath === '/leaderboard' || currentView === 'leaderboard';
@@ -492,14 +527,20 @@ const AppRouter: React.FC = () => {
     }
 
     // Otherwise (unauthenticated or PARTNER role): render Partner Portal
-    return <PartnerApp />;
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <PartnerApp />
+      </Suspense>
+    );
   }
 
   return (
     <OverlayProvider>
       <WalletProvider>
         <ErrorBoundary>
-          <AppContent />
+          <Suspense fallback={<RouteFallback />}>
+            <AppContent />
+          </Suspense>
         </ErrorBoundary>
       </WalletProvider>
     </OverlayProvider>

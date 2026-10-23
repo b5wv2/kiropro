@@ -17,6 +17,14 @@ export const VirtualNumberCard: React.FC<VirtualNumberCardProps> = ({
     <article
       className={styles.card}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      tabIndex={0}
+      role="button"
       aria-label="الأرقام الافتراضية — استقبال كود التحقق"
       style={{
         position: 'relative'

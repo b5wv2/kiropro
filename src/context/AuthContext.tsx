@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, LoginCredentials, RegisterData, AuthResult } from '../types/auth';
 import { api, setToken, clearToken, BASE_URL } from '../lib/api';
 
@@ -77,10 +77,25 @@ const getInitialMaintenanceMode = (): boolean => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Synchronously initialize from cache so page renders immediately with 0ms delay on refresh
   const [user, setUser] = useState<User | null>(getInitialCachedUser);
+  const initRanRef = useRef(false);
 
   const setPersistedUser = (newUser: User | null) => {
     const sanitized = sanitizeUser(newUser);
-    setUser(sanitized);
+    setUser(prevUser => {
+      if (!prevUser && !sanitized) return null;
+      if (
+        prevUser && sanitized &&
+        prevUser.id === sanitized.id &&
+        prevUser.balance === sanitized.balance &&
+        prevUser.role === sanitized.role &&
+        prevUser.currency === sanitized.currency &&
+        prevUser.email === sanitized.email &&
+        prevUser.name === sanitized.name
+      ) {
+        return prevUser;
+      }
+      return sanitized;
+    });
     try {
       if (sanitized) {
         localStorage.setItem(CACHED_USER_KEY, JSON.stringify(sanitized));
@@ -133,6 +148,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    if (initRanRef.current) return;
+    initRanRef.current = true;
+
     const initAuth = async () => {
       try {
         if (window.location.pathname === '/forgot-password') {

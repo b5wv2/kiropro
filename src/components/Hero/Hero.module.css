@@ -156,17 +156,25 @@
   flex-shrink: 0;
 }
 
+.trustTextWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
 .trustVal {
   font-size: 0.875rem;
   font-weight: 800;
   color: #0B0F19;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 .trustSub {
   font-size: 0.75rem;
   color: var(--text-muted);
   font-weight: 600;
+  line-height: 1.35;
 }
 
 /* Showcase Card */

@@ -6,6 +6,7 @@ import { Footer } from '../components/Footer/Footer';
 import { DepositModal } from '../components/Modal/DepositModal';
 import { useWallet } from '../context/WalletContext';
 import { FloatingWhatsApp } from '../components/common/FloatingWhatsApp';
+import { MobileBottomNav } from '../components/common/MobileBottomNav';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -56,6 +57,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         </div>
       )}
       <FloatingWhatsApp />
+      <MobileBottomNav />
     </div>
   );
 };

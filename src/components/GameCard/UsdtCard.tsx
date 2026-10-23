@@ -28,6 +28,14 @@ export const UsdtCard: React.FC<UsdtCardProps> = ({ config, onSelect }) => {
     <article
       className={styles.card}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      tabIndex={0}
+      role="button"
       aria-label="تحويل USDT فوري"
       style={{
         border: '1px solid rgba(16, 185, 129, 0.25)',

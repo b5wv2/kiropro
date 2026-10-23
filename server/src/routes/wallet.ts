@@ -4,12 +4,23 @@ import { requireAuth, AuthRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
 
+let cachedExchangeRate: { rate: number; expiry: number } | null = null;
+
+export function invalidateWalletRateCache(): void {
+  cachedExchangeRate = null;
+}
+
 // Public endpoint to get current platform exchange rate
 router.get('/rate', async (_req, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+  if (cachedExchangeRate && Date.now() < cachedExchangeRate.expiry) {
+    return res.json({ exchangeRate: cachedExchangeRate.rate });
+  }
   try {
     const rateSettingRes = await pool.query('SELECT value FROM "platform_settings" WHERE key = $1', ['exchange_rate']);
     const rateConfig = rateSettingRes.rows[0]?.value || { rate: 5000 };
     const exchangeRate = Number(rateConfig.rate) || 5000;
+    cachedExchangeRate = { rate: exchangeRate, expiry: Date.now() + 30000 };
     res.json({ exchangeRate });
   } catch (err) {
     console.error(err);

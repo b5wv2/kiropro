@@ -50,114 +50,50 @@ export const Header: React.FC = () => {
           </div>
         </a>
 
-        {/* Desktop Navigation */}
+        {/* Desktop Navigation - Streamlined & Balanced */}
         <nav className={styles.navLinks} aria-label="التنقل الرئيسي">
-          <a
-            href="/usdt"
-            className={styles.navLink}
-            onClick={(e) => {
-              e.preventDefault();
-              navigateTo('usdt');
-            }}
-            style={{ color: '#F59E0B', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-          >
-            <span>تحويل USDT فوري ⚡</span>
-          </a>
-          <a
-            href="#games"
-            className={styles.navLink}
-            onClick={() => navigateTo('home')}
-          >
-            الألعاب الأكثر طلباً
-          </a>
-          <a
-            href="#how-it-works"
-            className={styles.navLink}
-            onClick={() => navigateTo('home')}
-          >
-            كيف يعمل المتجر
-          </a>
-          <a
-            href="#why-us"
-            className={styles.navLink}
-            onClick={() => navigateTo('home')}
-          >
-            لماذا KIROPRO
-          </a>
-          <a
-            href="#deals"
-            className={styles.navLink}
-            onClick={() => navigateTo('home')}
-          >
-            العروض
-          </a>
           <button
             type="button"
             className={styles.navLink}
-            onClick={() => navigateTo('virtual-numbers')}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              color: 'var(--accent-yellow)',
-              fontWeight: 800,
-              padding: '4px 8px',
-              borderRadius: 6
-            }}
+            onClick={() => navigateTo('home')}
           >
-            <span>الأرقام الافتراضية</span>
-            <span style={{ fontSize: '0.65rem', background: '#F59E0B', color: '#0B0F19', padding: '1px 5px', borderRadius: 4, fontWeight: 900 }}>جديد</span>
+            الرئيسية
           </button>
           <button
             type="button"
             className={styles.navLink}
-            onClick={() => navigateTo('wheel')}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              color: '#FBBF24',
-              fontWeight: 800,
-              padding: '4px 8px',
-              borderRadius: 6
+            onClick={() => {
+              navigateTo('home');
+              setTimeout(() => {
+                const el = document.getElementById('categories');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }, 80);
             }}
           >
-            <span>عجلة الحظ 🎡</span>
-            <span style={{ fontSize: '0.65rem', background: 'rgba(245, 158, 11, 0.2)', color: '#F59E0B', border: '1px solid #F59E0B', padding: '1px 5px', borderRadius: 4, fontWeight: 900 }}>مجاناً</span>
+            الأقسام
+          </button>
+          <button
+            type="button"
+            className={styles.navLink}
+            onClick={() => navigateTo('usdt')}
+            style={{ color: '#D97706', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+          >
+            <span>تحويل USDT ⚡</span>
+          </button>
+          <button
+            type="button"
+            className={styles.navLink}
+            onClick={() => navigateTo('virtual-numbers')}
+          >
+            الأرقام الافتراضية
           </button>
           <button
             type="button"
             className={styles.navLink}
             onClick={() => navigateTo('marketplace')}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              color: '#F59E0B',
-              fontWeight: 800,
-              padding: '4px 8px',
-              borderRadius: 6
-            }}
           >
-            <span>سوق الحسابات 🛒</span>
-            <span style={{ fontSize: '0.65rem', background: '#F59E0B', color: '#0B0F19', padding: '1px 5px', borderRadius: 4, fontWeight: 900 }}>جديد</span>
+            سوق الحسابات
           </button>
-          <a
-            href="#footer"
-            className={styles.navLink}
-            onClick={() => navigateTo('home')}
-          >
-            الدعم
-          </a>
         </nav>
 
         {/* Actions & Account Controls */}

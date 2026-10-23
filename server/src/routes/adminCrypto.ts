@@ -178,6 +178,8 @@ router.patch('/inventory', async (req: AuthRequest, res: Response) => {
   }
 });
 
+import { invalidateWalletRateCache } from './wallet';
+
 /**
  * Admin: Update USDT Exchange Rate
  */
@@ -191,6 +193,7 @@ router.patch('/rate', async (req: AuthRequest, res: Response) => {
 
   try {
     const result = await updateUsdtExchangeRate(Number(rate), adminId);
+    invalidateWalletRateCache();
     return res.json({ success: true, ...result, message: 'تم تحديث سعر صرف USDT بنجاح.' });
   } catch (err: any) {
     console.error('[AdminCrypto] Failed to update rate:', err);
