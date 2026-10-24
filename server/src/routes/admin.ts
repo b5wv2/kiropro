@@ -18,6 +18,7 @@ import { getUserSessions, revokeSession, revokeAllUserSessions } from '../servic
 import { createBan, revokeBan, getUserBans, isAccountBanned, expireOverdueBans } from '../services/banService';
 import { querySecurityEvents, logSecurityEvent } from '../services/securityEventService';
 import { invalidateFeaturedReviewsCache } from './reviews';
+import { developerSupportService } from '../services/developerSupportService';
 
 const router = Router();
 
@@ -2414,6 +2415,42 @@ router.get('/referrals/:userId', requirePermission('PARTNERS_MANAGE'), async (re
   } catch (err: any) {
     console.error('[AdminReferrals] Failed to fetch referrer details:', err.message);
     res.status(500).json({ error: err.message || 'تعذر جلب تفاصيل المدعوين' });
+  }
+});
+
+// ==========================================
+// 19. DONOR MANAGEMENT & MILITARY RANKS
+// ==========================================
+router.get('/donors', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const donors = await developerSupportService.getAdminDonorsList();
+    res.json({ donors });
+  } catch (err: any) {
+    console.error('[AdminDonors] Failed to fetch donors:', err.message);
+    res.status(500).json({ error: err.message || 'تعذر جلب قائمة الداعمين.' });
+  }
+});
+
+router.post('/donors/:userId/reset', requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ error: 'معرف المستخدم مطلوب' });
+    }
+
+    const { action, refund } = req.body;
+    const refundToWallet = action === 'refund_and_reset' || refund === true;
+
+    const result = await developerSupportService.resetDonorSupport(
+      String(userId),
+      refundToWallet,
+      req.user
+    );
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('[AdminDonors] Failed to reset donor:', err.message);
+    res.status(500).json({ error: err.message || 'تعذر تنفيذ تصفير بيانات الداعم.' });
   }
 });
 

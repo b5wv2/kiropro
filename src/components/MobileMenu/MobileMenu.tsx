@@ -110,6 +110,21 @@ export const MobileMenu: React.FC = () => {
           <button
             type="button"
             className={styles.navLink}
+            onClick={() => {
+              closeOverlay();
+              if (typeof window !== 'undefined') {
+                window.history.pushState(null, '', '/developer-support');
+              }
+              navigateTo('developer-support');
+            }}
+            style={{ color: '#F59E0B', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <span>دعم المطورين والرتب 🎖️</span>
+            <span style={{ fontSize: '0.7rem', background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)', color: '#0B0F19', padding: '1px 8px', borderRadius: 4, fontWeight: 900 }}>رتب</span>
+          </button>
+          <button
+            type="button"
+            className={styles.navLink}
             onClick={() => handleNavClick('#games')}
           >
             الألعاب الأكثر طلباً

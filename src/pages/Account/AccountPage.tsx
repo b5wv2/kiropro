@@ -32,6 +32,75 @@ import { fetchMyOrders, fetchOrderById, fetchOrderCredentials, fetchOrderVoucher
 import { fetchMyVirtualNumberOrders, cancelVirtualNumberOrder, VirtualNumberOrder } from '../../services/virtualNumberApi';
 import { Order, WalletTransaction } from '../../types';
 
+interface MilitaryRankInfo {
+  type: 'president' | 'military' | 'civilian';
+  badgeText: string;
+  badgeIcon: string;
+  color?: string;
+  borderColor?: string;
+  bgColor?: string;
+}
+
+const normalizeRankName = (text?: string | null): string => {
+  if (!text) return '';
+  return text.replace(/[\u064B-\u065F\u0670\u0640]/g, '').trim();
+};
+
+const resolveUserRank = (rankName?: string | null, totalDonated?: number): MilitaryRankInfo => {
+  const norm = normalizeRankName(rankName);
+  const amount = Math.max(0, Number(totalDonated) || 0);
+
+  // 1. Head of State (رئيس الدولة)
+  if (norm.includes('رئيس') || norm.includes('الدولة') || amount >= 100000) {
+    return {
+      type: 'president',
+      badgeText: 'صاحب السلطة: رئيس الدولة',
+      badgeIcon: '👑🏛️'
+    };
+  }
+
+  // 2. Military Ranks Table
+  const RANKS: Array<{
+    match: string;
+    cleanName: string;
+    icon: string;
+    color: string;
+    borderColor: string;
+    bgColor: string;
+    minAmount: number;
+  }> = [
+    { match: 'فريق', cleanName: 'فريق أول', icon: '⚔️🦅', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.45)', bgColor: 'rgba(239, 68, 68, 0.08)', minAmount: 75000 },
+    { match: 'عميد', cleanName: 'عميد', icon: '🦅⭐⭐', color: '#8B5CF6', borderColor: 'rgba(139, 92, 246, 0.45)', bgColor: 'rgba(139, 92, 246, 0.08)', minAmount: 50000 },
+    { match: 'عقيد', cleanName: 'عقيد', icon: '🦅⭐', color: '#EC4899', borderColor: 'rgba(236, 72, 153, 0.45)', bgColor: 'rgba(236, 72, 153, 0.08)', minAmount: 30000 },
+    { match: 'رائد', cleanName: 'رائد', icon: '🦅', color: '#3B82F6', borderColor: 'rgba(59, 130, 246, 0.45)', bgColor: 'rgba(59, 130, 246, 0.08)', minAmount: 18000 },
+    { match: 'نقيب', cleanName: 'نقيب', icon: '⭐⭐', color: '#06B6D4', borderColor: 'rgba(6, 182, 212, 0.45)', bgColor: 'rgba(6, 182, 212, 0.08)', minAmount: 10000 },
+    { match: 'ملازم', cleanName: 'ملازم', icon: '⭐', color: '#10B981', borderColor: 'rgba(16, 185, 129, 0.45)', bgColor: 'rgba(16, 185, 129, 0.08)', minAmount: 6000 },
+    { match: 'رقيب', cleanName: 'رقيب', icon: '🔰🔰', color: '#84CC16', borderColor: 'rgba(132, 204, 22, 0.45)', bgColor: 'rgba(132, 204, 22, 0.08)', minAmount: 3000 },
+    { match: 'عريف', cleanName: 'عريف', icon: '🔰', color: '#EAB308', borderColor: 'rgba(234, 179, 8, 0.45)', bgColor: 'rgba(234, 179, 8, 0.08)', minAmount: 1500 },
+    { match: 'جندي', cleanName: 'جندي', icon: '🪖', color: '#64748B', borderColor: 'rgba(100, 116, 139, 0.45)', bgColor: 'rgba(100, 116, 139, 0.08)', minAmount: 500 }
+  ];
+
+  const matched = RANKS.find(r => (norm && norm.includes(r.match)) || (amount > 0 && amount >= r.minAmount));
+
+  if (matched && (amount >= 500 || (norm && norm !== 'مدني'))) {
+    return {
+      type: 'military',
+      badgeText: `الرتبة العسكرية: ${matched.cleanName}`,
+      badgeIcon: matched.icon,
+      color: matched.color,
+      borderColor: matched.borderColor,
+      bgColor: matched.bgColor
+    };
+  }
+
+  // 3. Civilian
+  return {
+    type: 'civilian',
+    badgeText: 'مدني',
+    badgeIcon: '🪖'
+  };
+};
+
 export const AccountPage: React.FC = () => {
   const { user, logout, navigateTo } = useAuth();
   const { 
@@ -43,6 +112,8 @@ export const AccountPage: React.FC = () => {
     topupRequests,
     fetchTopups 
   } = useWallet();
+
+  const rankInfo = resolveUserRank(user?.military_rank, user?.total_donated_amount);
 
   const [activeAccountTab, setActiveAccountTab] = useState<'orders' | 'virtual-numbers' | 'topups' | 'transactions' | 'cashback' | 'reviews'>('orders');
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string | null>(null);
@@ -462,20 +533,128 @@ export const AccountPage: React.FC = () => {
                 width: 56, 
                 height: 56, 
                 borderRadius: '50%', 
-                background: '#0B0F19', 
-                color: 'var(--accent-yellow)', 
+                background: rankInfo.type === 'president' ? 'linear-gradient(135deg, #1E1B4B 0%, #0F172A 100%)' : '#0B0F19', 
+                color: rankInfo.type === 'president' ? '#FDE047' : 'var(--accent-yellow)', 
                 fontSize: '1.4rem', 
                 fontWeight: 900, 
                 display: 'flex', 
                 alignItems: 'center', 
-                justifyContent: 'center' 
+                justifyContent: 'center',
+                boxShadow: rankInfo.type === 'president' ? '0 0 0 2px #F59E0B, 0 0 12px rgba(245, 158, 11, 0.4)' : 'none',
+                flexShrink: 0
               }}>
                 {user.name.charAt(0)}
               </div>
-              <div>
-                <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0B0F19', margin: '0 0 2px 0' }}>
-                  مرحباً، {user.name}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <h1 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0B0F19', margin: 0, lineHeight: 1.25 }}>
+                  مرحباً بك، {user.name}
                 </h1>
+
+                {/* Military Rank Badge */}
+                {rankInfo.type === 'president' && (
+                  <div
+                    onClick={() => {
+                      window.history.pushState(null, '', '/developer-support');
+                      navigateTo('developer-support');
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 12px',
+                      borderRadius: 9999,
+                      background: 'linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%)',
+                      border: '1.5px solid #F59E0B',
+                      boxShadow: '0 0 10px rgba(245, 158, 11, 0.35)',
+                      color: '#FDE047',
+                      fontSize: '0.8rem',
+                      fontWeight: 800,
+                      width: 'fit-content',
+                      cursor: 'pointer'
+                    }}
+                    title="صاحب السلطة العليا - انقر لعرض التفاصيل"
+                  >
+                    <span>🏷️</span>
+                    <span>[ {rankInfo.badgeText} {rankInfo.badgeIcon} ]</span>
+                  </div>
+                )}
+
+                {rankInfo.type === 'military' && (
+                  <div
+                    onClick={() => {
+                      window.history.pushState(null, '', '/developer-support');
+                      navigateTo('developer-support');
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '3px 10px',
+                      borderRadius: 9999,
+                      color: rankInfo.color,
+                      borderColor: rankInfo.borderColor,
+                      backgroundColor: rankInfo.bgColor,
+                      borderWidth: 1,
+                      borderStyle: 'solid',
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
+                      width: 'fit-content',
+                      cursor: 'pointer'
+                    }}
+                    title="رتبة عسكرية رسمية - انقر لعرض التفاصيل"
+                  >
+                    <span>🏷️</span>
+                    <span>[ {rankInfo.badgeText} {rankInfo.badgeIcon} ]</span>
+                  </div>
+                )}
+
+                {rankInfo.type === 'civilian' && (
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, margin: '1px 0' }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2.5px 8px',
+                      borderRadius: 9999,
+                      background: '#F1F5F9',
+                      border: '1px solid #CBD5E1',
+                      color: '#475569',
+                      fontSize: '0.75rem',
+                      fontWeight: 700
+                    }}>
+                      [ {rankInfo.badgeText} {rankInfo.badgeIcon} ]
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.history.pushState(null, '', '/developer-support');
+                        navigateTo('developer-support');
+                      }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        color: '#B45309',
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        padding: '2.5px 10px',
+                        borderRadius: 9999,
+                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                        cursor: 'pointer',
+                        transition: 'all 180ms ease'
+                      }}
+                      title="انقر لترقية رتبتك العسكرية عبر دعم المنصة والمطورين"
+                    >
+                      ارتقِ برتبتك الآن ⚡
+                    </button>
+                  </div>
+                )}
+
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{user.email}</span>
               </div>
             </div>
@@ -1407,7 +1586,7 @@ export const AccountPage: React.FC = () => {
                               <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <span style={{ fontSize: '0.88rem', color: '#facc15', fontWeight: 900 }}>
-                                    بطاقة كيرو برو الافتراضية ($1.00 USD)
+                                    {ord.packageName || 'بطاقة ماستركارد KiroPro'}
                                   </span>
                                   <span style={{ fontSize: '0.68rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid #10b981', padding: '1px 6px', borderRadius: 4, fontWeight: 800 }}>
                                     نشطة ومحمية

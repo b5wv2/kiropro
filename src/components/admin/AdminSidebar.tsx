@@ -21,13 +21,15 @@ import {
   Smartphone,
   Handshake,
   Sparkles,
-  UserCheck
+  UserCheck,
+  Award
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export type AdminTab = 
   | 'dashboard' 
   | 'customers' 
+  | 'donors'
   | 'partners'
   | 'referrals'
   | 'orders' 
@@ -67,6 +69,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const navItems: { id: AdminTab; label: string; icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }> }[] = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
     { id: 'customers', label: 'العملاء', icon: Users },
+    { id: 'donors', label: 'الداعمين والرتب العسكرية 🎖️', icon: Award },
     { id: 'partners', label: 'الشركاء والتجار 🤝', icon: Handshake },
     { id: 'referrals', label: 'متصدرين الإحالات', icon: Trophy },
     { id: 'orders', label: 'الطلبات', icon: ShoppingCart },

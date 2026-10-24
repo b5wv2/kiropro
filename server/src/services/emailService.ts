@@ -236,7 +236,7 @@ async function recordAndSendEmail(params: {
   orderId?: string | null | undefined;
   topupId?: string | null | undefined;
   partnerDepositId?: string | null | undefined;
-  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'ORDER_VOUCHER_DELIVERED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED' | 'PARTNER_WELCOME' | 'PARTNER_DEPOSIT_APPROVED' | 'PARTNER_DEPOSIT_REJECTED';
+  eventType: 'TOPUP_CREATED' | 'TOPUP_APPROVED' | 'TOPUP_REJECTED' | 'ORDER_PROCESSING' | 'ORDER_COMPLETED' | 'ORDER_VOUCHER_DELIVERED' | 'USDT_ORDER_COMPLETED' | 'USDT_ORDER_CANCELED' | 'PARTNER_WELCOME' | 'PARTNER_DEPOSIT_APPROVED' | 'PARTNER_DEPOSIT_REJECTED' | 'SUPPORT_DONATION_COMPLETED' | 'MILITARY_RANK_PROMOTION';
   recipient: string;
   subject: string;
   html: string;
@@ -1568,6 +1568,179 @@ ${instructionsText}
   });
 }
 
+/**
+ * Developer Support: Appreciation Email (Ordinary Donation)
+ */
+export async function sendSupportAppreciationEmail(params: {
+  to: string;
+  userName: string;
+  amount: number;
+  currentRank: string;
+  rankBadge: string;
+  totalDonated: number;
+  remainingToNext?: number;
+  nextRankName?: string;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, userName, amount, currentRank, rankBadge, totalDonated, remainingToNext, nextRankName } = params;
+  const subject = 'شكراً لدعمك المتجر وسيرفراتنا!';
+
+  const remainingSnippet = (remainingToNext && remainingToNext > 0 && nextRankName)
+    ? `
+      <div style="background-color: #FEF3C7; border: 1px dashed #F59E0B; border-radius: 12px; padding: 14px 18px; margin-top: 18px; text-align: center;">
+        <span style="font-size: 14px; color: #92400E; font-weight: 600;">
+          تبقى لك <strong>${formatCurrencyAmount(remainingToNext, 'SDG')}</strong> فقط للترقية إلى رتبة <strong>[${nextRankName}]</strong> القادمة!
+        </span>
+      </div>
+    `
+    : `
+      <div style="background-color: #ECFDF5; border: 1px dashed #10B981; border-radius: 12px; padding: 14px 18px; margin-top: 18px; text-align: center;">
+        <span style="font-size: 14px; color: #065F46; font-weight: 700;">
+          أنت الآن في أعلى الرتب العسكرية للمنصة! شكراً لعطائك الاستثنائي 👑
+        </span>
+      </div>
+    `;
+
+  const contentHtml = `
+    <!-- Header Title -->
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="font-size: 42px; line-height: 1; margin-bottom: 8px;">💖🎖️</div>
+      <h2 style="color: #0F172A; margin: 0 0 6px 0; font-size: 22px; font-weight: 800;">شكراً لدعمك المتجر وسيرفراتنا!</h2>
+      <p style="color: #64748B; margin: 0; font-size: 14px;">مرحباً ${userName}، مساهمتك الكريمة تصنع فارقاً كبيراً في استمرار وتطوير منصتنا.</p>
+    </div>
+
+    <!-- Details Card -->
+    <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 16px; padding: 20px 24px; margin-bottom: 20px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr>
+          <td style="padding: 10px 0; color: #64748B; border-bottom: 1px solid #F1F5F9;">مبلغ الدعم المخصوم:</td>
+          <td style="padding: 10px 0; text-align: left; font-weight: 800; color: #059669; border-bottom: 1px solid #F1F5F9;">
+            ${formatCurrencyAmount(amount, 'SDG')}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; color: #64748B; border-bottom: 1px solid #F1F5F9;">إجمالي مساهماتك التراكمية:</td>
+          <td style="padding: 10px 0; text-align: left; font-weight: 700; color: #0F172A; border-bottom: 1px solid #F1F5F9;">
+            ${formatCurrencyAmount(totalDonated, 'SDG')}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; color: #64748B;">رتبتك الحالية:</td>
+          <td style="padding: 10px 0; text-align: left; font-weight: 800; color: #D97706;">
+            [ ${currentRank} ${rankBadge} ]
+          </td>
+        </tr>
+      </table>
+      ${remainingSnippet}
+    </div>
+
+    <!-- CTA Button -->
+    <div style="text-align: center; margin: 28px 0 12px 0;">
+      ${renderEmailButton('عرض رتبتك ولوحة الشرف', `${FRONTEND_URL}/developer-support`, true)}
+    </div>
+  `;
+
+  const text = `
+KIROPRO - شكراً لدعمك المتجر وسيرفراتنا!
+مرحباً ${userName}،
+تم خصم مبلغ الدعم بنجاح: ${formatCurrencyAmount(amount, 'SDG')}
+إجمالي مساهماتك التراكمية: ${formatCurrencyAmount(totalDonated, 'SDG')}
+رتبتك الحالية: [ ${currentRank} ${rankBadge} ]
+رابط متابعة الرتب: ${FRONTEND_URL}/developer-support
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `شكراً لمساهمتك الكريمة ودعمك للمتجر: ${formatCurrencyAmount(amount, 'SDG')}`);
+
+  return recordAndSendEmail({
+    eventType: 'SUPPORT_DONATION_COMPLETED',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
+/**
+ * Developer Support: Military Promotion Decree Email
+ */
+export async function sendMilitaryPromotionEmail(params: {
+  to: string;
+  userName: string;
+  newRank: string;
+  newBadge: string;
+  newLevel: number;
+  amount: number;
+  totalDonated: number;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { to, userName, newRank, newBadge, newLevel, amount, totalDonated } = params;
+  const subject = `🎖️ مرسوم ترقية: مبارك ترقيتك إلى رتبة [${newRank}]!`;
+
+  const contentHtml = `
+    <!-- Header Emblem -->
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="display: inline-block; background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); padding: 18px 24px; border-radius: 20px; box-shadow: 0 10px 25px rgba(245, 158, 11, 0.4); margin-bottom: 12px;">
+        <span style="font-size: 48px; line-height: 1;">${newBadge}</span>
+      </div>
+      <div style="display: inline-block; background-color: #FEF3C7; color: #B45309; padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 8px;">
+        المستوى العسكري ${newLevel} من 10
+      </div>
+      <h2 style="color: #0F172A; margin: 4px 0 6px 0; font-size: 24px; font-weight: 900;">مرسوم ترقية عسكرية رسمي</h2>
+      <p style="color: #D97706; margin: 0; font-size: 17px; font-weight: 800;">رتبة [ ${newRank} ${newBadge} ]</p>
+    </div>
+
+    <!-- Official Decree Quote Card -->
+    <div style="background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2px solid #FDE68A; border-radius: 16px; padding: 22px 26px; margin-bottom: 24px; text-align: right; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.08);">
+      <p style="color: #78350F; font-size: 16px; line-height: 1.8; margin: 0; font-weight: 600;">
+        <strong>تحية عسكرية يا بطل (${userName})!</strong><br/>
+        تقديراً لمواقفك ودعمك المستمر للمتجر، صدر أمر ترقيتك رسمياً إلى رتبة 
+        <strong style="color: #B45309; font-size: 18px;">[ ${newRank} ${newBadge} ]</strong>.<br/>
+        تم تعليق شارتك العسكرية الجديدة في ملفك الشخصي لتظهر أمام الجميع. شكراً لأنك من أعمدة هذا المجتمع!
+      </p>
+    </div>
+
+    <!-- Financial Ledger Info -->
+    <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 16px; padding: 18px 24px; margin-bottom: 20px;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr>
+          <td style="padding: 8px 0; color: #64748B;">مبلغ الدعم في هذه العملية:</td>
+          <td style="padding: 8px 0; text-align: left; font-weight: 800; color: #0F172A;">
+            ${formatCurrencyAmount(amount, 'SDG')}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748B;">إجمالي مبالغ دعمك التراكمية:</td>
+          <td style="padding: 8px 0; text-align: left; font-weight: 900; color: #B45309;">
+            ${formatCurrencyAmount(totalDonated, 'SDG')}
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- CTA Button -->
+    <div style="text-align: center; margin: 28px 0 12px 0;">
+      ${renderEmailButton('عرض شارتك الجديدة ولوحة الشرف', `${FRONTEND_URL}/developer-support`, true)}
+    </div>
+  `;
+
+  const text = `
+KIROPRO - مرسوم ترقية عسكرية رسمي!
+تحية عسكرية يا بطل (${userName})!
+تقديراً لمواقفك ودعمك المستمر للمتجر، صدر أمر ترقيتك رسمياً إلى رتبة [ ${newRank} ${newBadge} ].
+تم تعليق شارتك العسكرية الجديدة في ملفك الشخصي لتظهر أمام الجميع. شكراً لأنك من أعمدة هذا المجتمع!
+إجمالي مساهماتك: ${formatCurrencyAmount(totalDonated, 'SDG')}
+رابط لوحة الشرف: ${FRONTEND_URL}/developer-support
+  `.trim();
+
+  const html = renderEmailLayout(contentHtml, `🎖️ مرسوم ترقية: مبارك ترقيتك إلى رتبة [${newRank}]!`);
+
+  return recordAndSendEmail({
+    eventType: 'MILITARY_RANK_PROMOTION',
+    recipient: to,
+    subject,
+    html,
+    text
+  });
+}
+
 export default {
   sendVerificationOtpEmail,
   sendPasswordResetOtpEmail,
@@ -1583,12 +1756,15 @@ export default {
   sendPartnerWelcomeEmail,
   sendPartnerDepositApprovedEmail,
   sendPartnerDepositRejectedEmail,
+  sendSupportAppreciationEmail,
+  sendMilitaryPromotionEmail,
   renderEmailBrand,
   renderEmailLayout,
   renderEmailStatusBadge,
   renderEmailButton,
   buildVerificationOtpEmailTemplate
 };
+
 
 
 

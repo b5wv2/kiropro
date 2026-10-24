@@ -6,7 +6,7 @@ import { useWallet } from '../../context/WalletContext';
 import { useOverlay } from '../../context/OverlayContext';
 
 export const Header: React.FC = () => {
-  const { user, isAuthenticated, logout, navigateTo } = useAuth();
+  const { user, isAuthenticated, logout, navigateTo, currentView } = useAuth();
   const { formattedBalance, openDepositModal } = useWallet();
   const { openOverlay } = useOverlay();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -94,6 +94,25 @@ export const Header: React.FC = () => {
           >
             سوق الحسابات
           </button>
+          <button
+            type="button"
+            className={styles.navLink}
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.history.pushState(null, '', '/developer-support');
+              }
+              navigateTo('developer-support');
+            }}
+            style={{
+              color: currentView === 'developer-support' ? '#F59E0B' : '#E2E8F0',
+              fontWeight: 800,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            <span>دعم المطورين 🎖️</span>
+          </button>
         </nav>
 
         {/* Actions & Account Controls */}
@@ -169,6 +188,19 @@ export const Header: React.FC = () => {
                         <path d="M7 15h0M2 9.5h20" />
                       </svg>
                       <span>إدارة الرصيد</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={accountStyles.menuItem}
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        window.history.pushState(null, '', '/developer-support');
+                        navigateTo('developer-support');
+                      }}
+                    >
+                      <span style={{ fontSize: '1rem', lineHeight: 1 }}>🎖️</span>
+                      <span>دعم المطورين والرتب</span>
                     </button>
 
                     <button

@@ -24,6 +24,7 @@ const AdminLayout = lazy(() => import('./layouts/AdminLayout').then(m => ({ defa
 const CategoryPage = lazy(() => import('./pages/Category/CategoryPage').then(m => ({ default: m.CategoryPage })));
 const MaintenancePage = lazy(() => import('./pages/Maintenance/MaintenancePage').then(m => ({ default: m.MaintenancePage })));
 const PartnerApp = lazy(() => import('./pages/Partner/PartnerApp').then(m => ({ default: m.PartnerApp })));
+const DeveloperSupportPage = lazy(() => import('./pages/DeveloperSupport/DeveloperSupportPage').then(m => ({ default: m.DeveloperSupportPage })));
 
 const RouteFallback: React.FC = () => (
   <div style={{
@@ -231,6 +232,21 @@ const AppContent: React.FC = () => {
     return (
       <MainLayout>
         <UsdtTransferPage />
+      </MainLayout>
+    );
+  }
+
+  const isDeveloperSupportPath = (
+    currentPath === '/developer-support' ||
+    currentPath === '/support' ||
+    currentPath === '/support-us' ||
+    currentView === 'developer-support'
+  );
+
+  if (isDeveloperSupportPath) {
+    return (
+      <MainLayout>
+        <DeveloperSupportPage />
       </MainLayout>
     );
   }

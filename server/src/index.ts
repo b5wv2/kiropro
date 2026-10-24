@@ -46,6 +46,7 @@ import marketplaceRoutes from './routes/marketplace';
 import adminMarketplaceRoutes from './routes/adminMarketplace';
 import vouchersRoutes from './routes/vouchers';
 import adminVouchersRoutes from './routes/adminVouchers';
+import developerSupportRoutes from './routes/developerSupport';
 import webhooksRoutes, { handleG2BulkWebhook } from './routes/webhooks';
 import { orderPollingService } from './services/orderPollingService';
 import { virtualNumberPollingService } from './services/virtualNumberPollingService';
@@ -360,6 +361,8 @@ app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/admin/marketplace', adminMarketplaceRoutes);
 app.use('/api/vouchers', vouchersRoutes);
 app.use('/api/admin/vouchers', adminVouchersRoutes);
+app.use('/api/developer-support', banCheckMiddleware, developerSupportRoutes);
+app.use('/api/support', banCheckMiddleware, developerSupportRoutes);
 
 // G2Bulk Webhook endpoints (Public HTTPS, Direct Delivery, Strictly No Redirects)
 const g2bulkWebhookPaths = [

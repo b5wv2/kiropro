@@ -12,6 +12,25 @@ export interface ContactChannel {
   order: number;
 }
 
+export type AppView = 
+  | 'home' 
+  | 'login' 
+  | 'register' 
+  | 'account' 
+  | 'admin' 
+  | 'reviews' 
+  | 'forgot-password' 
+  | 'usdt' 
+  | 'leaderboard' 
+  | 'virtual-numbers' 
+  | 'wheel' 
+  | 'marketplace' 
+  | 'marketplace-pubg' 
+  | 'marketplace-freefire' 
+  | 'marketplace-create' 
+  | 'marketplace-my-ads' 
+  | 'developer-support';
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
@@ -28,8 +47,8 @@ interface AuthContextType {
   quickLogin: () => Promise<AuthResult>;
   checkAdminSession: () => Promise<{ hasValidAdminSession: boolean; email?: string }>;
   logout: () => Promise<void>;
-  currentView: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads';
-  navigateTo: (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads') => void;
+  currentView: AppView;
+  navigateTo: (view: AppView) => void;
   isAccountMenuOpen: boolean;
   setIsAccountMenuOpen: (open: boolean) => void;
 }
@@ -108,7 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(getInitialMaintenanceMode);
   const [contactChannels, setContactChannels] = useState<ContactChannel[]>([]);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState<ContactChannel | null>(null);
-  const [currentView, setCurrentView] = useState<'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads'>('home');
+  const [currentView, setCurrentView] = useState<AppView>('home');
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
   const refreshContactChannels = async () => {
@@ -175,6 +194,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentView('marketplace-freefire');
         } else if (window.location.pathname === '/marketplace') {
           setCurrentView('marketplace');
+        } else if (window.location.pathname === '/developer-support') {
+          setCurrentView('developer-support');
         }
 
         const [authData, settingsData] = await Promise.all([
@@ -225,6 +246,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setCurrentView('marketplace-freefire');
           } else if (window.location.pathname === '/marketplace') {
             setCurrentView('marketplace');
+          } else if (window.location.pathname === '/developer-support') {
+            setCurrentView('developer-support');
           }
         } else {
           setPersistedUser(null);
@@ -240,7 +263,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const navigateTo = (view: 'home' | 'login' | 'register' | 'account' | 'admin' | 'reviews' | 'forgot-password' | 'usdt' | 'leaderboard' | 'virtual-numbers' | 'wheel' | 'marketplace' | 'marketplace-pubg' | 'marketplace-freefire' | 'marketplace-create' | 'marketplace-my-ads') => {
+  const navigateTo = (view: AppView) => {
     // Protected route check
     if ((view === 'account' || view === 'marketplace-create' || view === 'marketplace-my-ads') && !user) {
       setCurrentView('login');

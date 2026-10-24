@@ -23,6 +23,7 @@ import { AdminWheel } from '../pages/Admin/AdminWheel';
 import { AdminKiroProCards } from '../pages/Admin/AdminKiroProCards';
 import { AdminStaff } from '../pages/Admin/AdminStaff';
 import { AdminMarketplace } from '../pages/Admin/AdminMarketplace';
+import { AdminDonors } from '../pages/Admin/AdminDonors';
 
 export const AdminLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -34,6 +35,8 @@ export const AdminLayout: React.FC = () => {
         return <AdminDashboard onNavigateTab={setActiveTab} />;
       case 'customers':
         return <AdminCustomers />;
+      case 'donors':
+        return <AdminDonors />;
       case 'referrals':
         return <AdminReferralLeaderboard />;
       case 'orders':

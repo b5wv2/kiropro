@@ -90,6 +90,133 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  transition: all 200ms ease;
+}
+
+.avatarPresident {
+  box-shadow: 0 0 0 2px #F59E0B, 0 0 12px rgba(245, 158, 11, 0.45);
+  background: linear-gradient(135deg, #1E1B4B 0%, #0F172A 100%) !important;
+  color: #FDE047 !important;
+}
+
+.userInfoCol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.userGreeting {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0B0F19;
+  margin: 0;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.userNameHighlight {
+  color: #0B0F19;
+}
+
+.userEmail {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+/* President Luxury Badge */
+.presidentRankBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #0F172A 100%);
+  border: 1.5px solid #F59E0B;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4), inset 0 1px 1px rgba(254, 240, 138, 0.3);
+  color: #FDE047;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  width: fit-content;
+  cursor: pointer;
+  transition: all 180ms ease;
+  user-select: none;
+}
+
+.presidentRankBadge:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.6);
+}
+
+/* Standard Military Rank Badge */
+.militaryRankBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  width: fit-content;
+  cursor: pointer;
+  transition: all 180ms ease;
+  border-width: 1px;
+  border-style: solid;
+  user-select: none;
+}
+
+.militaryRankBadge:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+
+/* Civilian Badge Row & Link */
+.civilianBadgeRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 1px 0;
+}
+
+.civilianBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.upgradeRankLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #B45309;
+  background: rgba(245, 158, 11, 0.12);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 180ms ease;
+}
+
+.upgradeRankLink:hover {
+  background: #F59E0B;
+  color: #FFFFFF;
+  border-color: #F59E0B;
+  transform: translateY(-1px);
 }
 
 .menuList {

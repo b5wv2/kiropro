@@ -6,12 +6,89 @@ import { useWallet } from '../../context/WalletContext';
 import { useOverlay } from '../../context/OverlayContext';
 import { PromoRedemptionCard } from '../Promo/PromoRedemptionCard';
 
+interface MilitaryRankInfo {
+  type: 'president' | 'military' | 'civilian';
+  badgeText: string;
+  badgeIcon: string;
+  color?: string;
+  borderColor?: string;
+  bgColor?: string;
+}
+
+const normalizeRankName = (text?: string | null): string => {
+  if (!text) return '';
+  return text.replace(/[\u064B-\u065F\u0670\u0640]/g, '').trim();
+};
+
+const resolveUserRank = (rankName?: string | null, totalDonated?: number): MilitaryRankInfo => {
+  const norm = normalizeRankName(rankName);
+  const amount = Math.max(0, Number(totalDonated) || 0);
+
+  // 1. Head of State (رئيس الدولة)
+  if (norm.includes('رئيس') || norm.includes('الدولة') || amount >= 100000) {
+    return {
+      type: 'president',
+      badgeText: 'صاحب السلطة: رئيس الدولة',
+      badgeIcon: '👑🏛️'
+    };
+  }
+
+  // 2. Military Ranks Table
+  const RANKS: Array<{
+    match: string;
+    cleanName: string;
+    icon: string;
+    color: string;
+    borderColor: string;
+    bgColor: string;
+    minAmount: number;
+  }> = [
+    { match: 'فريق', cleanName: 'فريق أول', icon: '⚔️🦅', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.45)', bgColor: 'rgba(239, 68, 68, 0.08)', minAmount: 75000 },
+    { match: 'عميد', cleanName: 'عميد', icon: '🦅⭐⭐', color: '#8B5CF6', borderColor: 'rgba(139, 92, 246, 0.45)', bgColor: 'rgba(139, 92, 246, 0.08)', minAmount: 50000 },
+    { match: 'عقيد', cleanName: 'عقيد', icon: '🦅⭐', color: '#EC4899', borderColor: 'rgba(236, 72, 153, 0.45)', bgColor: 'rgba(236, 72, 153, 0.08)', minAmount: 30000 },
+    { match: 'رائد', cleanName: 'رائد', icon: '🦅', color: '#3B82F6', borderColor: 'rgba(59, 130, 246, 0.45)', bgColor: 'rgba(59, 130, 246, 0.08)', minAmount: 18000 },
+    { match: 'نقيب', cleanName: 'نقيب', icon: '⭐⭐', color: '#06B6D4', borderColor: 'rgba(6, 182, 212, 0.45)', bgColor: 'rgba(6, 182, 212, 0.08)', minAmount: 10000 },
+    { match: 'ملازم', cleanName: 'ملازم', icon: '⭐', color: '#10B981', borderColor: 'rgba(16, 185, 129, 0.45)', bgColor: 'rgba(16, 185, 129, 0.08)', minAmount: 6000 },
+    { match: 'رقيب', cleanName: 'رقيب', icon: '🔰🔰', color: '#84CC16', borderColor: 'rgba(132, 204, 22, 0.45)', bgColor: 'rgba(132, 204, 22, 0.08)', minAmount: 3000 },
+    { match: 'عريف', cleanName: 'عريف', icon: '🔰', color: '#EAB308', borderColor: 'rgba(234, 179, 8, 0.45)', bgColor: 'rgba(234, 179, 8, 0.08)', minAmount: 1500 },
+    { match: 'جندي', cleanName: 'جندي', icon: '🪖', color: '#64748B', borderColor: 'rgba(100, 116, 139, 0.45)', bgColor: 'rgba(100, 116, 139, 0.08)', minAmount: 500 }
+  ];
+
+  const matched = RANKS.find(r => (norm && norm.includes(r.match)) || (amount > 0 && amount >= r.minAmount));
+
+  if (matched && (amount >= 500 || (norm && norm !== 'مدني'))) {
+    return {
+      type: 'military',
+      badgeText: `الرتبة العسكرية: ${matched.cleanName}`,
+      badgeIcon: matched.icon,
+      color: matched.color,
+      borderColor: matched.borderColor,
+      bgColor: matched.bgColor
+    };
+  }
+
+  // 3. Civilian (رصيده التراكمي صفر أو لم يتبرع)
+  return {
+    type: 'civilian',
+    badgeText: 'مدني',
+    badgeIcon: '🪖'
+  };
+};
+
 export const AccountDrawer: React.FC = () => {
   const { user, isAuthenticated, logout, navigateTo } = useAuth();
   const { formattedBalance } = useWallet();
   const { activeOverlay, closeOverlay, openOverlay } = useOverlay();
 
   const isOpen = activeOverlay === 'account';
+
+  const rankInfo = resolveUserRank(user?.military_rank, user?.total_donated_amount);
+
+  const handleGoToSupport = () => {
+    closeOverlay();
+    window.history.pushState(null, '', '/developer-support');
+    navigateTo('developer-support');
+  };
 
   if (!isOpen) return null;
 
@@ -44,10 +121,63 @@ export const AccountDrawer: React.FC = () => {
             {/* Logged in User Card */}
             <div className={styles.userCard}>
               <div className={styles.avatarBox}>
-                <div className={styles.avatar}>{user.name.charAt(0)}</div>
-                <div>
-                  <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#0B0F19' }}>{user.name}</h4>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{user.email}</span>
+                <div className={`${styles.avatar} ${rankInfo.type === 'president' ? styles.avatarPresident : ''}`}>
+                  {user.name ? user.name.charAt(0).toUpperCase() : '👤'}
+                </div>
+                <div className={styles.userInfoCol}>
+                  <h4 className={styles.userGreeting}>
+                    مرحباً بك، <span className={styles.userNameHighlight}>{user.name}</span>
+                  </h4>
+
+                  {/* Military Rank Badge */}
+                  {rankInfo.type === 'president' && (
+                    <div
+                      className={styles.presidentRankBadge}
+                      onClick={handleGoToSupport}
+                      role="button"
+                      tabIndex={0}
+                      title="صاحب السلطة العليا - انقر لعرض سجل وترقيات الرتب العسكرية"
+                    >
+                      <span>🏷️</span>
+                      <span>[ {rankInfo.badgeText} {rankInfo.badgeIcon} ]</span>
+                    </div>
+                  )}
+
+                  {rankInfo.type === 'military' && (
+                    <div
+                      className={styles.militaryRankBadge}
+                      style={{
+                        color: rankInfo.color,
+                        borderColor: rankInfo.borderColor,
+                        backgroundColor: rankInfo.bgColor
+                      }}
+                      onClick={handleGoToSupport}
+                      role="button"
+                      tabIndex={0}
+                      title="رتبة عسكرية رسمية - انقر لعرض سجل وترقيات الرتب العسكرية"
+                    >
+                      <span>🏷️</span>
+                      <span>[ {rankInfo.badgeText} {rankInfo.badgeIcon} ]</span>
+                    </div>
+                  )}
+
+                  {rankInfo.type === 'civilian' && (
+                    <div className={styles.civilianBadgeRow}>
+                      <span className={styles.civilianBadge}>
+                        <span>[ {rankInfo.badgeText} {rankInfo.badgeIcon} ]</span>
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.upgradeRankLink}
+                        onClick={handleGoToSupport}
+                        title="انقر لترقية رتبتك العسكرية عبر دعم المنصة والمطورين"
+                      >
+                        <span>ارتقِ برتبتك الآن ⚡</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <span className={styles.userEmail}>{user.email}</span>
                 </div>
               </div>
 
@@ -119,6 +249,15 @@ export const AccountDrawer: React.FC = () => {
                   <path d="M16 10a4 4 0 0 1-8 0" />
                 </svg>
                 <span>سجل الطلبات والشحنات</span>
+              </button>
+
+              <button
+                className={styles.menuItem}
+                onClick={handleGoToSupport}
+                type="button"
+              >
+                <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🎖️</span>
+                <span>دعم المطورين والرتب العسكرية</span>
               </button>
 
               <button

@@ -374,7 +374,7 @@ router.post('/verify-email', otpVerifyLimiter, async (req: Request, res: Respons
 
     // Fetch user wallet
     const walletRes = await client.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
-    const balance = walletRes.rows[0]?.balance || 0;
+    const balance = Number(walletRes.rows[0]?.balance ?? user.wallet_balance ?? 0);
     const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
 
     await client.query('COMMIT');
@@ -386,7 +386,15 @@ router.post('/verify-email', otpVerifyLimiter, async (req: Request, res: Respons
     res.json({
       success: true,
       message: 'تم تأكيد بريدك الإلكتروني بنجاح!',
-      user: { ...user, balance, currency, preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG' },
+      user: { 
+        ...user, 
+        balance, 
+        wallet_balance: balance,
+        total_donated_amount: Number(user.total_donated_amount || 0),
+        military_rank: user.military_rank || 'مدني',
+        currency, 
+        preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG' 
+      },
       token
     });
   } catch (err: any) {
@@ -633,7 +641,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     }
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
-    const balance = walletRes.rows[0]?.balance || 0;
+    const balance = Number(walletRes.rows[0]?.balance ?? user.wallet_balance ?? 0);
     const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
 
     // 3. Create server-side session
@@ -669,6 +677,9 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       name: user.name, 
       role: user.role, 
       balance,
+      wallet_balance: balance,
+      total_donated_amount: Number(user.total_donated_amount || 0),
+      military_rank: user.military_rank || 'مدني',
       currency,
       preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG',
       emailVerified: !!user.emailVerified,
@@ -844,7 +855,7 @@ router.post('/quick-login', quickLoginLimiter, async (req: Request, res: Respons
     }
 
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
-    const balance = walletRes.rows[0]?.balance || 0;
+    const balance = Number(walletRes.rows[0]?.balance ?? user.wallet_balance ?? 0);
     const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
 
     // Issue refreshed session & token
@@ -878,6 +889,9 @@ router.post('/quick-login', quickLoginLimiter, async (req: Request, res: Respons
       name: user.name,
       role: user.role,
       balance,
+      wallet_balance: balance,
+      total_donated_amount: Number(user.total_donated_amount || 0),
+      military_rank: user.military_rank || 'مدني',
       currency,
       preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG',
       emailVerified: !!user.emailVerified,
@@ -907,13 +921,13 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     let user: any = null;
     try {
       const userRes = await pool.query(
-        'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code", "is_super_admin", "permissions" FROM "User" WHERE id = $1', 
+        'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code", "is_super_admin", "permissions", wallet_balance, total_donated_amount, military_rank FROM "User" WHERE id = $1', 
         [req.user.id]
       );
       user = userRes.rows[0];
     } catch {
       const userRes = await pool.query(
-        'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code" FROM "User" WHERE id = $1', 
+        'SELECT id, email, name, role, "emailVerified", "preferred_currency", "referral_code", wallet_balance, total_donated_amount, military_rank FROM "User" WHERE id = $1', 
         [req.user.id]
       );
       user = userRes.rows[0];
@@ -928,7 +942,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
     }
     
     const walletRes = await pool.query('SELECT balance, currency FROM "Wallet" WHERE "userId" = $1', [user.id]);
-    const balance = walletRes.rows[0]?.balance || 0;
+    const balance = Number(walletRes.rows[0]?.balance ?? user.wallet_balance ?? 0);
     const currency = user.role === 'PARTNER' ? (walletRes.rows[0]?.currency || 'USD') : 'SDG';
     
     res.json({ 
@@ -937,6 +951,7 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
         is_super_admin: Boolean(user.is_super_admin),
         permissions: Array.isArray(user.permissions) ? user.permissions : [],
         balance, 
+        wallet_balance: balance,
         currency, 
         preferred_currency: user.role === 'PARTNER' ? (user.preferred_currency || 'USD') : 'SDG' 
       } 

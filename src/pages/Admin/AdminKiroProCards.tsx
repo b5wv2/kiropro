@@ -647,7 +647,7 @@ export const AdminKiroProCards: React.FC = () => {
           {cardProducts.map((p) => {
             const isVisa = p.cardNetwork === 'VISA';
             const isCanada = p.cardCurrency === 'CAD' || (p as any).regionCode === 'CA';
-            const flag = isCanada ? '🇨🇦' : '🇺🇸';
+            const flag = isCanada ? '🇨🇦' : ((p as any).regionCode === 'GLOBAL' ? '💳' : '🇺🇸');
             const sym = p.cardCurrency === 'CAD' ? 'C$' : '$';
             const isSelected = selectedProductFilter === (p.productId || (p as any).id);
             return (
@@ -799,7 +799,7 @@ export const AdminKiroProCards: React.FC = () => {
           }}
         >
           <KeyRound size={15} />
-          <span>أكواد الإصدار ($2.00) 🎁</span>
+          <span>أكواد الإصدار 🎁</span>
         </button>
 
         <button
@@ -848,7 +848,7 @@ export const AdminKiroProCards: React.FC = () => {
                 <option value="ALL">جميع فئات البطاقات</option>
                 {cardProducts.map((p) => (
                   <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف - Visa غير مدعومة)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
+                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف - Visa غير مدعومة)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : ((p as any).regionCode === 'GLOBAL' ? '💳' : '🇺🇸')} ${p.arabicName || p.productName}`}
                   </option>
                 ))}
               </select>
@@ -952,7 +952,7 @@ export const AdminKiroProCards: React.FC = () => {
                               background: card.cardNetwork === 'VISA' ? '#f1f5f9' : '#fef3c7',
                               color: card.cardNetwork === 'VISA' ? '#64748b' : '#92400e'
                             }}>
-                              {card.cardNetwork === 'VISA' ? '🚫 Visa' : (card.currency === 'CAD' ? '🇨🇦 Mastercard' : '🇺🇸 Mastercard')}
+                              {card.cardNetwork === 'VISA' ? '🚫 Visa' : (card.currency === 'CAD' ? '🇨🇦 Mastercard' : '💳 Mastercard')}
                             </span>
                           </div>
                         </td>
@@ -1325,7 +1325,7 @@ export const AdminKiroProCards: React.FC = () => {
               >
                 {cardProducts.map((p) => (
                   <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
+                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : ((p as any).regionCode === 'GLOBAL' ? '💳' : '🇺🇸')} ${p.arabicName || p.productName}`}
                   </option>
                 ))}
               </select>
@@ -1495,7 +1495,7 @@ export const AdminKiroProCards: React.FC = () => {
             >
               {cardProducts.map((p) => (
                 <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                  {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
+                  {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : ((p as any).regionCode === 'GLOBAL' ? '💳' : '🇺🇸')} ${p.arabicName || p.productName}`}
                 </option>
               ))}
             </select>
@@ -1652,10 +1652,10 @@ export const AdminKiroProCards: React.FC = () => {
           <div className="admin-card" style={{ background: '#ffffff', borderRadius: 14, border: '1px solid var(--border-subtle)', padding: 22, maxWidth: 680 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                توليد أكواد إصدار KiroPro Card (قيمة كل كود: $2.00)
+                توليد أكواد إصدار KiroPro Card
               </h3>
               <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#b45309', padding: '3px 8px', borderRadius: 6, fontWeight: 800 }}>
-                قيمة الكود: $2.00 USD
+                قيمة الكود: ${Number(cardProductPrice || 0.70).toFixed(2)} USD
               </span>
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
@@ -1902,7 +1902,7 @@ export const AdminKiroProCards: React.FC = () => {
               >
                 {cardProducts.map((p) => (
                   <option key={p.productId || (p as any).id} value={p.productId || (p as any).id}>
-                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸'} ${p.arabicName || p.productName}`}
+                    {p.cardNetwork === 'VISA' ? `🚫 ${p.arabicName || p.productName} (موقوف)` : `${p.cardCurrency === 'CAD' ? '🇨🇦' : ((p as any).regionCode === 'GLOBAL' ? '💳' : '🇺🇸')} ${p.arabicName || p.productName}`}
                   </option>
                 ))}
               </select>

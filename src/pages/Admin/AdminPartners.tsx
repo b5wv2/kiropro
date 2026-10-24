@@ -1193,7 +1193,7 @@ export const AdminPartners: React.FC = () => {
                     بطاقة ماستركارد الشركاء (KiroPro Card • Mastercard Virtual)
                   </h3>
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#94A3B8' }}>
-                    تسعير خاص للشركاء من المخزون الموحد (kiropro_cards_inventory) بدون تغيير سعر البيع العام للزبائن ($2.00)
+                    تسعير خاص للشركاء من المخزون الموحد (kiropro_cards_inventory) بدون تغيير سعر البيع العام للزبائن (${(cardSettings?.customerRetailPriceUsd ?? 0.70).toFixed(2)} USD)
                   </p>
                 </div>
               </div>
@@ -1230,7 +1230,7 @@ export const AdminPartners: React.FC = () => {
               <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 10, padding: 14, border: '1px solid rgba(255,255,255,0.1)' }}>
                 <div style={{ fontSize: '0.8rem', color: '#94A3B8', marginBottom: 4 }}>سعر البيع العام للمستخدمين (Customer)</div>
                 <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#F1F5F9' }}>
-                  ${(cardSettings?.customerRetailPriceUsd ?? 2.00).toFixed(2)} USD
+                  ${(cardSettings?.customerRetailPriceUsd ?? 0.70).toFixed(2)} USD
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: 2 }}>سعر التجزئة المعتمد للعميل النهائي</div>
               </div>
@@ -1238,7 +1238,7 @@ export const AdminPartners: React.FC = () => {
               <div style={{ background: 'rgba(245, 158, 11, 0.1)', borderRadius: 10, padding: 14, border: '1px solid rgba(245, 158, 11, 0.3)' }}>
                 <div style={{ fontSize: '0.8rem', color: '#FCD34D', marginBottom: 4 }}>سعر الشريك الافتراضي الحالي</div>
                 <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#F59E0B' }}>
-                  ${(cardSettings?.defaultPartnerPriceUsd ?? 1.13).toFixed(2)} USD
+                  ${(cardSettings?.defaultPartnerPriceUsd ?? 0.70).toFixed(2)} USD
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#FDE68A', marginTop: 2 }}>السعر المخصوم للتاجر/الشريك</div>
               </div>
@@ -1246,10 +1246,10 @@ export const AdminPartners: React.FC = () => {
               <div style={{ background: 'rgba(16, 185, 129, 0.1)', borderRadius: 10, padding: 14, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                 <div style={{ fontSize: '0.8rem', color: '#6EE7B7', marginBottom: 4 }}>هامش ربح الشريك المقدر</div>
                 <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#10B981' }}>
-                  +${((cardSettings?.customerRetailPriceUsd ?? 2.00) - (cardSettings?.defaultPartnerPriceUsd ?? 1.13)).toFixed(2)} USD
+                  +${((cardSettings?.customerRetailPriceUsd ?? 0.70) - (cardSettings?.defaultPartnerPriceUsd ?? 0.70)).toFixed(2)} USD
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#A7F3D0', marginTop: 2 }}>
-                  ربح الشريك عند إعادة البيع بسعر $2.00
+                  ربح الشريك عند إعادة البيع بسعر ${(cardSettings?.customerRetailPriceUsd ?? 0.70).toFixed(2)} USD
                 </div>
               </div>
 

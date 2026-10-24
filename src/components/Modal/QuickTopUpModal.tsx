@@ -330,7 +330,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
     try {
       const res: any = await api.post('/api/kiropro-cards/validate-code', { code: clean });
       if (res && res.valid) {
-        setIssuanceCodeValidInfo({ value: res.value || 2.00, message: res.message });
+        setIssuanceCodeValidInfo({ value: res.value || (selectedPackage?.price ? Number(selectedPackage.price) : 0.70), message: res.message });
         setIssuanceCodeError(null);
       } else {
         setIssuanceCodeValidInfo(null);
@@ -1878,7 +1878,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                       <div className={styles.walletRow} style={{ fontWeight: 800 }}>
                         <span>المبلغ المطلوب للإصدار:</span>
                         <span className={styles.numVal} style={{ color: '#0B0F19', fontSize: '1.05rem', fontWeight: 900 }}>
-                          {formatCurrency(finalPrice, currency)} ($2.00)
+                          {formatCurrency(finalPrice, currency)} (${Number(selectedPackage?.price || 0.70).toFixed(2)} USD)
                         </span>
                       </div>
 
@@ -1918,7 +1918,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                           <span>الرصيد غير كافٍ</span>
                         </div>
                         <p style={{ fontSize: '0.8rem', color: '#7F1D1D' }}>
-                          يلزم توفر $2.00 ({formatCurrency(finalPrice, currency)}) في رصيد محفظتك لإصدار البطاقة.
+                          يلزم توفر ${Number(selectedPackage?.price || 0.70).toFixed(2)} USD ({formatCurrency(finalPrice, currency)}) في رصيد محفظتك لإصدار البطاقة.
                         </p>
                         <button
                           type="button"
@@ -1940,7 +1940,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                         {isProcessing ? (
                           <span>جاري حجز وتشفير البطاقة وتنفيذ الطلب...</span>
                         ) : (
-                          <span>شراء KiroPro Card من الرصيد ($2.00) 💳</span>
+                          <span>شراء {selectedPackage?.arabicName || selectedPackage?.name || 'بطاقة ماستركارد KiroPro'} من الرصيد (${Number(selectedPackage?.price || 0.70).toFixed(2)} USD) 💳</span>
                         )}
                       </button>
                     )}
@@ -1984,7 +1984,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                         }}
                       />
                       <span style={{ fontSize: '0.72rem', color: '#94A3B8', marginTop: 4, display: 'block' }}>
-                        كود الإصدار يعادل قيمة إصدار البطاقة ($2.00) بالكامل دون أي خصم من محفظتك.
+                        كود الإصدار يعادل قيمة إصدار البطاقة (${Number(selectedPackage?.price || 0.70).toFixed(2)} USD) بالكامل دون أي خصم من محفظتك.
                       </span>
                     </div>
 
@@ -2056,7 +2056,7 @@ export const QuickTopUpModal: React.FC<QuickTopUpModalProps> = ({ game, isOpen, 
                       ) : (
                         <>
                           <Sparkles size={16} />
-                          <span>استرداد الكود وإصدار البطاقة ($2.00)</span>
+                          <span>استرداد الكود وإصدار البطاقة (${Number(selectedPackage?.price || 0.70).toFixed(2)} USD)</span>
                         </>
                       )}
                     </button>

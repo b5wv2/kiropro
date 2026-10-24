@@ -4,6 +4,7 @@ export interface User {
   email: string;
   avatar?: string;
   balance: number;
+  wallet_balance?: number;
   currency: string;
   preferred_currency?: 'USD' | 'SDG';
   role: 'CUSTOMER' | 'ADMIN' | 'PARTNER';
@@ -11,6 +12,8 @@ export interface User {
   permissions?: string[];
   emailVerified?: boolean;
   referral_code?: string;
+  military_rank?: string;
+  total_donated_amount?: number;
   createdAt: string;
 }
 

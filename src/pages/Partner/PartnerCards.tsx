@@ -213,8 +213,8 @@ export const PartnerCards: React.FC = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const partnerPrice = cardInfo?.partnerPriceUsd ?? 1.13;
-  const retailPrice = cardInfo?.retailPriceUsd ?? 2.00;
+  const partnerPrice = cardInfo?.partnerPriceUsd ?? 0.70;
+  const retailPrice = cardInfo?.retailPriceUsd ?? 0.70;
   const estimatedProfit = retailPrice - partnerPrice;
   const availableStock = cardInfo?.availableCount ?? 0;
   const currentWalletBalance = Number(wallet?.balance ?? 0);
@@ -283,7 +283,7 @@ export const PartnerCards: React.FC = () => {
             {availableProducts.map((prod) => {
               const isSelected = (cardInfo?.productId || selectedProductId) === prod.productId;
               const isAvailable = (prod.availableCount ?? prod.availableStock ?? 0) > 0;
-              const flag = prod.cardCurrency === 'CAD' ? '🇨🇦' : '🇺🇸';
+              const flag = prod.cardCurrency === 'CAD' ? '🇨🇦' : ((prod as any).regionCode === 'GLOBAL' ? '💳' : '🇺🇸');
               const currSym = prod.cardCurrency === 'CAD' ? 'C$' : '$';
               return (
                 <button

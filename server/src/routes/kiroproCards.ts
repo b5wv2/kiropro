@@ -269,6 +269,14 @@ const handleRedemption = async (req: AuthRequest, res: Response) => {
       }
 
       // 3. Create Official Completed Order for Customer
+      const prodRes = await client.query(
+        `SELECT "arabicName", "productName", "customerPriceUsd" FROM "Product" WHERE id = $1`,
+        [voucher.product_id]
+      );
+      const targetProd = prodRes.rows[0];
+      const effectivePackageName = targetProd?.arabicName || targetProd?.productName || 'بطاقة ماستركارد KiroPro';
+      const effectivePriceUsd = Number(targetProd?.customerPriceUsd || voucher.value || 0.70);
+
       const orderId = uuidv4();
       await client.query(
         `INSERT INTO "Order" (
@@ -279,12 +287,14 @@ const handleRedemption = async (req: AuthRequest, res: Response) => {
           "chargedCurrency", "exchangeRateUsed", "cashbackAmount", "completedAt",
           quantity, "unitPrice", "unitPriceUsd"
         ) 
-        VALUES ($1, $2, 'kiropro-card', $3, 'بطاقة كيرو برو الافتراضية ($1.00)', $4, 0.0, 2.00, 2.00, $5, 'COMPLETED', 'INTERNAL', 'VIRTUAL_CARD', 2.00, 0.0, 2.00, 0.0, 'SDG', 1.0, 0.0, CURRENT_TIMESTAMP, 1, 2.00, 2.00)`,
+        VALUES ($1, $2, 'kiropro-card', $3, $4, $5, 0.0, $6, $6, $7, 'COMPLETED', 'INTERNAL', 'VIRTUAL_CARD', $6, 0.0, $6, 0.0, 'SDG', 1.0, 0.0, CURRENT_TIMESTAMP, 1, $6, $6)`,
         [
           orderId,
           user.id,
           voucher.product_id,
-          `بطاقة كيرو برو (•••• ${card.card_last4})`,
+          effectivePackageName,
+          `${effectivePackageName} (•••• ${card.card_last4})`,
+          effectivePriceUsd,
           `ISSUANCE-CODE:${cleanCode.slice(0, 4)}...`
         ]
       );
