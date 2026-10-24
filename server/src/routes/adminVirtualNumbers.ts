@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import { virtualNumberService } from '../services/virtualNumberService';
 import { fiveSimClient } from '../providers/fiveSim';
 
 const router = Router();
 
-// All routes require ADMIN role
-router.use(requireAdmin);
+// All routes require ADMIN role with VIRTUAL_NUMBERS_MANAGE permission
+router.use(requireAdmin, requirePermission('VIRTUAL_NUMBERS_MANAGE'));
 
 /**
  * 1. Admin: Get Orders List with filters & pagination

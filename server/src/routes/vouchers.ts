@@ -343,7 +343,8 @@ router.post('/purchase', voucherPurchaseLimiter, requireAuth, async (req: AuthRe
       await client.query('BEGIN');
 
       // Accidental rapid double-click protection within 5 seconds for in-flight or completed orders
-      if (!req.body.bypassRapidCheck && !isServerSimulation) {
+      const allowTestBypass = process.env.NODE_ENV === 'test' && Boolean(req.body.bypassRapidCheck);
+      if (!allowTestBypass && !isServerSimulation) {
         const dupCheck = await client.query(
           `SELECT id FROM "Order" 
            WHERE "userId" = $1 AND "packageId" = $2 

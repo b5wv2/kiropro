@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import {
   getAllPrizesAdmin,
   createPrizeAdmin,
@@ -11,8 +11,8 @@ import {
 
 const router = Router();
 
-// Protect all admin wheel routes: Authentication + Admin Role
-router.use(requireAuth, requireAdmin);
+// Protect all admin wheel routes: Authentication + Admin Role + WHEEL_MANAGE Permission
+router.use(requireAuth, requireAdmin, requirePermission('WHEEL_MANAGE'));
 
 /**
  * GET /api/admin/wheel/stats

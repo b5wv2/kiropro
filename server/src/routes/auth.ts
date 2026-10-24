@@ -492,17 +492,22 @@ router.post('/resend-otp', resendOtpLimiter, async (req: Request, res: Response)
 // ==========================================
 // 4. VERIFICATION STATUS
 // ==========================================
-router.get('/verification-status', async (req: Request, res: Response) => {
+router.get('/verification-status', otpVerifyLimiter, async (req: Request, res: Response) => {
   const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
 
-  if (!email) {
-    return res.status(400).json({ error: 'Email query parameter is required' });
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'يرجى إدخال بريد إلكتروني صحيح.' });
   }
 
   try {
     const userRes = await pool.query('SELECT "emailVerified" FROM "User" WHERE email = $1', [email]);
     if (userRes.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      // Prevent user enumeration: uniform response without leaking non-existent user state
+      return res.json({
+        email,
+        verified: false,
+        canResendIn: 0
+      });
     }
 
     const latestOtpRes = await pool.query(
@@ -525,7 +530,7 @@ router.get('/verification-status', async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error('Verification status check error:', err);
-    res.status(500).json({ error: 'Failed to check verification status' });
+    res.status(500).json({ error: 'فشل التحقق من حالة الحساب.' });
   }
 });
 

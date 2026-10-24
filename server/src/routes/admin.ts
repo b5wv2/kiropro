@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import crypto, { randomUUID as uuidv4 } from 'crypto';
 import pool from '../db';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, requireSuperAdmin, AuthRequest } from '../middlewares/authMiddleware';
 import { awardOrderCashback, reverseOrderCashback } from '../services/cashbackService';
 import { grantBonusSpinForOrder } from '../services/wheelService';
 import { 
@@ -73,7 +73,7 @@ router.get('/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // Users
-router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/users', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const usersRes = await pool.query(`
       SELECT 
@@ -97,7 +97,7 @@ router.get('/users', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // Wallet Management: Credit
-router.post('/users/:id/wallet/credit', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/users/:id/wallet/credit', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { amount, currency, reason } = req.body;
   const adminId = req.user?.id;
@@ -231,7 +231,7 @@ router.post('/users/:id/wallet/credit', requireAdmin, async (req: AuthRequest, r
 });
 
 // Wallet Management: Debit
-router.post('/users/:id/wallet/debit', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/users/:id/wallet/debit', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { amount, currency, reason } = req.body;
   const adminId = req.user?.id;
@@ -356,7 +356,7 @@ router.post('/users/:id/wallet/debit', requireAdmin, async (req: AuthRequest, re
 });
 
 // Audit Logs
-router.get('/audit', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/audit', requirePermission('AUDIT_VIEW'), async (req: AuthRequest, res: Response) => {
   try {
     const logsRes = await pool.query(`
       SELECT 
@@ -374,7 +374,7 @@ router.get('/audit', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // Admin Orders: List all orders
-router.get('/orders', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/orders', requirePermission('ORDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const ordersRes = await pool.query(`
       SELECT o.*, u.name as "userName", u.email as "userEmail" 
@@ -390,7 +390,7 @@ router.get('/orders', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // Admin Orders: Manual Order Execution with GamesDrop
-router.post('/orders/:id/manual-execute', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/orders/:id/manual-execute', requirePermission('ORDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const orderId = String(req.params.id);
   const adminId = req.user?.id;
 
@@ -408,7 +408,7 @@ router.post('/orders/:id/manual-execute', requireAdmin, async (req: AuthRequest,
 });
 
 // Admin Orders: Validate Player ID for an existing order using same validation logic
-router.post('/orders/:id/validate-player', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/orders/:id/validate-player', requirePermission('ORDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const orderId = String(req.params.id);
 
   if (!orderId) {
@@ -460,7 +460,7 @@ router.post('/orders/:id/validate-player', requireAdmin, async (req: AuthRequest
 });
 
 // Admin Orders: Update order status
-router.put('/orders/:id/status', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.put('/orders/:id/status', requirePermission('ORDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const orderId = String(req.params.id);
   const { status } = req.body;
   const adminId = req.user?.id;
@@ -604,7 +604,7 @@ router.put('/orders/:id/status', requireAdmin, async (req: AuthRequest, res: Res
 });
 
 // Admin Customers: Detail (profile + wallet + orders + transactions)
-router.get('/customers/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/customers/:id', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const userRes = await pool.query(
@@ -649,7 +649,7 @@ router.get('/customers/:id', requireAdmin, async (req: AuthRequest, res: Respons
 });
 
 // Admin Customers: Update Currency
-router.patch('/customers/:id/currency', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/customers/:id/currency', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { currency } = req.body;
   const adminId = req.user?.id;
@@ -690,7 +690,7 @@ router.patch('/customers/:id/currency', requireAdmin, async (req: AuthRequest, r
 });
 
 // Admin Wallet: All transactions
-router.get('/wallet/transactions', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/wallet/transactions', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const txRes = await pool.query(`
       SELECT t.*, u.name as "userName", u.email as "userEmail"
@@ -707,7 +707,7 @@ router.get('/wallet/transactions', requireAdmin, async (req: AuthRequest, res: R
 });
 
 // Admin Promo Codes: List
-router.get('/promo-codes', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/promo-codes', requirePermission('PROMO_CODES_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const codesRes = await pool.query(`
       SELECT 
@@ -736,7 +736,7 @@ function generateSecurePromoCode(prefix = 'KP'): string {
 }
 
 // Admin Promo Codes: Generate strong random code
-router.get('/promo-codes/generate-code', requireAdmin, (req: Request, res: Response) => {
+router.get('/promo-codes/generate-code', requirePermission('PROMO_CODES_MANAGE'), (req: Request, res: Response) => {
   const prefix = typeof req.query.prefix === 'string' && req.query.prefix.trim()
     ? req.query.prefix.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
     : 'KP';
@@ -744,7 +744,7 @@ router.get('/promo-codes/generate-code', requireAdmin, (req: Request, res: Respo
 });
 
 // Admin Promo Codes: Create
-router.post('/promo-codes', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/promo-codes', requirePermission('PROMO_CODES_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { 
     code, 
     type, 
@@ -859,7 +859,7 @@ router.post('/promo-codes', requireAdmin, async (req: AuthRequest, res: Response
 });
 
 // Admin Promo Codes: Toggle Active
-router.patch('/promo-codes/:id/toggle', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/promo-codes/:id/toggle', requirePermission('PROMO_CODES_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
 
@@ -885,7 +885,7 @@ router.patch('/promo-codes/:id/toggle', requireAdmin, async (req: AuthRequest, r
 });
 
 // Admin Promo Codes: Delete
-router.delete('/promo-codes/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.delete('/promo-codes/:id', requirePermission('PROMO_CODES_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
 
@@ -908,7 +908,7 @@ router.delete('/promo-codes/:id', requireAdmin, async (req: AuthRequest, res: Re
 });
 
 // Admin Promo Codes: Usage History / Redemptions
-router.get('/promo-codes/:id/redemptions', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/promo-codes/:id/redemptions', requirePermission('PROMO_CODES_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   try {
@@ -942,7 +942,7 @@ import { g2BulkClient } from '../providers/g2bulk/client';
 import { g2BulkSyncService } from '../services/g2bulkSyncService';
 
 // Admin Providers: Status & Health (Multi-Provider: GamesDrop & G2Bulk)
-router.get('/providers', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/providers', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     // 1. Fetch connected product counts per provider from product_provider_mappings
     const countsRes = await pool.query(`
@@ -1070,7 +1070,7 @@ router.get('/providers', requireAdmin, async (req: AuthRequest, res: Response) =
 });
 
 // Admin Providers: Update Global Settings (Enable/Disable Orders, Catalog Sync)
-router.patch('/providers/:provider', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/providers/:provider', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const rawProvider = String(req.params.provider || '').trim().toUpperCase();
   const provider = rawProvider === 'GAMESDROP' ? 'GAMESDROP' : rawProvider === 'G2BULK' ? 'G2BULK' : null;
 
@@ -1132,7 +1132,7 @@ router.patch('/providers/:provider', requireAdmin, async (req: AuthRequest, res:
 });
 
 // Admin Providers: GamesDrop Test Connection
-router.post('/providers/gamesdrop/test-connection', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/providers/gamesdrop/test-connection', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const startTime = Date.now();
   try {
     const balanceData = await gamesDropProvider.getBalance();
@@ -1164,7 +1164,7 @@ router.post('/providers/gamesdrop/test-connection', requireAdmin, async (req: Au
 });
 
 // Admin Providers: G2Bulk Test Connection
-router.post('/providers/g2bulk/test-connection', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/providers/g2bulk/test-connection', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const startTime = Date.now();
   try {
     const me = await g2BulkClient.getMe();
@@ -1191,7 +1191,7 @@ router.post('/providers/g2bulk/test-connection', requireAdmin, async (req: AuthR
 });
 
 // Admin Providers: G2Bulk Catalog Sync
-router.post('/providers/g2bulk/sync', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/providers/g2bulk/sync', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const adminId = req.user?.id;
   const startTime = Date.now();
   const { games } = req.body;
@@ -1226,7 +1226,7 @@ router.post('/providers/g2bulk/sync', requireAdmin, async (req: AuthRequest, res
 });
 
 // Admin Providers: G2Bulk Catalog Sync Status
-router.get('/providers/g2bulk/sync-status', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/providers/g2bulk/sync-status', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const stats = await g2BulkSyncService.getSyncStats();
     res.json({
@@ -1251,7 +1251,7 @@ router.get('/providers/g2bulk/sync-status', requireAdmin, async (req: AuthReques
 import { catalogSyncService } from '../services/catalogSyncService';
 
 // Admin: Trigger Manual Catalog Sync [مزامنة الكتالوج الآن]
-router.post('/providers/gamesdrop/sync', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/providers/gamesdrop/sync', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const adminId = req.user?.id;
   const startTime = Date.now();
   try {
@@ -1284,7 +1284,7 @@ router.post('/providers/gamesdrop/sync', requireAdmin, async (req: AuthRequest, 
 });
 
 // Admin: Get Catalog Sync Status
-router.get('/providers/gamesdrop/sync-status', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/providers/gamesdrop/sync-status', requirePermission('PROVIDERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const stats = await catalogSyncService.getSyncStats();
     res.json({
@@ -1482,23 +1482,8 @@ export async function saveContactChannels(channels: ContactChannel[], updatedBy?
   );
 }
 
-// Public: GET /api/contact-channels
-router.get('/contact-channels', async (_req: Request, res: Response) => {
-  try {
-    const all = await getContactChannels();
-    const enabled = all.filter(c => c.enabled);
-    const primaryWhatsapp = all.find(c => c.id === 'whatsapp' && c.enabled) || null;
-    res.json({
-      channels: enabled,
-      primaryWhatsapp
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch contact channels' });
-  }
-});
-
 // Admin: GET /api/admin/contact-channels
-router.get('/contact-channels', requireAdmin, async (_req: AuthRequest, res: Response) => {
+router.get('/contact-channels', requirePermission('SETTINGS_MANAGE'), async (_req: AuthRequest, res: Response) => {
   try {
     const channels = await getContactChannels();
     res.json({ channels });
@@ -1507,7 +1492,7 @@ router.get('/contact-channels', requireAdmin, async (_req: AuthRequest, res: Res
   }
 });
 
-router.get('/admin/contact-channels', requireAdmin, async (_req: AuthRequest, res: Response) => {
+router.get('/admin/contact-channels', requirePermission('SETTINGS_MANAGE'), async (_req: AuthRequest, res: Response) => {
   try {
     const channels = await getContactChannels();
     res.json({ channels });
@@ -1575,10 +1560,10 @@ export const updateContactChannelsHandler = async (req: AuthRequest, res: Respon
   }
 };
 
-router.patch('/contact-channels', requireAdmin, updateContactChannelsHandler);
-router.put('/contact-channels', requireAdmin, updateContactChannelsHandler);
-router.patch('/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
-router.put('/admin/contact-channels', requireAdmin, updateContactChannelsHandler);
+router.patch('/contact-channels', requirePermission('SETTINGS_MANAGE'), updateContactChannelsHandler);
+router.put('/contact-channels', requirePermission('SETTINGS_MANAGE'), updateContactChannelsHandler);
+router.patch('/admin/contact-channels', requirePermission('SETTINGS_MANAGE'), updateContactChannelsHandler);
+router.put('/admin/contact-channels', requirePermission('SETTINGS_MANAGE'), updateContactChannelsHandler);
 
 // Public endpoint for general settings, contact channels & maintenance check
 router.get('/settings/public', async (_req: Request, res: Response) => {
@@ -1610,7 +1595,7 @@ router.get('/settings/public', async (_req: Request, res: Response) => {
 });
 
 // Admin Settings: Get
-router.get('/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/settings', requirePermission('SETTINGS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const settings = await getGeneralSettings();
   res.json({
     settings,
@@ -1624,7 +1609,7 @@ router.get('/settings', requireAdmin, async (req: AuthRequest, res: Response) =>
 });
 
 // Admin Settings: Update
-router.put('/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.put('/settings', requirePermission('SETTINGS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const current = await getGeneralSettings();
   const { storeName, supportEmail, supportPhone, telegramSupport, defaultCurrency, maintenanceMode, autoFulfillOrders } = req.body;
   const adminId = req.user?.id;
@@ -1655,7 +1640,7 @@ router.put('/settings', requireAdmin, async (req: AuthRequest, res: Response) =>
 // ==========================================
 
 // GET /api/admin/reviews - List reviews with filters and counts
-router.get('/reviews', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/reviews', requirePermission('REVIEWS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const { status, search } = req.query;
 
@@ -1731,7 +1716,7 @@ router.get('/reviews', requireAdmin, async (req: AuthRequest, res: Response) => 
 });
 
 // POST /api/admin/reviews/:id/approve - Approve Review
-router.post('/reviews/:id/approve', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/reviews/:id/approve', requirePermission('REVIEWS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
 
@@ -1763,7 +1748,7 @@ router.post('/reviews/:id/approve', requireAdmin, async (req: AuthRequest, res: 
 });
 
 // POST /api/admin/reviews/:id/reject - Reject Review
-router.post('/reviews/:id/reject', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/reviews/:id/reject', requirePermission('REVIEWS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
   const { admin_note, rejection_reason } = req.body;
@@ -1797,7 +1782,7 @@ router.post('/reviews/:id/reject', requireAdmin, async (req: AuthRequest, res: R
 });
 
 // GET /api/admin/review-links - List generated review tokens
-router.get('/review-links', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/review-links', requirePermission('REVIEWS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT 
@@ -1819,7 +1804,7 @@ router.get('/review-links', requireAdmin, async (req: AuthRequest, res: Response
 });
 
 // POST /api/admin/review-links - Generate secure review link (Order-specific or General)
-router.post('/review-links', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/review-links', requirePermission('REVIEWS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const adminId = req.user?.id;
   const { type, orderId, productId, productName, label, maxUses, expiryDays, expiresIn } = req.body;
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
@@ -1927,7 +1912,7 @@ router.post('/review-links', requireAdmin, async (req: AuthRequest, res: Respons
 });
 
 // POST /api/admin/review-links/:id/toggle - Toggle link active status
-router.post('/review-links/:id/toggle', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/review-links/:id/toggle', requirePermission('REVIEWS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
 
@@ -1964,7 +1949,7 @@ router.post('/review-links/:id/toggle', requireAdmin, async (req: AuthRequest, r
 // ====================================================================
 
 // 1. User Security Center: Complete summary & details
-router.get('/users/:id/security', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/users/:id/security', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const id = String(req.params.id);
 
   try {
@@ -2166,7 +2151,7 @@ router.get('/users/:id/security', requireAdmin, async (req: AuthRequest, res: Re
 });
 
 // 2. Revoke a single session
-router.post('/users/:id/sessions/:sessionId/revoke', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/users/:id/sessions/:sessionId/revoke', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const sessionId = String(req.params.sessionId);
   const adminId = req.user?.id;
   const { reason = 'إلغاء الجلسة يدويًا من المشرف' } = req.body;
@@ -2185,7 +2170,7 @@ router.post('/users/:id/sessions/:sessionId/revoke', requireAdmin, async (req: A
 });
 
 // 3. Revoke ALL active sessions for user
-router.post('/users/:id/sessions/revoke-all', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/users/:id/sessions/revoke-all', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const id = String(req.params.id);
   const adminId = req.user?.id;
   const { reason = 'إلغاء جميع الجلسات يدويًا من المشرف' } = req.body;
@@ -2204,7 +2189,7 @@ router.post('/users/:id/sessions/revoke-all', requireAdmin, async (req: AuthRequ
 });
 
 // 4. Create Ban
-router.post('/users/:id/ban', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/users/:id/ban', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const id = String(req.params.id);
   const adminId = req.user?.id;
   const { reason, scope = 'ACCOUNT_IP_DEVICE', durationHours, ip, deviceId } = req.body;
@@ -2255,7 +2240,7 @@ router.post('/users/:id/ban', requireAdmin, async (req: AuthRequest, res: Respon
 });
 
 // 5. Revoke Ban (Unban)
-router.post('/bans/:banId/revoke', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/bans/:banId/revoke', requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const banId = String(req.params.banId);
   const adminId = req.user?.id;
   const { reason = 'فك الحظر من المشرف' } = req.body;
@@ -2283,7 +2268,7 @@ router.post('/bans/:banId/revoke', requireAdmin, async (req: AuthRequest, res: R
 });
 
 // 6. Central Security Audit Log Query
-router.get('/security/events', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/security/events', requirePermission('SECURITY_VIEW'), async (req: AuthRequest, res: Response) => {
   try {
     const {
       userId,
@@ -2319,7 +2304,7 @@ router.get('/security/events', requireAdmin, async (req: AuthRequest, res: Respo
 });
 
 // 7. Security Dashboard High-level Stats
-router.get('/security/stats', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/security/stats', requirePermission('SECURITY_VIEW'), async (req: AuthRequest, res: Response) => {
   try {
     await expireOverdueBans();
 
@@ -2361,7 +2346,7 @@ router.get('/security/stats', requireAdmin, async (req: AuthRequest, res: Respon
 // ====================================================================
 
 // GET /api/admin/referrals/stats
-router.get('/referrals/stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
+router.get('/referrals/stats', requirePermission('PARTNERS_MANAGE'), async (_req: AuthRequest, res: Response) => {
   try {
     const stats = await getAdminReferralStats();
     res.json(stats);
@@ -2372,7 +2357,7 @@ router.get('/referrals/stats', requireAdmin, async (_req: AuthRequest, res: Resp
 });
 
 // GET /api/admin/referrals/leaderboard
-router.get('/referrals/leaderboard', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/referrals/leaderboard', requirePermission('PARTNERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const {
       page,
@@ -2408,7 +2393,7 @@ router.get('/referrals/leaderboard', requireAdmin, async (req: AuthRequest, res:
 });
 
 // GET /api/admin/referrals/:userId or /api/admin/referrals/:userId/referees
-router.get('/referrals/:userId', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/referrals/:userId', requirePermission('PARTNERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const { userId } = req.params;
     const { page, limit, search, isQualified, hasDeposited } = req.query;

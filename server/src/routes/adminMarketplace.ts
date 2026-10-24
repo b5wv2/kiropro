@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import pool from '../db';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import {
   getMarketplaceSettings,
   MarketplaceSettings,
@@ -11,6 +11,9 @@ import {
 } from './marketplace';
 
 const router = Router();
+
+// Require authenticated admin with ACCOUNT_MARKETPLACE_MANAGE permission
+router.use(requireAdmin, requirePermission('ACCOUNT_MARKETPLACE_MANAGE'));
 
 // =========================================================================
 // 1. STATS & OVERVIEW

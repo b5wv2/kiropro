@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
-import { requireAdmin, optionalAuth, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, optionalAuth, AuthRequest } from '../middlewares/authMiddleware';
 import { gamesDropProvider } from '../providers/gamesdrop';
 import { validatePlayerAccount } from '../services/playerValidationService';
 import { mapGamesDropErrorMessage } from '../providers/gamesdrop/mapper';
@@ -46,11 +46,11 @@ const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
   fileFilter: (req, file, cb) => {
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('صيغة الصورة غير مدعومة. يسمح فقط بصيغ JPG, PNG, WEBP, SVG.'));
+      cb(new Error('صيغة الصورة غير مدعومة. يسمح فقط بصيغ JPG, PNG, WEBP.'));
     }
   }
 });
@@ -75,10 +75,6 @@ function isValidImageFileSignature(filePath: string, ext: string): boolean {
     }
     if (cleanExt === '.webp') {
       return buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
-    }
-    if (cleanExt === '.svg') {
-      const sample = fs.readFileSync(filePath, 'utf8').slice(0, 500).toLowerCase();
-      return sample.includes('<svg') && !sample.includes('<script');
     }
     return false;
   } catch {
@@ -858,7 +854,7 @@ router.get('/:id/servers', async (req: Request, res: Response) => {
  * ADMIN: GET /api/products/admin/categories
  * Returns all game categories with counts of active products and category image URLs.
  */
-router.get('/admin/categories', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/categories', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT 
@@ -895,7 +891,7 @@ router.get('/admin/categories', requireAdmin, async (req: AuthRequest, res: Resp
  * ADMIN: PATCH /api/products/admin/categories/:id
  * Updates category metadata, image URL, display order, or active status.
  */
-router.patch('/admin/categories/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/admin/categories/:id', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { name, arabicName, imageUrl, displayOrder, isActive } = req.body;
 
@@ -947,7 +943,7 @@ router.patch('/admin/categories/:id', requireAdmin, async (req: AuthRequest, res
  * ADMIN: POST /api/products/admin/categories/:id/upload-image
  * Uploads and sets category image, applying it instantly to all child products without specific images.
  */
-router.post('/admin/categories/:id/upload-image', requireAdmin, upload.single('image'), async (req: AuthRequest, res: Response) => {
+router.post('/admin/categories/:id/upload-image', requirePermission('PRODUCTS_MANAGE'), upload.single('image'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   if (!req.file) {
     return res.status(400).json({ error: 'لم يتم إرفاق أي صورة.' });
@@ -1010,7 +1006,7 @@ router.post('/admin/categories/:id/upload-image', requireAdmin, upload.single('i
  * ADMIN: DELETE /api/products/admin/categories/:id/image
  * Removes category image (reverts to default placeholder).
  */
-router.delete('/admin/categories/:id/image', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.delete('/admin/categories/:id/image', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const result = await pool.query(`
@@ -1045,7 +1041,7 @@ router.delete('/admin/categories/:id/image', requireAdmin, async (req: AuthReque
  * ADMIN: GET /api/admin/products
  * Lists all imported products with operational state, provider cost, and sale price.
  */
-router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/catalog', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const page = parseInt(req.query.page as string, 10) || 1;
   const limit = parseInt(req.query.limit as string, 10) || 50;
   const search = (req.query.search as string || '').trim();
@@ -1280,7 +1276,7 @@ router.get('/admin/catalog', requireAdmin, async (req: AuthRequest, res: Respons
  * ADMIN: PATCH /api/admin/products/:id
  * Updates operational fields: customer sale price, active status, image, display name, routing, and provider mappings.
  */
-router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/admin/products/:id', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const {
     customerPriceUsd,
@@ -1470,7 +1466,7 @@ router.patch('/admin/products/:id', requireAdmin, async (req: AuthRequest, res: 
 /**
  * ADMIN: POST /api/admin/products/:id/toggle-active
  */
-router.post('/admin/products/:id/toggle-active', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/admin/products/:id/toggle-active', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const result = await pool.query(`
@@ -1499,7 +1495,7 @@ router.post('/admin/products/:id/toggle-active', requireAdmin, async (req: AuthR
  * Updates providerCostUsd and lastProviderSyncAt.
  * CRITICAL RULE: DOES NOT modify customerPriceUsd!
  */
-router.post('/admin/products/sync-prices', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/admin/products/sync-prices', requirePermission('PRODUCTS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { scope = 'ACTIVE_PRODUCTS', productIds } = req.body;
   const adminId = req.user?.id;
   const adminEmail = req.user?.email || 'Admin';
@@ -1587,7 +1583,7 @@ router.post('/admin/products/sync-prices', requireAdmin, async (req: AuthRequest
  * ADMIN: POST /api/admin/products/upload-image
  * Validates and stores product images safely on disk.
  */
-router.post('/admin/products/upload-image', requireAdmin, upload.single('image'), async (req: Request, res: Response) => {
+router.post('/admin/products/upload-image', requirePermission('PRODUCTS_MANAGE'), upload.single('image'), async (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'لم يتم إرفاق أي صورة.' });
   }

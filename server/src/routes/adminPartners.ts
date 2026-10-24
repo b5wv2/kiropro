@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
 import pool from '../db';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import { randomUUID as uuidv4 } from 'crypto';
 import { partnerService, PartnerAccountError } from '../services/partnerService';
 import { partnerLedgerService } from '../services/partnerLedgerService';
@@ -12,6 +12,9 @@ import {
 } from '../services/emailService';
 
 const router = Router();
+
+// Require authenticated admin with PARTNERS_MANAGE permission
+router.use(requireAdmin, requirePermission('PARTNERS_MANAGE'));
 
 const getParam = (val: any): string => (Array.isArray(val) ? val[0] : String(val || ''));
 

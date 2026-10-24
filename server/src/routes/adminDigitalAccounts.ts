@@ -1,10 +1,13 @@
 import { Router, Response } from 'express';
 import pool from '../db';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import { randomUUID as uuidv4 } from 'crypto';
 import { encryptPassword, decryptPassword, isValidEmail } from '../utils/cryptoAccount';
 
 const router = Router();
+
+// Require authenticated admin with PRODUCTS_MANAGE permission for all inventory endpoints
+router.use(requireAdmin, requirePermission('PRODUCTS_MANAGE'));
 
 // ==========================================
 // 1. INVENTORY STATISTICS

@@ -5,7 +5,7 @@ import fs from 'fs';
 import rateLimit from 'express-rate-limit';
 import { randomUUID as uuidv4 } from 'crypto';
 import pool from '../db';
-import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import { sendTopupCreatedEmail, sendTopupApprovedEmail, sendTopupRejectedEmail } from '../services/emailService';
 import { getGeneralSettings } from './admin';
 
@@ -321,8 +321,29 @@ router.get('/topups/:id', requireAuth, async (req: AuthRequest, res: Response) =
 // 2. ADMIN ENDPOINTS (RBAC: requireAdmin)
 // ==========================================
 
+// Helper to validate UUID format
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(val: any): boolean {
+  return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
+// In-memory cache for payment_methods table columns
+let cachedPmCols: Set<string> | null = null;
+async function getPaymentMethodColumns(): Promise<Set<string>> {
+  if (cachedPmCols) return cachedPmCols;
+  try {
+    const res = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'payment_methods'`
+    );
+    cachedPmCols = new Set(res.rows.map(r => r.column_name));
+    return cachedPmCols;
+  } catch {
+    return new Set(['id', 'name', 'type', 'currency', 'account_name', 'account_number', 'bank_name', 'instructions', 'enabled', 'display_order', 'created_at', 'updated_at']);
+  }
+}
+
 // GET /api/admin/payment-methods - List all payment methods
-router.get('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/payment-methods', requirePermission('PAYMENT_METHODS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query('SELECT * FROM "payment_methods" ORDER BY display_order ASC, created_at ASC');
     res.json(result.rows);
@@ -333,90 +354,175 @@ router.get('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res:
 });
 
 // POST /api/admin/payment-methods - Create new payment method
-router.post('/admin/payment-methods', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/admin/payment-methods', requirePermission('PAYMENT_METHODS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { name, type, currency, account_name, account_number, bank_name, phone_number, qr_code_url, instructions, enabled, display_order } = req.body;
 
-  if (!name || !account_name || !account_number || !bank_name) {
-    return res.status(400).json({ error: 'اسم الطريقة، اسم البنك، اسم الحساب، ورقم الحساب حقول مطلوبة.' });
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'اسم طريقة الدفع حقل مطلوب.' });
+  }
+  if (!account_name || typeof account_name !== 'string' || !account_name.trim()) {
+    return res.status(400).json({ error: 'اسم صاحب الحساب حقل مطلوب.' });
+  }
+  if (!account_number || typeof account_number !== 'string' || !account_number.trim()) {
+    return res.status(400).json({ error: 'رقم الحساب أو الآيبان حقل مطلوب.' });
+  }
+  if (!bank_name || typeof bank_name !== 'string' || !bank_name.trim()) {
+    return res.status(400).json({ error: 'اسم البنك أو المزود حقل مطلوب.' });
   }
 
   try {
+    const cols = await getPaymentMethodColumns();
     const newId = uuidv4();
-    const result = await pool.query(
-      `INSERT INTO "payment_methods" 
-        (id, name, type, currency, account_name, account_number, bank_name, phone_number, qr_code_url, instructions, enabled, display_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING *`,
-      [
-        newId,
-        name,
-        type || 'BANK_TRANSFER',
-        currency || 'SDG',
-        account_name,
-        account_number,
-        bank_name,
-        phone_number || null,
-        qr_code_url || null,
-        instructions || null,
-        enabled !== undefined ? enabled : true,
-        display_order || 0
-      ]
-    );
+    const insertCols: string[] = ['id', 'name', 'type', 'currency', 'account_name', 'account_number', 'bank_name'];
+    const insertVals: any[] = [
+      newId,
+      name.trim(),
+      type ? String(type).trim() : 'BANK_TRANSFER',
+      currency ? String(currency).trim().toUpperCase() : 'SDG',
+      account_name.trim(),
+      account_number.trim(),
+      bank_name.trim()
+    ];
+
+    if (cols.has('instructions')) {
+      insertCols.push('instructions');
+      insertVals.push(instructions && String(instructions).trim() ? String(instructions).trim() : null);
+    }
+    if (cols.has('enabled')) {
+      insertCols.push('enabled');
+      insertVals.push(enabled !== undefined ? Boolean(enabled) : true);
+    }
+    if (cols.has('display_order')) {
+      insertCols.push('display_order');
+      const orderNum = parseInt(display_order, 10);
+      insertVals.push(isNaN(orderNum) ? 0 : orderNum);
+    }
+    if (cols.has('phone_number')) {
+      insertCols.push('phone_number');
+      insertVals.push(phone_number && String(phone_number).trim() ? String(phone_number).trim() : null);
+    }
+    if (cols.has('qr_code_url')) {
+      insertCols.push('qr_code_url');
+      insertVals.push(qr_code_url && String(qr_code_url).trim() ? String(qr_code_url).trim() : null);
+    }
+
+    const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(', ');
+    const query = `INSERT INTO "payment_methods" (${insertCols.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders}) RETURNING *`;
+
+    const result = await pool.query(query, insertVals);
 
     await pool.query(
       'INSERT INTO "AuditLog" (id, "adminId", action, reason) VALUES ($1, $2, $3, $4)',
-      [uuidv4(), req.user?.id, 'PAYMENT_METHOD_CREATE', `Created payment method ${name}`]
+      [uuidv4(), req.user?.id, 'PAYMENT_METHOD_CREATE', `Created payment method ${name.trim()}`]
     );
 
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     console.error('Error creating payment method:', err);
-    res.status(500).json({ error: 'Failed to create payment method' });
+    res.status(500).json({ error: 'فشل إنشاء طريقة الدفع. يرجى التحقق من صحة البيانات المدخلة.' });
   }
 });
 
 // PATCH /api/admin/payment-methods/:id - Update payment method
-router.patch('/admin/payment-methods/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/admin/payment-methods/:id', requirePermission('PAYMENT_METHODS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
+
+  if (!id || !isValidUUID(id)) {
+    return res.status(400).json({ error: 'معرّف طريقة الدفع غير صالح.' });
+  }
+
   const { name, type, currency, account_name, account_number, bank_name, phone_number, qr_code_url, instructions, enabled, display_order } = req.body;
 
   try {
     const existing = await pool.query('SELECT * FROM "payment_methods" WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
-      return res.status(404).json({ error: 'طريقة الدفع غير موجودة' });
+      return res.status(404).json({ error: 'طريقة الدفع غير موجودة.' });
     }
 
-    const current = existing.rows[0];
-    const updatedRes = await pool.query(
-      `UPDATE "payment_methods" SET
-        name = COALESCE($1, name),
-        type = COALESCE($2, type),
-        currency = COALESCE($3, currency),
-        account_name = COALESCE($4, account_name),
-        account_number = COALESCE($5, account_number),
-        bank_name = COALESCE($6, bank_name),
-        phone_number = COALESCE($7, phone_number),
-        qr_code_url = COALESCE($8, qr_code_url),
-        instructions = COALESCE($9, instructions),
-        enabled = COALESCE($10, enabled),
-        display_order = COALESCE($11, display_order),
-        updated_at = CURRENT_TIMESTAMP
-       WHERE id = $12 RETURNING *`,
-      [
-        name !== undefined ? name : current.name,
-        type !== undefined ? type : current.type,
-        currency !== undefined ? currency : current.currency,
-        account_name !== undefined ? account_name : current.account_name,
-        account_number !== undefined ? account_number : current.account_number,
-        bank_name !== undefined ? bank_name : current.bank_name,
-        phone_number !== undefined ? phone_number : current.phone_number,
-        qr_code_url !== undefined ? qr_code_url : current.qr_code_url,
-        instructions !== undefined ? instructions : current.instructions,
-        enabled !== undefined ? enabled : current.enabled,
-        display_order !== undefined ? display_order : current.display_order,
-        id
-      ]
-    );
+    const cols = await getPaymentMethodColumns();
+    const updateClauses: string[] = [];
+    const updateVals: any[] = [];
+    let paramIdx = 1;
+
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'اسم طريقة الدفع لا يمكن أن يكون فارغاً.' });
+      }
+      updateClauses.push(`"name" = $${paramIdx++}`);
+      updateVals.push(name.trim());
+    }
+
+    if (type !== undefined) {
+      updateClauses.push(`"type" = $${paramIdx++}`);
+      updateVals.push(type ? String(type).trim() : 'BANK_TRANSFER');
+    }
+
+    if (currency !== undefined) {
+      updateClauses.push(`"currency" = $${paramIdx++}`);
+      updateVals.push(currency ? String(currency).trim().toUpperCase() : 'SDG');
+    }
+
+    if (account_name !== undefined) {
+      if (typeof account_name !== 'string' || !account_name.trim()) {
+        return res.status(400).json({ error: 'اسم صاحب الحساب لا يمكن أن يكون فارغاً.' });
+      }
+      updateClauses.push(`"account_name" = $${paramIdx++}`);
+      updateVals.push(account_name.trim());
+    }
+
+    if (account_number !== undefined) {
+      if (typeof account_number !== 'string' || !account_number.trim()) {
+        return res.status(400).json({ error: 'رقم الحساب أو الآيبان لا يمكن أن يكون فارغاً.' });
+      }
+      updateClauses.push(`"account_number" = $${paramIdx++}`);
+      updateVals.push(account_number.trim());
+    }
+
+    if (bank_name !== undefined) {
+      if (typeof bank_name !== 'string' || !bank_name.trim()) {
+        return res.status(400).json({ error: 'اسم البنك لا يمكن أن يكون فارغاً.' });
+      }
+      updateClauses.push(`"bank_name" = $${paramIdx++}`);
+      updateVals.push(bank_name.trim());
+    }
+
+    if (instructions !== undefined && cols.has('instructions')) {
+      updateClauses.push(`"instructions" = $${paramIdx++}`);
+      updateVals.push(instructions && String(instructions).trim() ? String(instructions).trim() : null);
+    }
+
+    if (enabled !== undefined && cols.has('enabled')) {
+      updateClauses.push(`"enabled" = $${paramIdx++}`);
+      updateVals.push(Boolean(enabled));
+    }
+
+    if (display_order !== undefined && cols.has('display_order')) {
+      const orderNum = parseInt(display_order, 10);
+      updateClauses.push(`"display_order" = $${paramIdx++}`);
+      updateVals.push(isNaN(orderNum) ? 0 : orderNum);
+    }
+
+    if (cols.has('phone_number') && phone_number !== undefined) {
+      updateClauses.push(`"phone_number" = $${paramIdx++}`);
+      updateVals.push(phone_number && String(phone_number).trim() ? String(phone_number).trim() : null);
+    }
+
+    if (cols.has('qr_code_url') && qr_code_url !== undefined) {
+      updateClauses.push(`"qr_code_url" = $${paramIdx++}`);
+      updateVals.push(qr_code_url && String(qr_code_url).trim() ? String(qr_code_url).trim() : null);
+    }
+
+    if (cols.has('updated_at')) {
+      updateClauses.push(`"updated_at" = CURRENT_TIMESTAMP`);
+    }
+
+    if (updateClauses.length === 0) {
+      return res.json(existing.rows[0]);
+    }
+
+    updateVals.push(id);
+    const query = `UPDATE "payment_methods" SET ${updateClauses.join(', ')} WHERE id = $${paramIdx} RETURNING *`;
+    const updatedRes = await pool.query(query, updateVals);
 
     await pool.query(
       'INSERT INTO "AuditLog" (id, "adminId", action, reason) VALUES ($1, $2, $3, $4)',
@@ -426,18 +532,22 @@ router.patch('/admin/payment-methods/:id', requireAdmin, async (req: AuthRequest
     res.json(updatedRes.rows[0]);
   } catch (err: any) {
     console.error('Error updating payment method:', err);
-    res.status(500).json({ error: 'Failed to update payment method' });
+    res.status(500).json({ error: 'فشل تحديث طريقة الدفع. يرجى التحقق من صحة البيانات.' });
   }
 });
 
 // DELETE /api/admin/payment-methods/:id - Delete payment method
-router.delete('/admin/payment-methods/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.delete('/admin/payment-methods/:id', requirePermission('PAYMENT_METHODS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
+
+  if (!id || !isValidUUID(id)) {
+    return res.status(400).json({ error: 'معرّف طريقة الدفع غير صالح.' });
+  }
 
   try {
     const deletedRes = await pool.query('DELETE FROM "payment_methods" WHERE id = $1 RETURNING name', [id]);
     if (deletedRes.rows.length === 0) {
-      return res.status(404).json({ error: 'طريقة الدفع غير موجودة' });
+      return res.status(404).json({ error: 'طريقة الدفع غير موجودة.' });
     }
 
     await pool.query(
@@ -448,12 +558,12 @@ router.delete('/admin/payment-methods/:id', requireAdmin, async (req: AuthReques
     res.json({ message: 'تم حذف طريقة الدفع بنجاح.' });
   } catch (err: any) {
     console.error('Error deleting payment method:', err);
-    res.status(500).json({ error: 'Failed to delete payment method' });
+    res.status(500).json({ error: 'فشل حذف طريقة الدفع.' });
   }
 });
 
 // GET /api/admin/topups - List top-up requests for Admin with customer details
-router.get('/admin/topups', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/topups', requirePermission('TOPUPS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT 
@@ -480,7 +590,7 @@ router.get('/admin/topups', requireAdmin, async (req: AuthRequest, res: Response
 });
 
 // GET /api/admin/topups/:id - Get single top-up request details
-router.get('/admin/topups/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/topups/:id', requirePermission('TOPUPS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT 
@@ -513,7 +623,7 @@ router.get('/admin/topups/:id', requireAdmin, async (req: AuthRequest, res: Resp
 });
 
 // POST /api/admin/topups/:id/approve - Approve Top-up with Row-Lock Transaction & Idempotency
-router.post('/admin/topups/:id/approve', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/admin/topups/:id/approve', requirePermission('TOPUPS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
   const { admin_note } = req.body;
@@ -662,7 +772,7 @@ router.post('/admin/topups/:id/approve', requireAdmin, async (req: AuthRequest, 
 });
 
 // POST /api/admin/topups/:id/reject - Reject Top-up Request
-router.post('/admin/topups/:id/reject', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/admin/topups/:id/reject', requirePermission('TOPUPS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const adminId = req.user?.id;
   const { rejection_reason, admin_note } = req.body;
@@ -761,7 +871,7 @@ router.post('/admin/topups/:id/reject', requireAdmin, async (req: AuthRequest, r
 });
 
 // PATCH /api/admin/settings/exchange-rate - Admin updates exchange rate & limits
-router.patch('/admin/settings/exchange-rate', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/admin/settings/exchange-rate', requirePermission('SETTINGS_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { rate, base_currency, quote_currency, min_topup, max_topup } = req.body;
   const adminId = req.user?.id;
 

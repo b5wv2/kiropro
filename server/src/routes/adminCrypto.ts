@@ -1,6 +1,6 @@
 import { Router, Response, Request } from 'express';
 import pool from '../db';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import {
   getUsdtAdminStats,
   updateUsdtInventory,
@@ -54,11 +54,11 @@ const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
   fileFilter: (_req, file, cb) => {
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('صيغة الصورة غير مدعومة. يسمح فقط بصيغ JPG, PNG, WEBP, SVG.'));
+      cb(new Error('صيغة الصورة غير مدعومة. يسمح فقط بصيغ JPG, PNG, WEBP.'));
     }
   }
 });
@@ -81,18 +81,14 @@ function isValidImageFileSignature(filePath: string, ext: string): boolean {
     if (cleanExt === '.webp') {
       return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
     }
-    if (cleanExt === '.svg') {
-      const sample = fs.readFileSync(filePath, 'utf8').slice(0, 500).toLowerCase();
-      return sample.includes('<svg') && !sample.includes('<script');
-    }
     return false;
   } catch {
     return false;
   }
 }
 
-// All routes in this file require an authenticated admin session
-router.use(requireAdmin);
+// All routes in this file require an authenticated admin session with CRYPTO_MANAGE permission
+router.use(requireAdmin, requirePermission('CRYPTO_MANAGE'));
 
 /**
  * Admin: Upload or replace USDT Product Card Image

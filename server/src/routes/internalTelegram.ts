@@ -12,6 +12,18 @@ const router = Router();
  * Strict Security Middleware for Standalone Telegram Bot API.
  * Uses timing-safe verification or environment secret to authenticate the decoupled bot service.
  */
+import crypto from 'crypto';
+
+function safeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function requireBotSecret(req: Request, res: Response, next: NextFunction) {
   const configuredSecret = process.env.BOT_API_SECRET?.trim();
 
@@ -26,7 +38,7 @@ function requireBotSecret(req: Request, res: Response, next: NextFunction) {
     ''
   ).toString().trim();
 
-  if (!providedSecret || providedSecret !== configuredSecret) {
+  if (!providedSecret || !safeCompare(providedSecret, configuredSecret)) {
     return res.status(401).json({ error: 'غير مصرح للوصول إلى واجهة البوت الداخلية (Invalid Bot Secret).' });
   }
 

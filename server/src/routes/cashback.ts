@@ -1,6 +1,6 @@
 import { Router, Response, Request } from 'express';
 import pool from '../db';
-import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import { randomUUID as uuidv4 } from 'crypto';
 
 const router = Router();
@@ -71,7 +71,7 @@ router.get('/summary', requireAuth, async (req: AuthRequest, res: Response) => {
 // ==========================================
 
 // GET /api/cashback/rules - List all rules with stats
-router.get('/rules', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/rules', requireAdmin, requirePermission('CASHBACK_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT 
@@ -91,7 +91,7 @@ router.get('/rules', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/cashback/rules - Create new rule
-router.post('/rules', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.post('/rules', requireAdmin, requirePermission('CASHBACK_MANAGE'), async (req: AuthRequest, res: Response) => {
   const {
     name,
     percentage,
@@ -163,7 +163,7 @@ router.post('/rules', requireAdmin, async (req: AuthRequest, res: Response) => {
 });
 
 // PUT /api/cashback/rules/:id - Update rule
-router.put('/rules/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.put('/rules/:id', requireAdmin, requirePermission('CASHBACK_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const {
     name,
@@ -226,7 +226,7 @@ router.put('/rules/:id', requireAdmin, async (req: AuthRequest, res: Response) =
 });
 
 // PATCH /api/cashback/rules/:id/toggle - Toggle active status
-router.patch('/rules/:id/toggle', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/rules/:id/toggle', requireAdmin, requirePermission('CASHBACK_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
@@ -244,7 +244,7 @@ router.patch('/rules/:id/toggle', requireAdmin, async (req: AuthRequest, res: Re
 });
 
 // DELETE /api/cashback/rules/:id - Delete rule
-router.delete('/rules/:id', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.delete('/rules/:id', requireAdmin, requirePermission('CASHBACK_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const result = await pool.query('DELETE FROM cashback_rules WHERE id = $1 RETURNING id', [id]);
@@ -259,7 +259,7 @@ router.delete('/rules/:id', requireAdmin, async (req: AuthRequest, res: Response
 });
 
 // GET /api/cashback/rules/:id/redemptions - List redemptions for a rule
-router.get('/rules/:id/redemptions', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/rules/:id/redemptions', requireAdmin, requirePermission('CASHBACK_MANAGE'), async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   try {
     const result = await pool.query(`

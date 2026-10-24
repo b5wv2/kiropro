@@ -164,8 +164,7 @@ const MIME_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml'
+  '.jpeg': 'image/jpeg'
 };
 
 // Auto-restore any missing persistent images from PostgreSQL UploadedAsset table to local disk cache
@@ -198,8 +197,8 @@ if (!isVercelOrServerless) {
 app.get('/uploads/products/:filename', async (req: Request, res: Response) => {
   const filename = Array.isArray(req.params.filename) ? req.params.filename[0] : String(req.params.filename || '');
 
-  // Strict Whitelist Filename Validation (Prevents Path Traversal, Null Bytes, Directory Browsing)
-  if (!filename || !/^[a-zA-Z0-9_-]+\.(webp|png|jpg|jpeg|svg)$/i.test(filename)) {
+  // Strict Whitelist Filename Validation (Prevents Path Traversal, Null Bytes, Directory Browsing, SVG XSS)
+  if (!filename || !/^[a-zA-Z0-9_-]+\.(webp|png|jpg|jpeg)$/i.test(filename)) {
     return res.status(400).json({ error: 'اسم الملف غير صالح.' });
   }
 

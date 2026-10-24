@@ -29,7 +29,7 @@ router.get('/:filename', async (req: Request, res: Response) => {
     // Guard against path traversal attacks
     const filename = path.basename(rawFilename);
 
-    // 1. Extract Token from Cookies, Header, or Query Parameter
+    // 1. Extract Token from Cookies or Authorization Header (Strictly no query parameter)
     let token: string | undefined;
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -38,8 +38,6 @@ router.get('/:filename', async (req: Request, res: Response) => {
       token = req.cookies.token;
     } else if (req.cookies?.admin_token) {
       token = req.cookies.admin_token;
-    } else if (typeof req.query.token === 'string' && req.query.token.trim()) {
-      token = req.query.token.trim();
     }
 
     if (!token) {

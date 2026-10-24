@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import pool from '../db';
 import {
   getReferralSettings,
@@ -90,7 +90,7 @@ router.post('/bind-code', requireAuth, async (req: AuthRequest, res: Response) =
  * GET /api/referral/admin/settings
  * Admin endpoint: retrieves referral settings and overall platform stats
  */
-router.get('/admin/settings', requireAdmin, async (_req: AuthRequest, res: Response) => {
+router.get('/admin/settings', requireAdmin, requirePermission('SETTINGS_MANAGE'), async (_req: AuthRequest, res: Response) => {
   try {
     const settings = await getReferralSettings();
 
@@ -130,7 +130,7 @@ router.get('/admin/settings', requireAdmin, async (_req: AuthRequest, res: Respo
  * PATCH /api/referral/admin/settings
  * Admin endpoint: updates referral program settings (all 10 controls)
  */
-router.patch('/admin/settings', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.patch('/admin/settings', requireAdmin, requirePermission('SETTINGS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const {
       enabled,
@@ -222,7 +222,7 @@ router.get('/my-rank', requireAuth, async (req: AuthRequest, res: Response) => {
  * GET /api/referral/admin/leaderboard/stats
  * Admin endpoint: retrieves dynamic summary stats cards
  */
-router.get('/admin/leaderboard/stats', requireAdmin, async (_req: AuthRequest, res: Response) => {
+router.get('/admin/leaderboard/stats', requireAdmin, requirePermission('CUSTOMERS_MANAGE'), async (_req: AuthRequest, res: Response) => {
   try {
     const stats = await getAdminReferralStats();
     res.json(stats);
@@ -236,7 +236,7 @@ router.get('/admin/leaderboard/stats', requireAdmin, async (_req: AuthRequest, r
  * GET /api/referral/admin/leaderboard
  * Admin endpoint: retrieves full leaderboard with pagination and filters
  */
-router.get('/admin/leaderboard', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/leaderboard', requireAdmin, requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const {
       page,
@@ -275,7 +275,7 @@ router.get('/admin/leaderboard', requireAdmin, async (req: AuthRequest, res: Res
  * GET /api/referral/admin/referrer/:referrerId/referees
  * Admin endpoint: retrieves details of all referees under a specific referrer with fraud risk indicators
  */
-router.get('/admin/referrer/:referrerId/referees', requireAdmin, async (req: AuthRequest, res: Response) => {
+router.get('/admin/referrer/:referrerId/referees', requireAdmin, requirePermission('CUSTOMERS_MANAGE'), async (req: AuthRequest, res: Response) => {
   try {
     const { referrerId } = req.params;
     const { page, limit, search, isQualified, hasDeposited } = req.query;

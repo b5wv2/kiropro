@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
 import pool from '../db';
-import { requireAdmin, AuthRequest } from '../middlewares/authMiddleware';
+import { requireAdmin, requirePermission, AuthRequest } from '../middlewares/authMiddleware';
 import { randomUUID as uuidv4 } from 'crypto';
 import crypto from 'crypto';
 import {
@@ -20,6 +20,9 @@ import {
 } from '../utils/cryptoCard';
 
 const router = Router();
+
+// Require authenticated admin with KIROPRO_CARDS_MANAGE permission for all card management endpoints
+router.use(requireAdmin, requirePermission('KIROPRO_CARDS_MANAGE'));
 
 const upload = multer({
   storage: multer.memoryStorage(),
